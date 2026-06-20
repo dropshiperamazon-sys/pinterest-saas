@@ -41,6 +41,8 @@ export const PINTEREST_CATEGORIES = [
     subcategories: [
       "Diet and Nutrition",
       "Lifestyle",
+      "Medical",
+      "Weight Loss",
     ],
   },
   {
