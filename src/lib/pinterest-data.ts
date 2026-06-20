@@ -184,6 +184,41 @@ export const PINTEREST_CATEGORIES = [
       "DIY Beauty",
     ],
   },
+  {
+    id: "beauty",
+    name: "Beauty",
+    icon: "💄",
+    subcategories: [
+      "Hair",
+      "Skin Care",
+      "Bath and Body Care",
+      "Nails",
+      "Makeup",
+      "Fragrance",
+    ],
+  },
+  {
+    id: "children-fashion",
+    name: "Children Fashion",
+    icon: "👦",
+    subcategories: [
+      "Teen Clothing",
+      "Children Clothing",
+      "Baby Clothing",
+    ],
+  },
+  {
+    id: "mens-fashion",
+    name: "Men's Fashion",
+    icon: "👔",
+    subcategories: [
+      "Men's Shirts and Top",
+      "Men's Style",
+      "Men's Outfit by Occasions",
+      "Men's Shoes",
+      "Men's Accessories",
+    ],
+  },
 ];
 
 export const MOCK_KEYWORDS: Record<string, KeywordResult[]> = {
