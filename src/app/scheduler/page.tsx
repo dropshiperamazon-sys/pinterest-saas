@@ -5,11 +5,26 @@ import { MOCK_SCHEDULED_PINS } from "@/lib/pinterest-data";
 import { cn } from "@/lib/utils";
 import {
   Plus, Calendar, Clock, Link2, Image as ImageIcon,
-  CheckCircle2, AlertCircle, Trash2, Edit2, X, ExternalLink,
+  CheckCircle2, Trash2, Edit2, X, ExternalLink,
+  Sparkles, Zap, Tag, ChevronDown, ChevronUp,
+  Copy, AlertCircle, LayoutGrid,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 
-interface Pin {
+interface PinDraft {
+  id: string;
+  title: string;
+  description: string;
+  board: string;
+  link: string;
+  date: string;
+  time: string;
+  status: "draft" | "scheduled" | "published";
+  imageUrl: string;
+  pinType: "promotional" | "inspirational" | "";
+}
+
+interface ScheduledPin {
   id: string;
   title: string;
   board: string;
@@ -20,51 +35,540 @@ interface Pin {
   link?: string;
 }
 
-const BOARDS = ["Home Decor", "Food & Recipes", "Fitness", "Interior Design", "DIY & Crafts", "Fashion", "Travel", "Weddings"];
+const BOARDS = [
+  "Home Decor", "Food & Recipes", "Fitness", "Interior Design",
+  "DIY & Crafts", "Fashion", "Travel", "Weddings", "Beauty",
+  "Gardening", "Lifestyle", "Business Tips",
+];
+
 const BEST_TIMES = ["8:00 AM", "12:00 PM", "2:00 PM", "5:00 PM", "8:00 PM", "9:00 PM"];
 
-export default function SchedulerPage() {
-  const [pins, setPins] = useState<Pin[]>(MOCK_SCHEDULED_PINS);
-  const [showModal, setShowModal] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
+// ── AI Generation ──────────────────────────────────────────────────────────────
 
-  const [form, setForm] = useState({
+function generateAiContent(keywords: string, pinType: "promotional" | "inspirational"): { title: string; description: string } {
+  const kws = keywords.split(",").map((k) => k.trim()).filter(Boolean);
+  const primary = kws[0] || "your topic";
+  const secondary = kws[1] || "";
+  const year = new Date().getFullYear();
+
+  if (pinType === "promotional") {
+    const promoTitles = [
+      `Shop Our Best ${primary.charAt(0).toUpperCase() + primary.slice(1)} Collection — Limited Time!`,
+      `${primary.charAt(0).toUpperCase() + primary.slice(1)} Deals You Can't Miss This Season`,
+      `Upgrade Your ${primary} Today — Top Picks ${year}`,
+      `Get the Best ${primary} for Less — Shop Now`,
+      `${primary.charAt(0).toUpperCase() + primary.slice(1)} Essentials You Need Right Now`,
+    ];
+    const promoDescs = [
+      `Discover our handpicked selection of ${primary}${secondary ? ` and ${secondary}` : ""}. Loved by thousands of happy customers. Limited stock available — grab yours before it sells out! Click to shop now and save big.`,
+      `Looking for the best ${primary}? We've got you covered. ${secondary ? `From ${secondary} to` : "From starter picks to"} premium options — shop our curated collection now. Free shipping on orders over $50. Don't miss out!`,
+      `Transform your everyday routine with our top-rated ${primary}. ${secondary ? `Pairs perfectly with ${secondary}.` : ""} Shop the collection that everyone is talking about. Use code PINTEREST10 for 10% off!`,
+    ];
+    return {
+      title: promoTitles[Math.floor(Math.random() * promoTitles.length)],
+      description: promoDescs[Math.floor(Math.random() * promoDescs.length)],
+    };
+  } else {
+    const insprTitles = [
+      `${kws.map((k) => k.charAt(0).toUpperCase() + k.slice(1)).join(" + ")} Ideas That Will Inspire You`,
+      `Beautiful ${primary.charAt(0).toUpperCase() + primary.slice(1)} Inspiration for ${year}`,
+      `The Ultimate ${primary.charAt(0).toUpperCase() + primary.slice(1)} Guide — Ideas & Tips`,
+      `${primary.charAt(0).toUpperCase() + primary.slice(1)} Aesthetic That Will Transform Your Life`,
+      `Creative ${primary.charAt(0).toUpperCase() + primary.slice(1)} Ideas You Haven't Seen Before`,
+    ];
+    const insprDescs = [
+      `Feeling uninspired? These stunning ${primary} ideas will spark your creativity and help you reimagine what's possible. Save this pin for later and share with someone who needs a little inspiration today! ✨${secondary ? `\n\n#${secondary.replace(/\s+/g, "")} ` : ""}#${primary.replace(/\s+/g, "")} #inspiration #${year}`,
+      `There's something magical about great ${primary}${secondary ? ` paired with ${secondary}` : ""}. We curated the most beautiful examples to help you find your perfect aesthetic. Which one speaks to you? Drop a comment below! 💕\n\n#${primary.replace(/\s+/g, "")} #aesthetic #inspo`,
+      `Your dream ${primary} starts here. From beginner tips to advanced ideas, this guide covers everything you need to know. Bookmark this pin — you'll come back to it again and again. 🌟\n\n#${primary.replace(/\s+/g, "")} #howto #tips`,
+    ];
+    return {
+      title: insprTitles[Math.floor(Math.random() * insprTitles.length)],
+      description: insprDescs[Math.floor(Math.random() * insprDescs.length)],
+    };
+  }
+}
+
+function newDraft(): PinDraft {
+  return {
+    id: `draft_${Date.now()}_${Math.random().toString(36).slice(2)}`,
     title: "",
     description: "",
     board: BOARDS[0],
     link: "",
     date: "",
     time: "",
-  });
+    status: "draft",
+    imageUrl: "📌",
+    pinType: "",
+  };
+}
 
-  const handleSchedule = () => {
-    if (!form.title || !form.date || !form.time) return;
-    const newPin: Pin = {
-      id: Date.now().toString(),
-      title: form.title,
-      board: form.board,
-      scheduledAt: `${form.date}T${form.time}:00`,
-      status: "scheduled",
-      imageUrl: "📌",
-      description: form.description,
-      link: form.link,
-    };
-    setPins((p) => [newPin, ...p]);
-    setShowModal(false);
-    setForm({ title: "", description: "", board: BOARDS[0], link: "", date: "", time: "" });
+// ── AI Modal ───────────────────────────────────────────────────────────────────
+
+function AiModal({
+  onApply,
+  onClose,
+}: {
+  onApply: (title: string, description: string, pinType: "promotional" | "inspirational") => void;
+  onClose: () => void;
+}) {
+  const [keywords, setKeywords] = useState("");
+  const [pinType, setPinType] = useState<"promotional" | "inspirational" | "">("");
+  const [generated, setGenerated] = useState<{ title: string; description: string } | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleGenerate = () => {
+    if (!keywords.trim()) { setError("Please enter at least one keyword."); return; }
+    if (!pinType) { setError("Please select a pin type."); return; }
+    setError("");
+    setGenerating(true);
+    setTimeout(() => {
+      setGenerated(generateAiContent(keywords, pinType as "promotional" | "inspirational"));
+      setGenerating(false);
+    }, 1200);
   };
 
-  const deletePin = (id: string) => setPins((p) => p.filter((pin) => pin.id !== id));
+  const handleRegenerate = () => {
+    setGenerating(true);
+    setTimeout(() => {
+      setGenerated(generateAiContent(keywords, pinType as "promotional" | "inspirational"));
+      setGenerating(false);
+    }, 900);
+  };
 
-  const filteredPins = pins.filter((p) => activeTab === "upcoming" ? p.status === "scheduled" : p.status === "published");
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <div className="font-semibold text-gray-900">AI Pin Generator</div>
+              <div className="text-xs text-gray-400">Generate title & description with AI</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Step 1: Pin Type */}
+          <div>
+            <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block mb-2">
+              Step 1 — Pin Type
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                {
+                  key: "promotional",
+                  label: "🛍️ Promotional",
+                  desc: "Sell products, drive traffic, promote offers",
+                  color: "border-orange-300 bg-orange-50",
+                  selected: "border-orange-500 bg-orange-50 ring-2 ring-orange-200",
+                },
+                {
+                  key: "inspirational",
+                  label: "✨ Inspirational",
+                  desc: "Inspire, educate, build brand awareness",
+                  color: "border-purple-300 bg-purple-50",
+                  selected: "border-purple-500 bg-purple-50 ring-2 ring-purple-200",
+                },
+              ] as const).map(({ key, label, desc, color, selected }) => (
+                <button
+                  key={key}
+                  onClick={() => setPinType(key)}
+                  className={cn(
+                    "text-left p-4 border-2 rounded-xl transition-all",
+                    pinType === key ? selected : "border-gray-200 hover:border-gray-300"
+                  )}
+                >
+                  <div className="text-sm font-semibold text-gray-800 mb-1">{label}</div>
+                  <div className="text-xs text-gray-500">{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Step 2: Keywords */}
+          <div>
+            <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block mb-2">
+              Step 2 — Target Keywords
+            </label>
+            <div className="relative">
+              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <input
+                type="text"
+                value={keywords}
+                onChange={(e) => setKeywords(e.target.value)}
+                placeholder="e.g. minimalist bedroom, home decor, cozy aesthetic"
+                className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Separate multiple keywords with commas</p>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-100 text-red-600 text-xs rounded-xl px-3 py-2">
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* Generate Button */}
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="w-full bg-gradient-to-r from-violet-600 to-purple-600 text-white py-3 rounded-xl text-sm font-semibold hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {generating ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                Generate with AI
+              </>
+            )}
+          </button>
+
+          {/* Generated Output */}
+          {generated && !generating && (
+            <div className="space-y-3 border-t border-gray-100 pt-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Generated Content</span>
+                <button
+                  onClick={handleRegenerate}
+                  className="text-xs text-purple-600 hover:text-purple-800 font-medium flex items-center gap-1"
+                >
+                  <Zap className="w-3 h-3" />
+                  Regenerate
+                </button>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Pin Title</label>
+                <div className="bg-gray-50 rounded-xl p-3 text-sm font-medium text-gray-800 border border-gray-100">
+                  {generated.title}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-gray-500 block mb-1">Pin Description</label>
+                <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-700 border border-gray-100 whitespace-pre-wrap leading-relaxed">
+                  {generated.description}
+                </div>
+              </div>
+
+              <button
+                onClick={() => onApply(generated.title, generated.description, pinType as "promotional" | "inspirational")}
+                className="w-full bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Use This Content
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Single Draft Card ──────────────────────────────────────────────────────────
+
+function DraftCard({
+  draft,
+  index,
+  onChange,
+  onRemove,
+  onAiOpen,
+  isOnly,
+}: {
+  draft: PinDraft;
+  index: number;
+  onChange: (updated: PinDraft) => void;
+  onRemove: () => void;
+  onAiOpen: () => void;
+  isOnly: boolean;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const set = (field: keyof PinDraft, value: string) =>
+    onChange({ ...draft, [field]: value });
+
+  const timeToInput = (label: string) => {
+    const match = label.match(/(\d+):(\d+)\s*(AM|PM)/i);
+    if (!match) return "";
+    let h = parseInt(match[1]);
+    const pm = match[3].toUpperCase() === "PM";
+    if (pm && h !== 12) h += 12;
+    if (!pm && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${match[2]}`;
+  };
+
+  return (
+    <div className={cn(
+      "bg-white rounded-2xl border shadow-sm transition-all",
+      draft.pinType === "promotional" ? "border-orange-200" : draft.pinType === "inspirational" ? "border-purple-200" : "border-gray-100"
+    )}>
+      {/* Card Header */}
+      <div className="flex items-center gap-3 p-4 border-b border-gray-50">
+        <div className={cn(
+          "w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0",
+          draft.pinType === "promotional" ? "bg-orange-100 text-orange-600" :
+          draft.pinType === "inspirational" ? "bg-purple-100 text-purple-600" :
+          "bg-gray-100 text-gray-500"
+        )}>
+          {index + 1}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-gray-800 truncate">
+            {draft.title || <span className="text-gray-400 font-normal">Untitled Pin</span>}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            {draft.pinType && (
+              <span className={cn(
+                "text-xs px-2 py-0.5 rounded-full font-medium",
+                draft.pinType === "promotional" ? "bg-orange-100 text-orange-600" : "bg-purple-100 text-purple-600"
+              )}>
+                {draft.pinType === "promotional" ? "🛍️ Promotional" : "✨ Inspirational"}
+              </span>
+            )}
+            {draft.date && draft.time && (
+              <span className="text-xs text-gray-400">
+                {format(new Date(`${draft.date}T${draft.time}`), "MMM d · h:mm a")}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onAiOpen}
+            title="Generate with AI"
+            className="p-1.5 rounded-lg bg-gradient-to-r from-violet-100 to-purple-100 text-purple-600 hover:from-violet-200 hover:to-purple-200 transition-colors"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setExpanded((e) => !e)}
+            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"
+          >
+            {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+          {!isOnly && (
+            <button onClick={onRemove} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Card Body */}
+      {expanded && (
+        <div className="p-4 space-y-3">
+          {/* Pin Type */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Pin Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["promotional", "inspirational"] as const).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => set("pinType", draft.pinType === type ? "" : type)}
+                  className={cn(
+                    "py-2 px-3 rounded-xl border text-xs font-semibold transition-all",
+                    draft.pinType === type
+                      ? type === "promotional"
+                        ? "border-orange-400 bg-orange-50 text-orange-700"
+                        : "border-purple-400 bg-purple-50 text-purple-700"
+                      : "border-gray-200 text-gray-500 hover:border-gray-300"
+                  )}
+                >
+                  {type === "promotional" ? "🛍️ Promotional" : "✨ Inspirational"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Title */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-gray-500">Pin Title *</label>
+              <button
+                onClick={onAiOpen}
+                className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium"
+              >
+                <Sparkles className="w-3 h-3" />
+                AI Generate
+              </button>
+            </div>
+            <input
+              value={draft.title}
+              onChange={(e) => set("title", e.target.value)}
+              placeholder="Enter a compelling pin title..."
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Description</label>
+            <textarea
+              value={draft.description}
+              onChange={(e) => set("description", e.target.value)}
+              placeholder="Describe what this pin is about... (keywords help with reach)"
+              rows={3}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] resize-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Board */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Board</label>
+              <select
+                value={draft.board}
+                onChange={(e) => set("board", e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white"
+              >
+                {BOARDS.map((b) => <option key={b}>{b}</option>)}
+              </select>
+            </div>
+
+            {/* URL */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Destination URL</label>
+              <div className="relative">
+                <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                <input
+                  value={draft.link}
+                  onChange={(e) => set("link", e.target.value)}
+                  placeholder="https://..."
+                  className="w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {/* Date */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Date *</label>
+              <input
+                type="date"
+                value={draft.date}
+                onChange={(e) => set("date", e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+              />
+            </div>
+            {/* Time */}
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Time *</label>
+              <input
+                type="time"
+                value={draft.time}
+                onChange={(e) => set("time", e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+              />
+            </div>
+          </div>
+
+          {/* Best Times */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Best Times to Post</label>
+            <div className="flex flex-wrap gap-1.5">
+              {BEST_TIMES.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => set("time", timeToInput(t))}
+                  className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-[#e60023]/10 hover:text-[#e60023] transition-colors font-medium"
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Image Upload */}
+          <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center hover:border-[#e60023]/40 transition-colors cursor-pointer">
+            <ImageIcon className="w-5 h-5 text-gray-300 mx-auto mb-1" />
+            <span className="text-xs text-gray-400">Drop image or click to upload</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────────
+
+export default function SchedulerPage() {
+  const [scheduled, setScheduled] = useState<ScheduledPin[]>(MOCK_SCHEDULED_PINS);
+  const [drafts, setDrafts] = useState<PinDraft[]>([newDraft()]);
+  const [connected, setConnected] = useState(false);
+  const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
+  const [aiTarget, setAiTarget] = useState<string | null>(null); // draft id
+
+  const addDraft = () => setDrafts((d) => [...d, newDraft()]);
+
+  const updateDraft = (id: string, updated: PinDraft) =>
+    setDrafts((d) => d.map((dr) => (dr.id === id ? updated : dr)));
+
+  const removeDraft = (id: string) =>
+    setDrafts((d) => d.filter((dr) => dr.id !== id));
+
+  const applyAi = (title: string, description: string, pinType: "promotional" | "inspirational") => {
+    if (!aiTarget) return;
+    setDrafts((d) =>
+      d.map((dr) => dr.id === aiTarget ? { ...dr, title, description, pinType } : dr)
+    );
+    setAiTarget(null);
+  };
+
+  const scheduleAll = () => {
+    const valid = drafts.filter((d) => d.title && d.date && d.time);
+    if (valid.length === 0) return;
+    const newPins: ScheduledPin[] = valid.map((d) => ({
+      id: d.id,
+      title: d.title,
+      board: d.board,
+      scheduledAt: `${d.date}T${d.time}:00`,
+      status: "scheduled",
+      imageUrl: d.pinType === "promotional" ? "🛍️" : d.pinType === "inspirational" ? "✨" : "📌",
+      description: d.description,
+      link: d.link,
+    }));
+    setScheduled((s) => [...newPins, ...s]);
+    setDrafts([newDraft()]);
+  };
+
+  const deleteScheduled = (id: string) =>
+    setScheduled((s) => s.filter((p) => p.id !== id));
+
+  const filtered = scheduled.filter((p) =>
+    activeTab === "upcoming" ? p.status === "scheduled" : p.status === "published"
+  );
+  const validDrafts = drafts.filter((d) => d.title && d.date && d.time).length;
 
   return (
     <div>
-      <Header title="Pin Scheduler" subtitle="Plan and schedule your Pinterest content in advance" />
-      <div className="p-6 space-y-6">
-        {/* Connect Account Banner */}
-        {!connected && (
+      {aiTarget && (
+        <AiModal
+          onApply={applyAi}
+          onClose={() => setAiTarget(null)}
+        />
+      )}
+
+      <Header title="Pin Scheduler" subtitle="Create and schedule multiple pins at once with AI-powered content generation" />
+
+      <div className="p-6 space-y-5">
+        {/* Connect Banner */}
+        {!connected ? (
           <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-[#e60023] rounded-xl flex items-center justify-center text-white text-xl font-bold">P</div>
@@ -84,202 +588,144 @@ export default function SchedulerPage() {
               Connect with Pinterest
             </button>
           </div>
-        )}
-
-        {connected && (
+        ) : (
           <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
-            <div>
-              <span className="text-sm font-semibold text-green-800">Pinterest connected!</span>
-              <span className="text-sm text-green-600 ml-2">Your account @yourpinterest is linked and ready.</span>
-            </div>
+            <span className="text-sm font-semibold text-green-800">Pinterest connected!</span>
+            <span className="text-sm text-green-600">@yourpinterest is linked and ready.</span>
             <button onClick={() => setConnected(false)} className="ml-auto text-green-600 hover:text-green-800">
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-6">
-          {/* Schedule New Pin */}
-          <div className="col-span-1">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="font-semibold text-gray-900 mb-4">Quick Schedule</h3>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1.5">Pin Title *</label>
-                  <input
-                    value={form.title}
-                    onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                    placeholder="Enter pin title..."
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1.5">Description</label>
-                  <textarea
-                    value={form.description}
-                    onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                    placeholder="What's this pin about?"
-                    rows={3}
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1.5">Board</label>
-                  <select
-                    value={form.board}
-                    onChange={(e) => setForm((f) => ({ ...f, board: e.target.value }))}
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white"
-                  >
-                    {BOARDS.map((b) => <option key={b}>{b}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1.5">Destination URL</label>
-                  <div className="relative">
-                    <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                    <input
-                      value={form.link}
-                      onChange={(e) => setForm((f) => ({ ...f, link: e.target.value }))}
-                      placeholder="https://yourwebsite.com"
-                      className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1.5">Date *</label>
-                    <input
-                      type="date"
-                      value={form.date}
-                      onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1.5">Time *</label>
-                    <input
-                      type="time"
-                      value={form.time}
-                      onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                    />
-                  </div>
-                </div>
-                {/* Best Times */}
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1.5">Best Times to Post</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {BEST_TIMES.map((t) => (
-                      <button
-                        key={t}
-                        onClick={() => setForm((f) => ({ ...f, time: t.includes("PM") ? String(parseInt(t) + 12).padStart(2, "0") + ":00" : t.replace(" AM", "").padStart(5, "0") }))}
-                        className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-[#e60023]/10 hover:text-[#e60023] transition-colors font-medium"
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {/* Image Upload */}
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1.5">Pin Image</label>
-                  <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center hover:border-[#e60023]/40 transition-colors cursor-pointer">
-                    <ImageIcon className="w-6 h-6 text-gray-300 mx-auto mb-2" />
-                    <span className="text-xs text-gray-400">Drop image or click to upload</span>
-                  </div>
-                </div>
+        <div className="grid grid-cols-5 gap-6">
+          {/* ── Left: Pin Composer ── */}
+          <div className="col-span-3 space-y-4">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <LayoutGrid className="w-4 h-4 text-gray-400" />
+                <span className="text-sm font-semibold text-gray-800">
+                  {drafts.length} Pin{drafts.length !== 1 ? "s" : ""} in Queue
+                </span>
+                {validDrafts > 0 && (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                    {validDrafts} ready
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={handleSchedule}
-                  disabled={!form.title || !form.date || !form.time}
-                  className="w-full bg-[#e60023] text-white py-3 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  onClick={addDraft}
+                  className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors font-medium"
                 >
-                  <Plus className="w-4 h-4" />
-                  Schedule Pin
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Pin
                 </button>
+                <button
+                  onClick={scheduleAll}
+                  disabled={validDrafts === 0}
+                  className="flex items-center gap-1.5 text-sm bg-[#e60023] text-white px-4 py-2 rounded-xl hover:bg-[#ad081b] transition-colors font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  Schedule {validDrafts > 0 ? `${validDrafts} Pin${validDrafts !== 1 ? "s" : ""}` : "All"}
+                </button>
+              </div>
+            </div>
+
+            {/* Draft Cards */}
+            <div className="space-y-3">
+              {drafts.map((draft, i) => (
+                <DraftCard
+                  key={draft.id}
+                  draft={draft}
+                  index={i}
+                  onChange={(updated) => updateDraft(draft.id, updated)}
+                  onRemove={() => removeDraft(draft.id)}
+                  onAiOpen={() => setAiTarget(draft.id)}
+                  isOnly={drafts.length === 1}
+                />
+              ))}
+            </div>
+
+            {/* Add more */}
+            <button
+              onClick={addDraft}
+              className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm text-gray-400 hover:border-[#e60023]/40 hover:text-[#e60023] transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add Another Pin
+            </button>
+
+            {/* Pro tip */}
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
+              <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-blue-700">
+                <strong>Pro tip:</strong> Schedule 3–5 pins per day for consistent reach. Mix promotional and inspirational content at a 20/80 ratio for best engagement.
               </div>
             </div>
           </div>
 
-          {/* Scheduled Pins List */}
+          {/* ── Right: Scheduled Pins ── */}
           <div className="col-span-2">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                <div className="flex gap-1">
-                  {(["upcoming", "published"] as const).map((tab) => (
-                    <button
-                      key={tab}
-                      onClick={() => setActiveTab(tab)}
-                      className={cn(
-                        "px-4 py-2 rounded-xl text-sm font-medium transition-colors capitalize",
-                        activeTab === tab ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-50"
-                      )}
-                    >
-                      {tab}
-                      <span className="ml-2 text-xs opacity-70">
-                        {pins.filter((p) => tab === "upcoming" ? p.status === "scheduled" : p.status === "published").length}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-4">
+              <div className="p-4 border-b border-gray-100 flex items-center gap-1">
+                {(["upcoming", "published"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-sm font-medium transition-colors capitalize flex-1",
+                      activeTab === tab ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-50"
+                    )}
+                  >
+                    {tab}
+                    <span className="ml-1.5 text-xs opacity-70">
+                      ({scheduled.filter((p) => tab === "upcoming" ? p.status === "scheduled" : p.status === "published").length})
+                    </span>
+                  </button>
+                ))}
               </div>
 
-              <div className="divide-y divide-gray-50">
-                {filteredPins.length === 0 ? (
-                  <div className="p-12 text-center">
-                    <Calendar className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-                    <p className="text-sm text-gray-400">No {activeTab} pins yet</p>
+              <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto scrollbar-thin">
+                {filtered.length === 0 ? (
+                  <div className="p-10 text-center">
+                    <Calendar className="w-7 h-7 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm text-gray-400">No {activeTab} pins</p>
                   </div>
-                ) : filteredPins.map((pin) => (
-                  <div key={pin.id} className="p-4 hover:bg-gray-50/50 flex items-center gap-4 group">
-                    <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center text-2xl flex-shrink-0">
+                ) : filtered.map((pin) => (
+                  <div key={pin.id} className="p-4 hover:bg-gray-50/50 flex items-center gap-3 group">
+                    <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-xl flex-shrink-0">
                       {pin.imageUrl}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm text-gray-900 truncate">{pin.title}</div>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">{pin.board}</span>
-                        <div className="flex items-center gap-1 text-xs text-gray-400">
-                          <Calendar className="w-3 h-3" />
-                          {format(parseISO(pin.scheduledAt), "MMM d, yyyy")}
-                        </div>
-                        <div className="flex items-center gap-1 text-xs text-gray-400">
-                          <Clock className="w-3 h-3" />
-                          {format(parseISO(pin.scheduledAt), "h:mm a")}
-                        </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full truncate max-w-[80px]">{pin.board}</span>
+                        <span className="text-xs text-gray-400">
+                          {format(parseISO(pin.scheduledAt), "MMM d · h:mm a")}
+                        </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 flex-shrink-0">
                       {pin.status === "scheduled" ? (
-                        <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full font-medium">
+                        <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium">
                           <Clock className="w-3 h-3" />
                           Scheduled
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2.5 py-1 rounded-full font-medium">
+                        <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full font-medium">
                           <CheckCircle2 className="w-3 h-3" />
                           Published
                         </span>
                       )}
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => deletePin(pin.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      <button onClick={() => deleteScheduled(pin.id)} className="p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            {/* Analytics Hint */}
-            <div className="mt-4 bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-              <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-blue-700">
-                <strong>Pro tip:</strong> The best times to post on Pinterest are 8–11 PM on weekends and 2–4 PM on weekdays for maximum engagement.
               </div>
             </div>
           </div>
