@@ -9,11 +9,13 @@ import {
   LayoutDashboard,
   ChevronRight,
   Zap,
+  LineChart,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/keywords", icon: Search, label: "Keyword Research" },
+  { href: "/pin-analysis", icon: LineChart, label: "Pin Analysis" },
   { href: "/scheduler", icon: Calendar, label: "Pin Scheduler" },
   { href: "/ads", icon: Megaphone, label: "Ads Manager" },
 ];

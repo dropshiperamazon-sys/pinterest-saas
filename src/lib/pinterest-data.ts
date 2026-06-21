@@ -520,3 +520,301 @@ export const AD_OBJECTIVES = [
   { id: "video_views", label: "Video Views", description: "Maximize views on your video content", icon: "▶️" },
   { id: "catalog", label: "Catalog Sales", description: "Show ads from your product catalog", icon: "🛍️" },
 ];
+
+// ── PIN ANALYSIS DATA ─────────────────────────────────────────────────────────
+
+export interface PinData {
+  id: string;
+  title: string;
+  description: string;
+  imageEmoji: string;
+  pinUrl: string;
+  boardName: string;
+  creatorName: string;
+  creatorHandle: string;
+  postedAt: string;
+  saves: number;
+  clicks: number;
+  impressions: number;
+  closeups: number;
+  keywords: { keyword: string; matchType: "exact" | "phrase" | "broad" }[];
+  category: string;
+  format: "standard" | "video" | "carousel" | "idea";
+  engagementRate: number;
+}
+
+export const MOCK_PINS: PinData[] = [
+  {
+    id: "pin_001",
+    title: "20 Minimalist Bedroom Ideas That Feel Like a 5-Star Hotel",
+    description: "Transform your bedroom into a serene retreat with these minimalist design ideas. From neutral palettes to clean-lined furniture, discover how to create a hotel-worthy bedroom at home.",
+    imageEmoji: "🛏️",
+    pinUrl: "https://pinterest.com/pin/001",
+    boardName: "Bedroom Inspo",
+    creatorName: "Home Style Co",
+    creatorHandle: "@homestyleco",
+    postedAt: "2026-04-12T09:00:00",
+    saves: 284500,
+    clicks: 62100,
+    impressions: 4200000,
+    closeups: 189000,
+    engagementRate: 6.78,
+    category: "Home Decor",
+    format: "standard",
+    keywords: [
+      { keyword: "minimalist bedroom", matchType: "exact" },
+      { keyword: "bedroom ideas", matchType: "exact" },
+      { keyword: "minimalist bedroom aesthetic", matchType: "exact" },
+      { keyword: "bedroom decor ideas", matchType: "phrase" },
+      { keyword: "hotel bedroom style", matchType: "phrase" },
+      { keyword: "neutral bedroom design", matchType: "phrase" },
+      { keyword: "cozy bedroom ideas", matchType: "phrase" },
+      { keyword: "bedroom inspo", matchType: "phrase" },
+      { keyword: "interior design", matchType: "broad" },
+      { keyword: "room makeover", matchType: "broad" },
+      { keyword: "home styling", matchType: "broad" },
+    ],
+  },
+  {
+    id: "pin_002",
+    title: "Quick 30-Minute Healthy Dinner Recipes for Busy Weeknights",
+    description: "Eating healthy doesn't have to take hours. These 30-minute dinner recipes are nutritious, delicious, and perfect for busy weeknights. Meal prep friendly!",
+    imageEmoji: "🥗",
+    pinUrl: "https://pinterest.com/pin/002",
+    boardName: "Healthy Eating",
+    creatorName: "Nourish Kitchen",
+    creatorHandle: "@nourishkitchen",
+    postedAt: "2026-03-28T12:00:00",
+    saves: 412000,
+    clicks: 98400,
+    impressions: 6800000,
+    closeups: 312000,
+    engagementRate: 6.05,
+    category: "Food & Drinks",
+    format: "carousel",
+    keywords: [
+      { keyword: "healthy dinner recipes", matchType: "exact" },
+      { keyword: "quick dinner recipes", matchType: "exact" },
+      { keyword: "30 minute meals", matchType: "exact" },
+      { keyword: "healthy recipes for dinner", matchType: "phrase" },
+      { keyword: "easy weeknight dinners", matchType: "phrase" },
+      { keyword: "meal prep ideas", matchType: "phrase" },
+      { keyword: "healthy meal prep", matchType: "phrase" },
+      { keyword: "dinner ideas for family", matchType: "phrase" },
+      { keyword: "clean eating", matchType: "broad" },
+      { keyword: "nutritious meals", matchType: "broad" },
+      { keyword: "cooking ideas", matchType: "broad" },
+    ],
+  },
+  {
+    id: "pin_003",
+    title: "Summer Outfit Ideas 2025 — What to Wear This Season",
+    description: "Stay stylish all summer long with these trending outfit ideas. From casual beach looks to chic street style, find your perfect summer wardrobe.",
+    imageEmoji: "👗",
+    pinUrl: "https://pinterest.com/pin/003",
+    boardName: "Summer Fashion",
+    creatorName: "Style Maven",
+    creatorHandle: "@stylemaven",
+    postedAt: "2026-05-02T10:30:00",
+    saves: 198700,
+    clicks: 44200,
+    impressions: 3100000,
+    closeups: 145000,
+    engagementRate: 6.41,
+    category: "Women's Fashion",
+    format: "idea",
+    keywords: [
+      { keyword: "summer outfits 2025", matchType: "exact" },
+      { keyword: "summer outfit ideas", matchType: "exact" },
+      { keyword: "what to wear in summer", matchType: "exact" },
+      { keyword: "summer fashion trends 2025", matchType: "phrase" },
+      { keyword: "cute summer outfits", matchType: "phrase" },
+      { keyword: "casual summer looks", matchType: "phrase" },
+      { keyword: "beach outfit ideas", matchType: "phrase" },
+      { keyword: "summer wardrobe essentials", matchType: "phrase" },
+      { keyword: "fashion inspo", matchType: "broad" },
+      { keyword: "clothing ideas", matchType: "broad" },
+      { keyword: "ootd", matchType: "broad" },
+    ],
+  },
+  {
+    id: "pin_004",
+    title: "DIY Garden Planters You Can Make This Weekend",
+    description: "Spruce up your outdoor space with these easy and affordable DIY planter ideas. Made from wood pallets, terracotta, and recycled materials.",
+    imageEmoji: "🌱",
+    pinUrl: "https://pinterest.com/pin/004",
+    boardName: "Garden Projects",
+    creatorName: "Green Thumb Co",
+    creatorHandle: "@greenthumbco",
+    postedAt: "2026-02-14T08:00:00",
+    saves: 156300,
+    clicks: 31800,
+    impressions: 2400000,
+    closeups: 98200,
+    engagementRate: 6.52,
+    category: "Gardening",
+    format: "standard",
+    keywords: [
+      { keyword: "diy garden planters", matchType: "exact" },
+      { keyword: "garden planter ideas", matchType: "exact" },
+      { keyword: "diy planters", matchType: "exact" },
+      { keyword: "easy diy garden projects", matchType: "phrase" },
+      { keyword: "garden decor ideas diy", matchType: "phrase" },
+      { keyword: "outdoor planter ideas", matchType: "phrase" },
+      { keyword: "diy patio decor", matchType: "phrase" },
+      { keyword: "plant care", matchType: "broad" },
+      { keyword: "backyard landscaping", matchType: "broad" },
+      { keyword: "green thumb tips", matchType: "broad" },
+    ],
+  },
+  {
+    id: "pin_005",
+    title: "10-Step Korean Skin Care Routine for Glowing Skin",
+    description: "Achieve that iconic glass skin with a proper Korean skin care routine. Step-by-step guide including cleansers, toners, essences, and SPF.",
+    imageEmoji: "✨",
+    pinUrl: "https://pinterest.com/pin/005",
+    boardName: "Skin Care Routine",
+    creatorName: "Glow Labs",
+    creatorHandle: "@glowlabs",
+    postedAt: "2026-05-15T11:00:00",
+    saves: 321000,
+    clicks: 87600,
+    impressions: 5400000,
+    closeups: 241000,
+    engagementRate: 5.94,
+    category: "Beauty",
+    format: "carousel",
+    keywords: [
+      { keyword: "korean skin care routine", matchType: "exact" },
+      { keyword: "skin care routine", matchType: "exact" },
+      { keyword: "glowing skin routine", matchType: "exact" },
+      { keyword: "10 step skincare routine", matchType: "phrase" },
+      { keyword: "skin care routine for beginners", matchType: "phrase" },
+      { keyword: "best skincare routine", matchType: "phrase" },
+      { keyword: "glass skin routine", matchType: "phrase" },
+      { keyword: "skincare tips", matchType: "phrase" },
+      { keyword: "beauty regimen", matchType: "broad" },
+      { keyword: "complexion care", matchType: "broad" },
+      { keyword: "glow routine", matchType: "broad" },
+    ],
+  },
+  {
+    id: "pin_006",
+    title: "Boho Wedding Decor Ideas That Will Take Your Breath Away",
+    description: "Create a magical bohemian wedding with these stunning decor ideas. From pampas grass centrepieces to macramé backdrops, your guests will be wowed.",
+    imageEmoji: "💍",
+    pinUrl: "https://pinterest.com/pin/006",
+    boardName: "Wedding Inspiration",
+    creatorName: "Bridal Bliss Co",
+    creatorHandle: "@bridalbliss",
+    postedAt: "2026-01-20T09:30:00",
+    saves: 478200,
+    clicks: 102400,
+    impressions: 7200000,
+    closeups: 389000,
+    engagementRate: 6.63,
+    category: "Event Planning",
+    format: "standard",
+    keywords: [
+      { keyword: "boho wedding decor", matchType: "exact" },
+      { keyword: "wedding decor ideas", matchType: "exact" },
+      { keyword: "bohemian wedding", matchType: "exact" },
+      { keyword: "boho wedding inspiration", matchType: "phrase" },
+      { keyword: "outdoor wedding decor", matchType: "phrase" },
+      { keyword: "pampas grass wedding", matchType: "phrase" },
+      { keyword: "wedding centerpiece ideas", matchType: "phrase" },
+      { keyword: "bridal inspiration", matchType: "broad" },
+      { keyword: "wedding planning", matchType: "broad" },
+      { keyword: "nuptials", matchType: "broad" },
+    ],
+  },
+  {
+    id: "pin_007",
+    title: "Full Body Workout at Home — No Equipment Needed",
+    description: "Get fit without a gym membership! This full body workout targets every muscle group using only your bodyweight. Perfect for beginners and intermediate.",
+    imageEmoji: "💪",
+    pinUrl: "https://pinterest.com/pin/007",
+    boardName: "Home Workouts",
+    creatorName: "FitLife Studio",
+    creatorHandle: "@fitlifestudio",
+    postedAt: "2026-04-01T07:00:00",
+    saves: 267800,
+    clicks: 58900,
+    impressions: 4100000,
+    closeups: 198000,
+    engagementRate: 6.52,
+    category: "Health",
+    format: "video",
+    keywords: [
+      { keyword: "full body workout at home", matchType: "exact" },
+      { keyword: "home workout no equipment", matchType: "exact" },
+      { keyword: "bodyweight workout", matchType: "exact" },
+      { keyword: "full body workout for beginners", matchType: "phrase" },
+      { keyword: "home workout routine", matchType: "phrase" },
+      { keyword: "no gym workout", matchType: "phrase" },
+      { keyword: "workout plan for women", matchType: "phrase" },
+      { keyword: "exercise routine", matchType: "broad" },
+      { keyword: "fitness training", matchType: "broad" },
+      { keyword: "getting fit", matchType: "broad" },
+    ],
+  },
+  {
+    id: "pin_008",
+    title: "Aesthetic Room Makeover — Dark Academia Bedroom",
+    description: "Embrace the dark academia aesthetic in your bedroom with rich jewel tones, vintage books, and moody lighting. Here's how to recreate this look.",
+    imageEmoji: "📚",
+    pinUrl: "https://pinterest.com/pin/008",
+    boardName: "Aesthetic Rooms",
+    creatorName: "Moody Spaces",
+    creatorHandle: "@moodyspaces",
+    postedAt: "2026-03-10T14:00:00",
+    saves: 344600,
+    clicks: 74100,
+    impressions: 5100000,
+    closeups: 278000,
+    engagementRate: 6.76,
+    category: "Home Decor",
+    format: "carousel",
+    keywords: [
+      { keyword: "dark academia bedroom", matchType: "exact" },
+      { keyword: "dark academia aesthetic", matchType: "exact" },
+      { keyword: "aesthetic room", matchType: "exact" },
+      { keyword: "dark academia room decor", matchType: "phrase" },
+      { keyword: "moody bedroom ideas", matchType: "phrase" },
+      { keyword: "aesthetic bedroom makeover", matchType: "phrase" },
+      { keyword: "dark bedroom aesthetic", matchType: "phrase" },
+      { keyword: "room decoration", matchType: "broad" },
+      { keyword: "interior design", matchType: "broad" },
+      { keyword: "home styling", matchType: "broad" },
+    ],
+  },
+];
+
+// Generate mock top-performing pins for a keyword search
+export function searchPinsByKeyword(keyword: string): PinData[] {
+  const lower = keyword.toLowerCase();
+  // Filter pins that have the keyword in title, description, or keywords list
+  const matched = MOCK_PINS.filter(
+    (pin) =>
+      pin.title.toLowerCase().includes(lower) ||
+      pin.description.toLowerCase().includes(lower) ||
+      pin.category.toLowerCase().includes(lower) ||
+      pin.keywords.some((k) => k.keyword.includes(lower))
+  );
+
+  // If no direct match, return all pins sorted by saves (simulating broad match discovery)
+  const pool = matched.length >= 3 ? matched : MOCK_PINS;
+  return [...pool].sort((a, b) => b.saves - a.saves);
+}
+
+// Look up a single pin by URL (simulated)
+export function getPinByUrl(url: string): PinData | null {
+  // Match by any pin id pattern in the URL
+  const match = MOCK_PINS.find((p) => url.includes(p.id) || url.includes(p.pinUrl));
+  // If no specific match, return a realistic demo pin based on URL hash
+  if (!match) {
+    const index = Math.abs(url.split("").reduce((a, c) => a + c.charCodeAt(0), 0)) % MOCK_PINS.length;
+    return MOCK_PINS[index];
+  }
+  return match;
+}
