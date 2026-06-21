@@ -31,9 +31,9 @@ const MATCH_LABEL: Record<string, string> = {
 };
 
 const MATCH_DESC: Record<string, string> = {
-  broad:  "Broad — widest reach, loosest relevance",
-  phrase: "Phrase — balanced reach & relevance",
-  exact:  "Exact — tightest relevance, highest intent",
+  exact:  "Exact [keyword] — same meaning or intent, highest targeting precision",
+  phrase: '"keyword" — keyword meaning contained in search, words added before or after',
+  broad:  "keyword — related concepts, synonyms & similar topics, widest reach",
 };
 
 export default function KeywordsPage() {
@@ -246,8 +246,8 @@ export default function KeywordsPage() {
                     {type === "all" ? `All (${countByMatch("all")})` : `${MATCH_LABEL[type]} (${countByMatch(type)})`}
                   </button>
                 ))}
-                <span className="text-xs text-gray-400 ml-1 hidden lg:inline">
-                  {matchFilter !== "all" ? MATCH_DESC[matchFilter] : "Showing all match types"}
+                <span className="text-xs text-gray-400 ml-1 hidden lg:inline italic">
+                  {matchFilter !== "all" ? MATCH_DESC[matchFilter] : "All match types · Exact [kw] · Phrase \"kw\" · Broad kw"}
                 </span>
               </div>
             )}

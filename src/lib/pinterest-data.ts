@@ -238,6 +238,57 @@ function randTrend() {
   return rand(-15, 45);
 }
 
+// Synonym/related concept map used to generate true broad match variants
+// Broad match can show for related searches that don't contain the original keyword words
+const SYNONYM_MAP: Record<string, string[]> = {
+  "home decor": ["interior design", "house decorating", "home styling", "room decoration", "home furnishing", "house interior"],
+  "room decor": ["bedroom styling", "living space design", "room makeover", "interior decoration", "space styling"],
+  "furniture": ["home furnishings", "sofas and chairs", "home accessories", "decor pieces", "household items"],
+  "recipes": ["cooking ideas", "meal ideas", "dishes to make", "food preparation", "kitchen inspiration"],
+  "desserts": ["sweets", "baked goods", "pastries", "cakes and cookies", "confections", "treats"],
+  "healthy eating": ["clean eating", "nutritious meals", "diet food", "wellness food", "balanced diet"],
+  "outfits": ["clothing ideas", "style looks", "fashion inspo", "what to wear", "wardrobe ideas", "ootd"],
+  "shoes": ["footwear", "sneakers", "heels", "boots", "sandals", "kicks"],
+  "dress": ["gowns", "frocks", "maxi dress", "midi dress", "evening wear", "sundress"],
+  "workout": ["exercise routine", "fitness training", "gym session", "physical training", "fitness routine"],
+  "weight loss": ["fat burning", "slimming tips", "body transformation", "calorie deficit", "getting fit"],
+  "makeup": ["cosmetics", "beauty looks", "face beat", "glam look", "beauty routine", "beauty products"],
+  "skin care": ["skincare routine", "complexion care", "facial care", "beauty regimen", "glow routine", "face routine"],
+  "hair": ["hairstyle", "hair care", "hair look", "tresses", "mane styling", "hairdo"],
+  "travel": ["vacation ideas", "trip inspiration", "holiday destinations", "getaway ideas", "wanderlust"],
+  "travel destinations": ["places to visit", "vacation spots", "holiday locations", "travel bucket list", "places to go"],
+  "painting": ["canvas art", "acrylic art", "fine art", "artwork", "painted pieces"],
+  "drawing": ["sketching", "illustration", "pencil art", "line art", "doodle art"],
+  "gardening": ["plant care", "growing plants", "garden ideas", "backyard landscaping", "green thumb tips"],
+  "diy projects": ["craft ideas", "handmade projects", "creative making", "home projects", "upcycling ideas"],
+  "woodworking": ["carpentry", "wood crafts", "timber projects", "wood building", "furniture making"],
+  "nails": ["nail art", "manicure ideas", "nail designs", "gel nails", "nail polish"],
+  "wedding": ["bridal inspiration", "wedding planning", "nuptials", "marriage ceremony", "bridal ideas"],
+  "baby": ["newborn care", "infant ideas", "baby shower", "nursery ideas", "baby products"],
+  "tattoo": ["body art", "ink designs", "tattoo ideas", "tattooing", "body tattoo"],
+  "quotes": ["inspirational sayings", "motivational words", "life quotes", "wisdom sayings", "affirmations"],
+};
+
+function getSynonyms(base: string): string[] {
+  const lower = base.toLowerCase();
+  if (SYNONYM_MAP[lower]) return SYNONYM_MAP[lower];
+  for (const key of Object.keys(SYNONYM_MAP)) {
+    if (lower.includes(key) || key.includes(lower)) return SYNONYM_MAP[key];
+  }
+  // Generic fallback synonyms built from the keyword's root word
+  const root = lower.split(" ")[0];
+  return [
+    `${root} inspiration`,
+    `${root} guide`,
+    `${root} trends`,
+    `${root} aesthetic`,
+    `${root} inspo`,
+    `${root} style`,
+    `types of ${root}`,
+    `popular ${root}`,
+  ];
+}
+
 export function generateKeywords(query: string): KeywordResult[] {
   const base = query.toLowerCase().trim();
   const words = base.split(" ");
@@ -250,7 +301,7 @@ export function generateKeywords(query: string): KeywordResult[] {
     volumeMin: number,
     volumeMax: number
   ) => {
-    const kw = keyword.trim().toLowerCase();
+    const kw = keyword.trim().toLowerCase().replace(/\s+/g, " ");
     if (!kw || seen.has(kw)) return;
     seen.add(kw);
     results.push({
@@ -264,111 +315,134 @@ export function generateKeywords(query: string): KeywordResult[] {
     });
   };
 
-  // ── EXACT MATCH (highest volume, tightest relevance) ──────────────────────
+  // ── EXACT MATCH ────────────────────────────────────────────────────────────
+  // Shows when a search has the same meaning or intent as the keyword.
+  // Includes: the keyword itself, plurals/singulars, minor reordering, close variants.
   add(base, "exact", 400000, 3000000);
 
-  const exactModifiers = [
-    "ideas", "inspiration", "aesthetic", "design", "style", "tutorial",
-    "tips", "diy", "easy", "simple", "modern", "ideas 2024", "ideas 2025",
-    "trends 2024", "trends 2025", "for beginners", "step by step",
-  ];
-  exactModifiers.forEach((m) => {
-    add(`${base} ${m}`, "exact", 80000, 1200000);
-    if (words.length === 1) add(`${m} ${base}`, "exact", 50000, 900000);
-  });
+  // Plural/singular variants (same intent)
+  if (!base.endsWith("s")) add(`${base}s`, "exact", 150000, 1200000);
+  if (base.endsWith("s")) add(base.slice(0, -1), "exact", 150000, 1200000);
+  if (base.endsWith("ing")) add(base.replace(/ing$/, ""), "exact", 80000, 600000);
+  if (!base.endsWith("ing") && words.length === 1) add(`${base}ing`, "exact", 60000, 500000);
 
-  const exactPrefixes = [
-    "best", "beautiful", "unique", "creative", "minimalist", "boho",
-    "aesthetic", "cute", "elegant", "luxury", "budget", "diy",
-  ];
-  exactPrefixes.forEach((p) => add(`${p} ${base}`, "exact", 40000, 800000));
-
-  const exactSuffixes = [
-    "on a budget", "for small spaces", "on pinterest", "that are trending",
-    "for home", "for bedroom", "for living room", "for women", "for men",
-    "for kids", "for beginners", "that wow", "under $50", "ideas cheap",
-  ];
-  exactSuffixes.forEach((s) => add(`${base} ${s}`, "exact", 20000, 500000));
-
-  // ── PHRASE MATCH (medium relevance, broader) ───────────────────────────────
-  const phrasePrefixes = [
-    "how to", "how to make", "how to style", "how to create", "how to diy",
-    "what is", "best way to", "easy way to", "quick", "cheap", "affordable",
-    "trendy", "popular", "viral", "aesthetic", "pinterest worthy",
-  ];
-  phrasePrefixes.forEach((p) => add(`${p} ${base}`, "phrase", 15000, 450000));
-
-  const phraseSuffixes = [
-    "ideas and inspiration", "design ideas", "style guide", "color palette",
-    "mood board", "aesthetic board", "how to guide", "complete guide",
-    "tips and tricks", "before and after", "transformation", "makeover",
-    "inspo", "goals", "vibes", "look", "theme", "collection", "checklist",
-    "hacks", "101", "for instagram", "photo ideas", "pin ideas",
-  ];
-  phraseSuffixes.forEach((s) => add(`${base} ${s}`, "phrase", 10000, 350000));
-
-  // multi-word phrase expansions
-  if (words.length > 1) {
-    words.forEach((w, i) => {
-      if (w.length < 3) return;
-      const rest = words.filter((_, j) => j !== i).join(" ");
-      add(`${rest} ${w} ideas`, "phrase", 8000, 200000);
-      add(`best ${rest} ${w}`, "phrase", 5000, 150000);
-    });
-  } else {
-    const topicExpanders = [
-      "room", "bedroom", "living room", "kitchen", "bathroom", "garden",
-      "outdoor", "indoor", "home", "office", "apartment", "small space",
-      "wall", "floor", "ceiling",
-    ];
-    topicExpanders.forEach((t) => {
-      add(`${base} ${t}`, "phrase", 10000, 400000);
-      add(`${t} ${base}`, "phrase", 8000, 300000);
-    });
+  // Word reorder variants (same meaning, different phrasing)
+  if (words.length === 2) {
+    add(`${words[1]} ${words[0]}`, "exact", 100000, 800000);
+  }
+  if (words.length === 3) {
+    add(`${words[1]} ${words[0]} ${words[2]}`, "exact", 60000, 500000);
+    add(`${words[2]} ${words[1]} ${words[0]}`, "exact", 40000, 300000);
   }
 
-  // ── BROAD MATCH (loosest, highest reach) ──────────────────────────────────
-  const broadSuffixes = [
-    "photos", "pictures", "images", "wallpaper", "background", "quotes",
-    "aesthetic quotes", "funny", "cute", "pretty", "beautiful", "amazing",
-    "stunning", "gorgeous", "perfect", "dreamy", "cozy", "chic", "bold",
-    "neutral", "colorful", "pastel", "dark", "light", "white", "black",
-    "pink", "blue", "green", "gold", "silver", "rustic", "farmhouse",
-    "scandinavian", "bohemian", "vintage", "retro", "classic", "modern",
-    "contemporary", "industrial", "eclectic",
+  // Close variants — keyword + a word that keeps the same core intent
+  // e.g. [running shoes] → "running shoes" / "running shoe" / "run shoes"
+  const exactCloseSuffixes = [
+    "ideas", "inspiration", "aesthetic", "design", "style", "styles",
+    "tutorial", "tips", "diy", "2024", "2025", "trends", "trend",
+    "pictures", "photos", "images", "wallpaper",
   ];
-  broadSuffixes.forEach((s) => add(`${base} ${s}`, "broad", 5000, 250000));
+  exactCloseSuffixes.forEach((m) => add(`${base} ${m}`, "exact", 50000, 900000));
 
-  const broadCombos = [
-    `${base} on a budget diy`,
-    `cheap ${base} ideas that look expensive`,
-    `pinterest ${base} board ideas`,
-    `${base} board pinterest`,
-    `easy ${base} for beginners tutorial`,
-    `${base} inspiration board aesthetic`,
-    `trending ${base} 2024 ideas`,
-    `trending ${base} 2025 ideas`,
-    `${base} ideas you haven't seen`,
-    `unique ${base} nobody talks about`,
-    `${base} that went viral on pinterest`,
-    `affordable ${base} ideas`,
-    `luxury ${base} ideas`,
+  // ── PHRASE MATCH ──────────────────────────────────────────────────────────
+  // Ad shows when search CONTAINS the keyword meaning, with extra words before or after.
+  // e.g. "running shoes" → "best running shoes for women", "cheap running shoes 2024"
+
+  // Words added BEFORE the keyword
+  const phraseBefore = [
+    "best", "beautiful", "unique", "creative", "minimalist", "modern", "simple",
+    "easy", "cheap", "affordable", "luxury", "elegant", "cute", "pretty",
+    "aesthetic", "trending", "popular", "viral", "boho", "rustic", "cozy",
+    "chic", "classic", "bold", "dreamy", "stunning", "gorgeous", "perfect",
+    "quick", "diy", "homemade", "budget friendly", "professional", "top",
+  ];
+  phraseBefore.forEach((p) => add(`${p} ${base}`, "phrase", 20000, 700000));
+
+  // Words added AFTER the keyword
+  const phraseAfter = [
+    "for women", "for men", "for kids", "for beginners", "for home",
+    "for bedroom", "for living room", "for kitchen", "for apartment",
+    "for small spaces", "on a budget", "step by step", "that are trending",
+    "color palette", "mood board", "inspo board", "style guide",
+    "before and after", "transformation", "makeover", "checklist",
+    "tips and tricks", "hacks", "guide", "complete guide",
+    "ideas and inspiration", "design ideas", "how to guide",
+    "for instagram", "that went viral", "you need to try",
+    "for spring", "for summer", "for fall", "for winter",
+    "for christmas", "for halloween", "for thanksgiving",
+    "under 50 dollars", "under 100 dollars", "ideas 2024", "ideas 2025",
+    "trends 2024", "trends 2025", "nobody talks about",
+  ];
+  phraseAfter.forEach((s) => add(`${base} ${s}`, "phrase", 8000, 450000));
+
+  // Combos: words before AND after (still contains keyword in the middle)
+  const phraseCombos = [
+    `best ${base} ideas`,
+    `easy ${base} for beginners`,
+    `cheap ${base} that look expensive`,
+    `beautiful ${base} on a budget`,
+    `modern ${base} design ideas`,
     `minimalist ${base} aesthetic`,
-    `${base} color scheme ideas`,
-    `${base} layout ideas`,
-    `${base} product recommendations`,
-    `top ${base} pins`,
-    `most saved ${base} pins`,
-    `${base} mood board ideas`,
+    `cozy ${base} vibes`,
+    `aesthetic ${base} inspo`,
+    `trending ${base} ideas 2024`,
+    `trending ${base} ideas 2025`,
+    `unique ${base} nobody has seen`,
+    `diy ${base} step by step`,
+    `luxury ${base} ideas`,
+    `simple ${base} for small spaces`,
+    `creative ${base} tutorial`,
+    `gorgeous ${base} inspiration`,
+    `budget friendly ${base} ideas`,
+    `most popular ${base} on pinterest`,
+    `viral ${base} ideas`,
+    `cute ${base} for beginners`,
   ];
-  broadCombos.forEach((kw) => add(kw, "broad", 3000, 120000));
+  phraseCombos.forEach((v) => add(v, "phrase", 5000, 280000));
 
-  // seasonal / event variants
-  const seasons = ["spring", "summer", "fall", "winter", "holiday", "christmas", "halloween"];
-  seasons.forEach((s) => {
-    add(`${s} ${base}`, "broad", 5000, 300000);
-    add(`${base} for ${s}`, "broad", 3000, 200000);
+  // ── BROAD MATCH ───────────────────────────────────────────────────────────
+  // Ads can show for related searches, synonyms, and similar concepts.
+  // These do NOT necessarily contain the original keyword words.
+  // e.g. "running shoes" → "jogging sneakers", "athletic footwear", "sports shoes"
+
+  const synonyms = getSynonyms(base);
+
+  // Synonym keywords on their own (the core of true broad match)
+  synonyms.forEach((s) => {
+    add(s, "broad", 15000, 700000);
+    add(`${s} ideas`, "broad", 8000, 400000);
+    add(`${s} inspiration`, "broad", 6000, 300000);
+    add(`best ${s}`, "broad", 5000, 250000);
+    add(`${s} aesthetic`, "broad", 4000, 200000);
+    add(`${s} tips`, "broad", 3000, 180000);
+    add(`${s} 2024`, "broad", 3000, 150000);
+    add(`${s} 2025`, "broad", 2000, 120000);
+    add(`${s} for beginners`, "broad", 2000, 100000);
+    add(`${s} on a budget`, "broad", 2000, 90000);
   });
+
+  // Related intent / category-level concepts (broader audience discovery)
+  const broadRelated = [
+    `pinterest ${base} board`,
+    `${base} mood board`,
+    `most saved ${base} pins`,
+    `${base} pin ideas`,
+    `${base} board aesthetic`,
+    `how to start ${base}`,
+    `${base} for your home`,
+    `${base} influencer favorites`,
+    `${base} celebrity style`,
+    `what is ${base}`,
+    `${base} meaning`,
+    `${base} examples`,
+    `${base} 101`,
+    `types of ${base}`,
+    `${base} brands`,
+    `${base} products`,
+    `where to buy ${base}`,
+    `${base} shopping ideas`,
+  ];
+  broadRelated.forEach((v) => add(v, "broad", 1500, 160000));
 
   return results;
 }
