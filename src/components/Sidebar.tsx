@@ -17,7 +17,7 @@ const NAV_ITEMS = [
   { href: "/keywords", icon: Search, label: "Keyword Research" },
   { href: "/pin-analysis", icon: LineChart, label: "Pin Analysis" },
   { href: "/scheduler", icon: Calendar, label: "Pin Scheduler" },
-  { href: "/ads", icon: Megaphone, label: "Ads Manager" },
+  { href: "/ads", icon: Megaphone, label: "Pinterest Ads" },
 ];
 
 export default function Sidebar() {
