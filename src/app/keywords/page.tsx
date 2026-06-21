@@ -10,11 +10,30 @@ import {
 import { cn } from "@/lib/utils";
 
 type SortKey = "volume" | "trend" | "competition" | "cpc";
+type MatchFilter = "all" | "broad" | "phrase" | "exact";
 
 const COMPETITION_COLOR: Record<string, string> = {
   low: "bg-green-100 text-green-700",
   medium: "bg-yellow-100 text-yellow-700",
   high: "bg-red-100 text-red-700",
+};
+
+const MATCH_COLOR: Record<string, string> = {
+  broad: "bg-blue-100 text-blue-700",
+  phrase: "bg-purple-100 text-purple-700",
+  exact: "bg-orange-100 text-orange-700",
+};
+
+const MATCH_LABEL: Record<string, string> = {
+  broad: "Broad",
+  phrase: "Phrase",
+  exact: "Exact",
+};
+
+const MATCH_DESC: Record<string, string> = {
+  broad:  "Broad — widest reach, loosest relevance",
+  phrase: "Phrase — balanced reach & relevance",
+  exact:  "Exact — tightest relevance, highest intent",
 };
 
 export default function KeywordsPage() {
@@ -27,14 +46,16 @@ export default function KeywordsPage() {
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [sortAsc, setSortAsc] = useState(false);
   const [saved, setSaved] = useState<Set<string>>(new Set());
+  const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
 
   const handleSearch = useCallback((q: string) => {
     if (!q.trim()) return;
     setLoading(true);
+    setMatchFilter("all");
     setTimeout(() => {
       setResults(generateKeywords(q));
       setLoading(false);
-    }, 600);
+    }, 700);
   }, []);
 
   const handleCategoryClick = (catId: string, catName: string) => {
@@ -55,7 +76,9 @@ export default function KeywordsPage() {
     handleSearch(sub);
   };
 
-  const sorted = [...results].sort((a, b) => {
+  const filtered = matchFilter === "all" ? results : results.filter((r) => r.matchType === matchFilter);
+
+  const sorted = [...filtered].sort((a, b) => {
     let diff = 0;
     if (sortKey === "volume") diff = a.volume - b.volume;
     else if (sortKey === "trend") diff = a.trend - b.trend;
@@ -80,9 +103,26 @@ export default function KeywordsPage() {
     });
   };
 
+  const countByMatch = (type: MatchFilter) =>
+    type === "all" ? results.length : results.filter((r) => r.matchType === type).length;
+
+  const handleExport = () => {
+    const header = "Keyword,Match Type,Monthly Volume,Trend %,Competition,Avg CPC\n";
+    const rows = sorted
+      .map((r) => `"${r.keyword}",${r.matchType},${r.volume},${r.trend}%,${r.competition},$${r.cpc}`)
+      .join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pinterest-keywords-${query.replace(/\s+/g, "-")}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
-      <Header title="Keyword Research" subtitle="Discover high-volume Pinterest keywords by category or search term" />
+      <Header title="Keyword Research" subtitle="Discover 100+ closely relevant Pinterest keywords by match type" />
       <div className="flex h-[calc(100vh-73px)]">
         {/* Sidebar: Categories */}
         <aside className="w-72 bg-white border-r border-gray-100 overflow-y-auto flex-shrink-0 scrollbar-thin">
@@ -135,7 +175,7 @@ export default function KeywordsPage() {
         {/* Main Content */}
         <div className="flex-1 overflow-auto">
           {/* Search Bar */}
-          <div className="p-6 pb-4">
+          <div className="p-6 pb-4 space-y-3">
             <div className="flex gap-3">
               <div className="flex-1 relative">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -164,7 +204,7 @@ export default function KeywordsPage() {
 
             {/* Active Filters */}
             {(selectedCategory || selectedSubcategory) && (
-              <div className="flex items-center gap-2 mt-3">
+              <div className="flex items-center gap-2">
                 <Filter className="w-3.5 h-3.5 text-gray-400" />
                 <span className="text-xs text-gray-500">Filtered by:</span>
                 {selectedCategory && (
@@ -181,6 +221,36 @@ export default function KeywordsPage() {
                 )}
               </div>
             )}
+
+            {/* Match Type Filter — shown only when there are results */}
+            {results.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-medium text-gray-500">Match type:</span>
+                {(["all", "exact", "phrase", "broad"] as MatchFilter[]).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setMatchFilter(type)}
+                    className={cn(
+                      "text-xs px-3 py-1.5 rounded-lg font-semibold border transition-all",
+                      matchFilter === type
+                        ? type === "all"
+                          ? "bg-gray-800 text-white border-gray-800"
+                          : type === "exact"
+                          ? "bg-orange-500 text-white border-orange-500"
+                          : type === "phrase"
+                          ? "bg-purple-600 text-white border-purple-600"
+                          : "bg-blue-600 text-white border-blue-600"
+                        : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                    )}
+                  >
+                    {type === "all" ? `All (${countByMatch("all")})` : `${MATCH_LABEL[type]} (${countByMatch(type)})`}
+                  </button>
+                ))}
+                <span className="text-xs text-gray-400 ml-1 hidden lg:inline">
+                  {matchFilter !== "all" ? MATCH_DESC[matchFilter] : "Showing all match types"}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Results */}
@@ -188,17 +258,23 @@ export default function KeywordsPage() {
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <div className="w-10 h-10 border-4 border-[#e60023]/20 border-t-[#e60023] rounded-full animate-spin mb-4" />
-                <p className="text-sm text-gray-500">Analyzing keyword data...</p>
+                <p className="text-sm text-gray-500">Generating keyword ideas...</p>
               </div>
-            ) : results.length > 0 ? (
+            ) : sorted.length > 0 ? (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                 {/* Table Header */}
                 <div className="flex items-center justify-between p-4 border-b border-gray-100">
                   <div className="flex items-center gap-2">
                     <BarChart2 className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm font-semibold text-gray-700">{results.length} keywords found</span>
+                    <span className="text-sm font-semibold text-gray-700">
+                      {sorted.length} keyword{sorted.length !== 1 ? "s" : ""}
+                      {matchFilter !== "all" ? ` · ${MATCH_LABEL[matchFilter]} match` : ""}
+                    </span>
                   </div>
-                  <button className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-3 py-1.5 rounded-lg">
+                  <button
+                    onClick={handleExport}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
                     <Download className="w-3.5 h-3.5" />
                     Export CSV
                   </button>
@@ -208,6 +284,7 @@ export default function KeywordsPage() {
                     <thead>
                       <tr className="bg-gray-50 text-left">
                         <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Keyword</th>
+                        <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Match Type</th>
                         {(["volume", "trend", "competition", "cpc"] as SortKey[]).map((key) => (
                           <th
                             key={key}
@@ -228,6 +305,11 @@ export default function KeywordsPage() {
                         <tr key={kw.keyword} className="hover:bg-gray-50/50 transition-colors">
                           <td className="px-4 py-3">
                             <span className="text-sm font-medium text-gray-800">{kw.keyword}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={cn("text-xs px-2.5 py-1 rounded-full font-semibold capitalize", MATCH_COLOR[kw.matchType])}>
+                              {MATCH_LABEL[kw.matchType]}
+                            </span>
                           </td>
                           <td className="px-4 py-3">
                             <span className="text-sm font-semibold text-gray-900">{formatNumber(kw.volume)}</span>
@@ -263,15 +345,23 @@ export default function KeywordsPage() {
                   </table>
                 </div>
               </div>
-            ) : (
+            ) : results.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 text-center">
                 <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
                   <Search className="w-7 h-7 text-gray-400" />
                 </div>
                 <h3 className="text-base font-semibold text-gray-700 mb-1">Start your keyword research</h3>
                 <p className="text-sm text-gray-400 max-w-sm">
-                  Search for any topic or click a category on the left to discover high-volume Pinterest keywords.
+                  Search for any topic or click a category to discover 100+ relevant Pinterest keywords across broad, phrase, and exact match types.
                 </p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mb-3">
+                  <Filter className="w-5 h-5 text-gray-400" />
+                </div>
+                <p className="text-sm text-gray-500">No keywords for this match type filter.</p>
+                <button onClick={() => setMatchFilter("all")} className="text-xs text-[#e60023] mt-2 hover:underline">Show all match types</button>
               </div>
             )}
           </div>

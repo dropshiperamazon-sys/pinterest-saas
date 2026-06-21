@@ -223,56 +223,151 @@ export const PINTEREST_CATEGORIES = [
   },
 ];
 
-export const MOCK_KEYWORDS: Record<string, KeywordResult[]> = {
-  default: [
-    { keyword: "home decor ideas", volume: 2400000, trend: 12, competition: "medium", category: "Home Decor", cpc: 0.85 },
-    { keyword: "wedding dress", volume: 1800000, trend: 5, competition: "high", category: "Weddings", cpc: 1.20 },
-    { keyword: "healthy recipes", volume: 3200000, trend: 18, competition: "high", category: "Food & Drink", cpc: 0.65 },
-    { keyword: "workout routine", volume: 1500000, trend: 22, competition: "medium", category: "Health & Fitness", cpc: 0.90 },
-    { keyword: "nail art designs", volume: 2100000, trend: 8, competition: "low", category: "Fashion & Beauty", cpc: 0.45 },
-    { keyword: "travel photography", volume: 980000, trend: 15, competition: "medium", category: "Travel", cpc: 0.75 },
-    { keyword: "DIY crafts", volume: 1600000, trend: 10, competition: "low", category: "Home Decor", cpc: 0.55 },
-    { keyword: "baby shower ideas", volume: 1200000, trend: 3, competition: "medium", category: "Kids & Parenting", cpc: 0.80 },
-  ],
-};
+export const MOCK_KEYWORDS: Record<string, KeywordResult[]> = { default: [] };
+
+function rand(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+function randComp(): "low" | "medium" | "high" {
+  return (["low", "medium", "high"] as const)[rand(0, 2)];
+}
+function randCpc() {
+  return parseFloat((Math.random() * 2.5 + 0.1).toFixed(2));
+}
+function randTrend() {
+  return rand(-15, 45);
+}
 
 export function generateKeywords(query: string): KeywordResult[] {
-  const base = query.toLowerCase();
-  const suffixes = ["ideas", "inspiration", "tips", "tutorial", "design", "aesthetic", "2024", "trends", "diy", "easy"];
-  const prefixes = ["best", "beautiful", "modern", "simple", "unique", "creative", "minimalist", "boho"];
-
+  const base = query.toLowerCase().trim();
+  const words = base.split(" ");
   const results: KeywordResult[] = [];
+  const seen = new Set<string>();
 
-  // Main keyword
-  results.push({
-    keyword: base,
-    volume: Math.floor(Math.random() * 2000000) + 100000,
-    trend: Math.floor(Math.random() * 40) - 10,
-    competition: ["low", "medium", "high"][Math.floor(Math.random() * 3)] as "low" | "medium" | "high",
-    category: "General",
-    cpc: parseFloat((Math.random() * 2 + 0.1).toFixed(2)),
+  const add = (
+    keyword: string,
+    matchType: "broad" | "phrase" | "exact",
+    volumeMin: number,
+    volumeMax: number
+  ) => {
+    const kw = keyword.trim().toLowerCase();
+    if (!kw || seen.has(kw)) return;
+    seen.add(kw);
+    results.push({
+      keyword: kw,
+      matchType,
+      volume: rand(volumeMin, volumeMax),
+      trend: randTrend(),
+      competition: randComp(),
+      category: "General",
+      cpc: randCpc(),
+    });
+  };
+
+  // ── EXACT MATCH (highest volume, tightest relevance) ──────────────────────
+  add(base, "exact", 400000, 3000000);
+
+  const exactModifiers = [
+    "ideas", "inspiration", "aesthetic", "design", "style", "tutorial",
+    "tips", "diy", "easy", "simple", "modern", "ideas 2024", "ideas 2025",
+    "trends 2024", "trends 2025", "for beginners", "step by step",
+  ];
+  exactModifiers.forEach((m) => {
+    add(`${base} ${m}`, "exact", 80000, 1200000);
+    if (words.length === 1) add(`${m} ${base}`, "exact", 50000, 900000);
   });
 
-  suffixes.slice(0, 6).forEach((suffix) => {
-    results.push({
-      keyword: `${base} ${suffix}`,
-      volume: Math.floor(Math.random() * 1500000) + 50000,
-      trend: Math.floor(Math.random() * 40) - 10,
-      competition: ["low", "medium", "high"][Math.floor(Math.random() * 3)] as "low" | "medium" | "high",
-      category: "General",
-      cpc: parseFloat((Math.random() * 2 + 0.1).toFixed(2)),
-    });
-  });
+  const exactPrefixes = [
+    "best", "beautiful", "unique", "creative", "minimalist", "boho",
+    "aesthetic", "cute", "elegant", "luxury", "budget", "diy",
+  ];
+  exactPrefixes.forEach((p) => add(`${p} ${base}`, "exact", 40000, 800000));
 
-  prefixes.slice(0, 4).forEach((prefix) => {
-    results.push({
-      keyword: `${prefix} ${base}`,
-      volume: Math.floor(Math.random() * 1000000) + 30000,
-      trend: Math.floor(Math.random() * 40) - 10,
-      competition: ["low", "medium", "high"][Math.floor(Math.random() * 3)] as "low" | "medium" | "high",
-      category: "General",
-      cpc: parseFloat((Math.random() * 2 + 0.1).toFixed(2)),
+  const exactSuffixes = [
+    "on a budget", "for small spaces", "on pinterest", "that are trending",
+    "for home", "for bedroom", "for living room", "for women", "for men",
+    "for kids", "for beginners", "that wow", "under $50", "ideas cheap",
+  ];
+  exactSuffixes.forEach((s) => add(`${base} ${s}`, "exact", 20000, 500000));
+
+  // ── PHRASE MATCH (medium relevance, broader) ───────────────────────────────
+  const phrasePrefixes = [
+    "how to", "how to make", "how to style", "how to create", "how to diy",
+    "what is", "best way to", "easy way to", "quick", "cheap", "affordable",
+    "trendy", "popular", "viral", "aesthetic", "pinterest worthy",
+  ];
+  phrasePrefixes.forEach((p) => add(`${p} ${base}`, "phrase", 15000, 450000));
+
+  const phraseSuffixes = [
+    "ideas and inspiration", "design ideas", "style guide", "color palette",
+    "mood board", "aesthetic board", "how to guide", "complete guide",
+    "tips and tricks", "before and after", "transformation", "makeover",
+    "inspo", "goals", "vibes", "look", "theme", "collection", "checklist",
+    "hacks", "101", "for instagram", "photo ideas", "pin ideas",
+  ];
+  phraseSuffixes.forEach((s) => add(`${base} ${s}`, "phrase", 10000, 350000));
+
+  // multi-word phrase expansions
+  if (words.length > 1) {
+    words.forEach((w, i) => {
+      if (w.length < 3) return;
+      const rest = words.filter((_, j) => j !== i).join(" ");
+      add(`${rest} ${w} ideas`, "phrase", 8000, 200000);
+      add(`best ${rest} ${w}`, "phrase", 5000, 150000);
     });
+  } else {
+    const topicExpanders = [
+      "room", "bedroom", "living room", "kitchen", "bathroom", "garden",
+      "outdoor", "indoor", "home", "office", "apartment", "small space",
+      "wall", "floor", "ceiling",
+    ];
+    topicExpanders.forEach((t) => {
+      add(`${base} ${t}`, "phrase", 10000, 400000);
+      add(`${t} ${base}`, "phrase", 8000, 300000);
+    });
+  }
+
+  // ── BROAD MATCH (loosest, highest reach) ──────────────────────────────────
+  const broadSuffixes = [
+    "photos", "pictures", "images", "wallpaper", "background", "quotes",
+    "aesthetic quotes", "funny", "cute", "pretty", "beautiful", "amazing",
+    "stunning", "gorgeous", "perfect", "dreamy", "cozy", "chic", "bold",
+    "neutral", "colorful", "pastel", "dark", "light", "white", "black",
+    "pink", "blue", "green", "gold", "silver", "rustic", "farmhouse",
+    "scandinavian", "bohemian", "vintage", "retro", "classic", "modern",
+    "contemporary", "industrial", "eclectic",
+  ];
+  broadSuffixes.forEach((s) => add(`${base} ${s}`, "broad", 5000, 250000));
+
+  const broadCombos = [
+    `${base} on a budget diy`,
+    `cheap ${base} ideas that look expensive`,
+    `pinterest ${base} board ideas`,
+    `${base} board pinterest`,
+    `easy ${base} for beginners tutorial`,
+    `${base} inspiration board aesthetic`,
+    `trending ${base} 2024 ideas`,
+    `trending ${base} 2025 ideas`,
+    `${base} ideas you haven't seen`,
+    `unique ${base} nobody talks about`,
+    `${base} that went viral on pinterest`,
+    `affordable ${base} ideas`,
+    `luxury ${base} ideas`,
+    `minimalist ${base} aesthetic`,
+    `${base} color scheme ideas`,
+    `${base} layout ideas`,
+    `${base} product recommendations`,
+    `top ${base} pins`,
+    `most saved ${base} pins`,
+    `${base} mood board ideas`,
+  ];
+  broadCombos.forEach((kw) => add(kw, "broad", 3000, 120000));
+
+  // seasonal / event variants
+  const seasons = ["spring", "summer", "fall", "winter", "holiday", "christmas", "halloween"];
+  seasons.forEach((s) => {
+    add(`${s} ${base}`, "broad", 5000, 300000);
+    add(`${base} for ${s}`, "broad", 3000, 200000);
   });
 
   return results;
@@ -280,6 +375,7 @@ export function generateKeywords(query: string): KeywordResult[] {
 
 export interface KeywordResult {
   keyword: string;
+  matchType: "broad" | "phrase" | "exact";
   volume: number;
   trend: number;
   competition: "low" | "medium" | "high";
