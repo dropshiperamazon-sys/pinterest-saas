@@ -4,7 +4,7 @@ import Sidebar from "@/components/Sidebar";
 import SessionProvider from "@/components/SessionProvider";
 
 export const metadata: Metadata = {
-  title: "Grow Pin Pro - Pinterest Marketing Suite",
+  title: "My Pin Pro - Pinterest Marketing Suite",
   description: "Keyword research, pin scheduler, and ads manager for Pinterest marketers",
 };
 

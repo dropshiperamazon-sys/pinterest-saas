@@ -35,7 +35,7 @@ export default function Sidebar() {
           <div className="w-8 h-8 bg-[#e60023] rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">P</span>
           </div>
-          <span className="font-bold text-gray-900 text-lg">Grow Pin Pro</span>
+          <span className="font-bold text-gray-900 text-lg">My Pin Pro</span>
           <span className="text-xs bg-[#e60023] text-white px-1.5 py-0.5 rounded font-medium">PRO</span>
         </Link>
       </div>
