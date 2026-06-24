@@ -577,7 +577,7 @@ export default function SchedulerPage() {
                   Connect your Pinterest account
                   <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">Required</span>
                 </div>
-                <div className="text-sm text-gray-500">Authorize PinPro to publish and schedule pins on your behalf.</div>
+                <div className="text-sm text-gray-500">Authorize Grow Pin Pro to publish and schedule pins on your behalf.</div>
               </div>
             </div>
             <button
