@@ -9,7 +9,7 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-2">1. Introduction</h2>
           <p>
             Grow Pin Pro ("we", "us", or "our") operates the PinPro platform available at{" "}
-            <strong>https://pinterest-saas-delta.vercel.app</strong>. This Privacy Policy explains how we
+            <strong>https://pin-saas-5eb4.vercel.app</strong>. This Privacy Policy explains how we
             collect, use, and protect your information when you use our service.
           </p>
         </section>
