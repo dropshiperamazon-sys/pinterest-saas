@@ -65,13 +65,13 @@ export default function Sidebar() {
 
       {/* Pinterest Account */}
       <div className="px-4 pb-2">
-        {session ? (
+        {(session as { accessToken?: string } | null)?.accessToken ? (
           <div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-3 py-2.5">
             <div className="w-7 h-7 bg-[#e60023] rounded-lg flex items-center justify-center flex-shrink-0">
               <span className="text-white text-xs font-bold">P</span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-gray-800 truncate">{session.user?.name}</p>
+              <p className="text-xs font-semibold text-gray-800 truncate">{session?.user?.name}</p>
               <p className="text-xs text-green-600">Connected</p>
             </div>
             <button onClick={() => signOut()} title="Disconnect">
@@ -80,7 +80,7 @@ export default function Sidebar() {
           </div>
         ) : (
           <button
-            onClick={() => signIn("pinterest", { callbackUrl: "/scheduler" })}
+            onClick={() => signIn("pinterest", { callbackUrl: "/connect" })}
             className="w-full flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 hover:bg-gray-100 transition-colors"
           >
             <LogIn className="w-4 h-4 text-[#e60023]" />
