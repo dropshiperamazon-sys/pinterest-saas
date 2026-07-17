@@ -38,8 +38,7 @@ export async function GET() {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) {
-      const err = await res.text();
-      console.error("Pinterest analytics error:", res.status, err);
+      console.error("Pinterest analytics error:", res.status, await res.text());
       return null;
     }
     return res.json();
@@ -50,22 +49,16 @@ export async function GET() {
     fetchAnalytics(prevStart, prevEnd),
   ]);
 
-  // Pinterest v5 analytics response shape:
-  // { all: { daily_metrics: [{ date, data_status, metrics: { IMPRESSION: n, PIN_CLICK: n } }], summary_metrics: { IMPRESSION: n, PIN_CLICK: n } } }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function extractMetric(data: any, metric: string): number {
     if (!data) return 0;
-    // Try summary_metrics first (most reliable)
     if (data?.all?.summary_metrics?.[metric] !== undefined) {
       return Number(data.all.summary_metrics[metric]) || 0;
     }
-    // Fall back to summing daily_metrics
     const daily = data?.all?.daily_metrics;
     if (Array.isArray(daily)) {
       return daily.reduce((sum: number, day: { metrics?: Record<string, number>; metric_type?: string; value?: number }) => {
-        // shape A: { metrics: { IMPRESSION: n } }
         if (day.metrics?.[metric] !== undefined) return sum + (Number(day.metrics[metric]) || 0);
-        // shape B: { metric_type: "IMPRESSION", value: n }
         if (day.metric_type === metric) return sum + (Number(day.value) || 0);
         return sum;
       }, 0);
@@ -73,11 +66,28 @@ export async function GET() {
     return 0;
   }
 
+  // Build daily chart data from current period
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const daily: { date: string; impressions: number; clicks: number; saves: number }[] = [];
+  const dailyMetrics = current?.all?.daily_metrics;
+  if (Array.isArray(dailyMetrics)) {
+    for (const day of dailyMetrics) {
+      if (day.data_status === "PROCESSING") continue;
+      daily.push({
+        date: day.date,
+        impressions: Number(day.metrics?.IMPRESSION || 0),
+        clicks: Number(day.metrics?.PIN_CLICK || 0),
+        saves: Number(day.metrics?.SAVE || 0),
+      });
+    }
+  }
+
   const impressions = extractMetric(current, "IMPRESSION");
   const pinClicks = extractMetric(current, "PIN_CLICK");
   const saves = extractMetric(current, "SAVE");
   const prevImpressions = extractMetric(previous, "IMPRESSION");
   const prevPinClicks = extractMetric(previous, "PIN_CLICK");
+  const prevSaves = extractMetric(previous, "SAVE");
 
   function pctChange(curr: number, prev: number) {
     if (!prev) return null;
@@ -90,8 +100,8 @@ export async function GET() {
     saves,
     impressionsChange: pctChange(impressions, prevImpressions),
     pinClicksChange: pctChange(pinClicks, prevPinClicks),
+    savesChange: pctChange(saves, prevSaves),
+    daily,
     period: { startDate, endDate },
-    // Include raw for debugging (remove later)
-    _raw: current,
   });
 }

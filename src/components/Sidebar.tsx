@@ -12,12 +12,14 @@ import {
   ChevronRight,
   Zap,
   LineChart,
+  BarChart2,
   LogIn,
   LogOut,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/analytics", icon: BarChart2, label: "Analytics" },
   { href: "/keywords", icon: Search, label: "Keyword Research" },
   { href: "/pin-analysis", icon: LineChart, label: "Pin Analysis" },
   { href: "/scheduler", icon: Calendar, label: "Pin Scheduler" },
