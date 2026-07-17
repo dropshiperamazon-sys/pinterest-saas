@@ -506,16 +506,12 @@ function DraftCard({
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1.5">Pin Image</label>
             {draft.imageUrl && draft.imageUrl.startsWith("data:") ? (
-              <div className="flex items-center gap-3 bg-gray-50 border border-gray-200 rounded-xl p-2">
+              <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 w-3/5 mx-auto">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={draft.imageUrl} alt="Pin preview" className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-gray-700 truncate">Image uploaded</p>
-                  <p className="text-xs text-gray-400">Ready to schedule</p>
-                </div>
+                <img src={draft.imageUrl} alt="Pin preview" className="w-full h-auto object-contain max-h-56" />
                 <button
                   onClick={() => set("imageUrl", "")}
-                  className="p-1.5 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 transition-colors flex-shrink-0"
+                  className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black/80"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
