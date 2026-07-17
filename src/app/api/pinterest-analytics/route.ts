@@ -40,43 +40,44 @@ export async function GET(req: NextRequest) {
   prevStart.setDate(prevStart.getDate() - span);
   const prevStartStr = prevStart.toISOString().slice(0, 10);
 
-  async function fetchMetrics(start: string, end: string, metrics: string) {
-    const params = new URLSearchParams({ start_date: start, end_date: end, metric_types: metrics });
+  async function fetchMetrics(start: string, end: string) {
+    const params = new URLSearchParams({
+      start_date: start,
+      end_date: end,
+      metric_types: "IMPRESSION,PIN_CLICK,SAVE",
+    });
     const res = await fetch(`https://api.pinterest.com/v5/user_account/analytics?${params}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) {
-      const err = await res.text();
-      console.error(`Pinterest analytics [${metrics}] error ${res.status}:`, err);
+      console.error(`Pinterest analytics error ${res.status}:`, await res.text());
       return null;
     }
     return res.json();
   }
 
-  // Fetch core metrics and audience metrics separately — some accounts only support a subset
-  const [coreCurrent, corePrev, audCurrent, audPrev] = await Promise.all([
-    fetchMetrics(startDate, endDate, "IMPRESSION,PIN_CLICK,SAVE"),
-    fetchMetrics(prevStartStr, prevEndStr, "IMPRESSION,PIN_CLICK,SAVE"),
-    fetchMetrics(startDate, endDate, "TOTAL_AUDIENCE,ENGAGED_AUDIENCE,ENGAGEMENT"),
-    fetchMetrics(prevStartStr, prevEndStr, "TOTAL_AUDIENCE,ENGAGED_AUDIENCE,ENGAGEMENT"),
+  const [current, previous] = await Promise.all([
+    fetchMetrics(startDate, endDate),
+    fetchMetrics(prevStartStr, prevEndStr),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function extract(data: any, metric: string): number {
     if (!data) return 0;
-    // Try summary_metrics first
     if (data?.all?.summary_metrics?.[metric] !== undefined)
       return Number(data.all.summary_metrics[metric]) || 0;
-    // Fall back to summing daily_metrics
     const daily = data?.all?.daily_metrics;
     if (Array.isArray(daily)) {
-      return daily.reduce((sum: number, day: { metrics?: Record<string, number>; metric_type?: string; value?: number }) => {
-        if (day.metrics?.[metric] !== undefined) return sum + (Number(day.metrics[metric]) || 0);
-        if (day.metric_type === metric) return sum + (Number(day.value) || 0);
-        return sum;
+      return daily.reduce((sum: number, day: { metrics?: Record<string, number> }) => {
+        return sum + (Number(day.metrics?.[metric]) || 0);
       }, 0);
     }
     return 0;
+  }
+
+  function rate(num: number, denom: number): number {
+    if (!denom) return 0;
+    return Math.round((num / denom) * 10000) / 100; // percentage, 2dp
   }
 
   function pct(curr: number, prev: number): number | null {
@@ -84,61 +85,56 @@ export async function GET(req: NextRequest) {
     return Math.round(((curr - prev) / prev) * 1000) / 10;
   }
 
-  // Build daily chart data from core metrics
-  const dailyMap: Record<string, { impressions: number; clicks: number; saves: number; engagements: number; totalAudience: number; engagedAudience: number }> = {};
-
-  const coreDaily = coreCurrent?.all?.daily_metrics;
-  if (Array.isArray(coreDaily)) {
-    for (const day of coreDaily) {
+  // Build daily data for charts
+  const daily: { date: string; impressions: number; clicks: number; saves: number; ctr: number; saveRate: number }[] = [];
+  const dailyMetrics = current?.all?.daily_metrics;
+  if (Array.isArray(dailyMetrics)) {
+    for (const day of dailyMetrics) {
       if (day.data_status === "PROCESSING") continue;
-      dailyMap[day.date] = {
-        impressions: Number(day.metrics?.IMPRESSION || 0),
-        clicks: Number(day.metrics?.PIN_CLICK || 0),
-        saves: Number(day.metrics?.SAVE || 0),
-        engagements: 0,
-        totalAudience: 0,
-        engagedAudience: 0,
-      };
+      const imp = Number(day.metrics?.IMPRESSION || 0);
+      const clk = Number(day.metrics?.PIN_CLICK || 0);
+      const sav = Number(day.metrics?.SAVE || 0);
+      daily.push({
+        date: day.date,
+        impressions: imp,
+        clicks: clk,
+        saves: sav,
+        ctr: rate(clk, imp),
+        saveRate: rate(sav, imp),
+      });
     }
+    daily.sort((a, b) => a.date.localeCompare(b.date));
   }
 
-  const audDaily = audCurrent?.all?.daily_metrics;
-  if (Array.isArray(audDaily)) {
-    for (const day of audDaily) {
-      if (day.data_status === "PROCESSING") continue;
-      if (!dailyMap[day.date]) {
-        dailyMap[day.date] = { impressions: 0, clicks: 0, saves: 0, engagements: 0, totalAudience: 0, engagedAudience: 0 };
-      }
-      dailyMap[day.date].engagements = Number(day.metrics?.ENGAGEMENT || 0);
-      dailyMap[day.date].totalAudience = Number(day.metrics?.TOTAL_AUDIENCE || 0);
-      dailyMap[day.date].engagedAudience = Number(day.metrics?.ENGAGED_AUDIENCE || 0);
-    }
-  }
+  const impressions = extract(current, "IMPRESSION");
+  const pinClicks = extract(current, "PIN_CLICK");
+  const saves = extract(current, "SAVE");
+  const prevImpressions = extract(previous, "IMPRESSION");
+  const prevPinClicks = extract(previous, "PIN_CLICK");
+  const prevSaves = extract(previous, "SAVE");
 
-  const daily = Object.entries(dailyMap)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, v]) => ({ date, ...v }));
+  // Computed metrics from the data we have
+  const ctr = rate(pinClicks, impressions);
+  const saveRate = rate(saves, impressions);
+  const engagementRate = rate(pinClicks + saves, impressions);
 
-  const impressions = extract(coreCurrent, "IMPRESSION");
-  const pinClicks = extract(coreCurrent, "PIN_CLICK");
-  const saves = extract(coreCurrent, "SAVE");
-  const engagements = extract(audCurrent, "ENGAGEMENT");
-  const totalAudience = extract(audCurrent, "TOTAL_AUDIENCE");
-  const engagedAudience = extract(audCurrent, "ENGAGED_AUDIENCE");
+  const prevCtr = rate(prevPinClicks, prevImpressions);
+  const prevSaveRate = rate(prevSaves, prevImpressions);
+  const prevEngagementRate = rate(prevPinClicks + prevSaves, prevImpressions);
 
   return NextResponse.json({
     impressions,
     pinClicks,
     saves,
-    engagements,
-    totalAudience,
-    engagedAudience,
-    impressionsChange: pct(impressions, extract(corePrev, "IMPRESSION")),
-    pinClicksChange: pct(pinClicks, extract(corePrev, "PIN_CLICK")),
-    savesChange: pct(saves, extract(corePrev, "SAVE")),
-    engagementsChange: pct(engagements, extract(audPrev, "ENGAGEMENT")),
-    totalAudienceChange: pct(totalAudience, extract(audPrev, "TOTAL_AUDIENCE")),
-    engagedAudienceChange: pct(engagedAudience, extract(audPrev, "ENGAGED_AUDIENCE")),
+    ctr,
+    saveRate,
+    engagementRate,
+    impressionsChange: pct(impressions, prevImpressions),
+    pinClicksChange: pct(pinClicks, prevPinClicks),
+    savesChange: pct(saves, prevSaves),
+    ctrChange: pct(ctr, prevCtr),
+    saveRateChange: pct(saveRate, prevSaveRate),
+    engagementRateChange: pct(engagementRate, prevEngagementRate),
     daily,
     period: { startDate, endDate },
   });
