@@ -549,7 +549,7 @@ function DraftCard({
 
 export default function SchedulerPage() {
   const [scheduled, setScheduled] = useState<ScheduledPin[]>([]);
-  const [drafts, setDrafts] = useState<PinDraft[]>([newDraft()]);
+  const [drafts, setDrafts] = useState<PinDraft[]>([newDraft(), newDraft(), newDraft()]);
   const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
