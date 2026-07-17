@@ -289,6 +289,7 @@ function DraftCard({
   onChange,
   onRemove,
   onAiOpen,
+  onSchedule,
   isOnly,
   boards,
   boardsLoading,
@@ -298,6 +299,7 @@ function DraftCard({
   onChange: (updated: PinDraft) => void;
   onRemove: () => void;
   onAiOpen: () => void;
+  onSchedule: () => void;
   isOnly: boolean;
   boards: { id: string; name: string }[];
   boardsLoading: boolean;
@@ -539,6 +541,16 @@ function DraftCard({
             </div>
           </div>
 
+          {/* Schedule button */}
+          <button
+            onClick={onSchedule}
+            disabled={!draft.title || !draft.date || !draft.time}
+            className="w-full flex items-center justify-center gap-2 bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            Schedule This Pin
+          </button>
+
         </div>
       )}
     </div>
@@ -610,6 +622,31 @@ export default function SchedulerPage() {
       d.map((dr) => dr.id === aiTarget ? { ...dr, title, description, pinType } : dr)
     );
     setAiTarget(null);
+  };
+
+  const scheduleSingle = async (draftId: string) => {
+    const d = drafts.find((dr) => dr.id === draftId);
+    if (!d || !d.title || !d.date || !d.time) return;
+    try {
+      const res = await fetch("/api/schedule-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: d.title,
+          description: d.description,
+          imageUrl: d.imageUrl,
+          board: d.board,
+          link: d.link,
+          pinType: d.pinType,
+          scheduledAt: `${d.date}T${d.time}:00`,
+        }),
+      });
+      const json = await res.json();
+      if (json.pin) {
+        setScheduled((s) => [json.pin, ...s]);
+        setDrafts((prev) => prev.map((dr) => dr.id === draftId ? newDraft() : dr));
+      }
+    } catch { /* non-fatal */ }
   };
 
   const scheduleAll = async () => {
@@ -806,6 +843,7 @@ export default function SchedulerPage() {
                   onChange={(updated) => updateDraft(draft.id, updated)}
                   onRemove={() => removeDraft(draft.id)}
                   onAiOpen={() => setAiTarget(draft.id)}
+                  onSchedule={() => scheduleSingle(draft.id)}
                   isOnly={drafts.length === 1}
                   boards={boards}
                   boardsLoading={boardsLoading}
