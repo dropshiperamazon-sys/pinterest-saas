@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { formatNumber } from "@/lib/utils";
 import {
   Eye, MousePointerClick, Heart, ArrowUpRight, ArrowDownRight,
-  Loader2, TrendingUp, Percent, Activity, Calendar,
+  Loader2, TrendingUp, Percent, Activity, ExternalLink, Calendar, Zap,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -14,8 +14,10 @@ import {
 interface DayData {
   date: string;
   impressions: number;
-  clicks: number;
+  pinClicks: number;
+  outboundClicks: number;
   saves: number;
+  engagements: number;
   ctr: number;
   saveRate: number;
 }
@@ -23,16 +25,18 @@ interface DayData {
 interface Analytics {
   impressions: number;
   pinClicks: number;
+  outboundClicks: number;
   saves: number;
+  engagements: number;
   ctr: number;
   saveRate: number;
-  engagementRate: number;
   impressionsChange: number | null;
   pinClicksChange: number | null;
+  outboundClicksChange: number | null;
   savesChange: number | null;
+  engagementsChange: number | null;
   ctrChange: number | null;
   saveRateChange: number | null;
-  engagementRateChange: number | null;
   daily: DayData[];
   period: { startDate: string; endDate: string };
 }
@@ -50,20 +54,24 @@ function dateStr(daysAgo: number) {
   d.setDate(d.getDate() - daysAgo);
   return d.toISOString().slice(0, 10);
 }
-function yesterday() {
-  return dateStr(1);
-}
+function yesterday() { return dateStr(1); }
 
 function StatCard({
-  label, value, change, icon: Icon, iconBg, valueColor, isRate,
+  label, value, change, icon: Icon, iconBg, valueColor, isRate, tooltip,
 }: {
   label: string; value: number; change: number | null;
-  icon: React.ElementType; iconBg: string; valueColor: string; isRate?: boolean;
+  icon: React.ElementType; iconBg: string; valueColor: string;
+  isRate?: boolean; tooltip?: string;
 }) {
   return (
     <div className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</span>
+          {tooltip && (
+            <span title={tooltip} className="text-gray-300 cursor-help text-xs">ⓘ</span>
+          )}
+        </div>
         <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${iconBg}`}>
           <Icon className="w-3.5 h-3.5" />
         </div>
@@ -92,13 +100,13 @@ function shortDate(iso: string) {
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-white border border-gray-100 rounded-xl shadow-lg p-3 text-xs min-w-[140px]">
+    <div className="bg-white border border-gray-100 rounded-xl shadow-lg p-3 text-xs min-w-[150px]">
       <p className="font-semibold text-gray-700 mb-2">{label}</p>
       {payload.map((p: { name: string; value: number; color: string }) => (
         <p key={p.name} className="flex items-center justify-between gap-4 mb-0.5">
           <span style={{ color: p.color }} className="font-medium">{p.name}</span>
           <span className="font-bold text-gray-800">
-            {p.name.includes("Rate") || p.name === "CTR" ? `${p.value.toFixed(2)}%` : formatNumber(p.value)}
+            {p.name.includes("%") ? `${Number(p.value).toFixed(2)}%` : formatNumber(p.value)}
           </span>
         </p>
       ))}
@@ -158,7 +166,7 @@ export default function AnalyticsPage() {
               <TrendingUp className="w-7 h-7 text-white" />
             </div>
             <h2 className="text-lg font-bold text-gray-900 mb-2">Connect Pinterest to see analytics</h2>
-            <p className="text-sm text-gray-500 mb-6">Link your account to view real impressions, clicks, saves, and rates.</p>
+            <p className="text-sm text-gray-500 mb-6">Link your account to view impressions, clicks, saves, and more.</p>
             <a href="/api/pinterest-oauth/start" className="inline-block bg-[#e60023] text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors">
               Connect Pinterest
             </a>
@@ -171,19 +179,52 @@ export default function AnalyticsPage() {
   const chartData = (data?.daily ?? []).map(d => ({
     date: shortDate(d.date),
     Impressions: d.impressions,
-    "Pin Clicks": d.clicks,
+    "Pin Clicks": d.pinClicks,
+    "Outbound Clicks": d.outboundClicks,
     Saves: d.saves,
-    "CTR (%)": d.ctr,
-    "Save Rate (%)": d.saveRate,
+    Engagements: d.engagements,
+    "CTR %": d.ctr,
+    "Save Rate %": d.saveRate,
   }));
 
   const stats = [
-    { label: "Impressions", value: data?.impressions ?? 0, change: data?.impressionsChange ?? null, icon: Eye, iconBg: "bg-blue-50 text-blue-600", valueColor: "text-blue-700" },
-    { label: "Pin Clicks", value: data?.pinClicks ?? 0, change: data?.pinClicksChange ?? null, icon: MousePointerClick, iconBg: "bg-green-50 text-green-600", valueColor: "text-green-700" },
-    { label: "Saves", value: data?.saves ?? 0, change: data?.savesChange ?? null, icon: Heart, iconBg: "bg-pink-50 text-pink-600", valueColor: "text-pink-700" },
-    { label: "Click-Through Rate", value: data?.ctr ?? 0, change: data?.ctrChange ?? null, icon: Percent, iconBg: "bg-indigo-50 text-indigo-600", valueColor: "text-indigo-700", isRate: true },
-    { label: "Save Rate", value: data?.saveRate ?? 0, change: data?.saveRateChange ?? null, icon: Activity, iconBg: "bg-orange-50 text-orange-600", valueColor: "text-orange-700", isRate: true },
-    { label: "Engagement Rate", value: data?.engagementRate ?? 0, change: data?.engagementRateChange ?? null, icon: TrendingUp, iconBg: "bg-purple-50 text-purple-600", valueColor: "text-purple-700", isRate: true },
+    {
+      label: "Impressions", value: data?.impressions ?? 0, change: data?.impressionsChange ?? null,
+      icon: Eye, iconBg: "bg-blue-50 text-blue-600", valueColor: "text-blue-700",
+      tooltip: "Total times your pins were shown to people",
+    },
+    {
+      label: "Pin Clicks", value: data?.pinClicks ?? 0, change: data?.pinClicksChange ?? null,
+      icon: MousePointerClick, iconBg: "bg-indigo-50 text-indigo-600", valueColor: "text-indigo-700",
+      tooltip: "Clicks to view your pin in closeup (not to your website)",
+    },
+    {
+      label: "Outbound Clicks", value: data?.outboundClicks ?? 0, change: data?.outboundClicksChange ?? null,
+      icon: ExternalLink, iconBg: "bg-green-50 text-green-600", valueColor: "text-green-700",
+      tooltip: "Clicks that sent people to your website from a pin",
+    },
+    {
+      label: "Saves", value: data?.saves ?? 0, change: data?.savesChange ?? null,
+      icon: Heart, iconBg: "bg-pink-50 text-pink-600", valueColor: "text-pink-700",
+      tooltip: "Times people saved your pins to their boards",
+    },
+    {
+      label: "Engagements", value: data?.engagements ?? 0, change: data?.engagementsChange ?? null,
+      icon: Zap, iconBg: "bg-yellow-50 text-yellow-600", valueColor: "text-yellow-700",
+      tooltip: "Total interactions: clicks + saves + closeups",
+    },
+    {
+      label: "Click-Through Rate", value: data?.ctr ?? 0, change: data?.ctrChange ?? null,
+      icon: Percent, iconBg: "bg-orange-50 text-orange-600", valueColor: "text-orange-700",
+      isRate: true,
+      tooltip: "Outbound clicks ÷ Impressions — how often pins drive traffic",
+    },
+    {
+      label: "Save Rate", value: data?.saveRate ?? 0, change: data?.saveRateChange ?? null,
+      icon: Activity, iconBg: "bg-purple-50 text-purple-600", valueColor: "text-purple-700",
+      isRate: true,
+      tooltip: "Saves ÷ Impressions — how often people save your pins",
+    },
   ];
 
   return (
@@ -219,51 +260,44 @@ export default function AnalyticsPage() {
           </button>
           {showCustom && (
             <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
-              <input
-                type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
-                max={customEnd || yesterday()}
-                className="text-xs border-none outline-none text-gray-700"
-              />
+              <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)}
+                max={customEnd || yesterday()} className="text-xs border-none outline-none text-gray-700" />
               <span className="text-gray-400 text-xs">→</span>
-              <input
-                type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
-                min={customStart} max={yesterday()}
-                className="text-xs border-none outline-none text-gray-700"
-              />
-              <button
-                onClick={applyCustom} disabled={!customStart || !customEnd}
-                className="bg-[#e60023] text-white text-xs px-3 py-1 rounded-lg font-medium disabled:opacity-40 hover:bg-[#ad081b] transition-colors"
-              >
+              <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)}
+                min={customStart} max={yesterday()} className="text-xs border-none outline-none text-gray-700" />
+              <button onClick={applyCustom} disabled={!customStart || !customEnd}
+                className="bg-[#e60023] text-white text-xs px-3 py-1 rounded-lg font-medium disabled:opacity-40 hover:bg-[#ad081b] transition-colors">
                 Apply
               </button>
             </div>
           )}
           {data?.period && (
-            <span className="text-xs text-gray-400 ml-auto">
-              {data.period.startDate} → {data.period.endDate}
-            </span>
+            <span className="text-xs text-gray-400 ml-auto">{data.period.startDate} → {data.period.endDate}</span>
           )}
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-gray-400 text-sm py-12 justify-center">
+          <div className="flex items-center gap-2 text-gray-400 text-sm py-16 justify-center">
             <Loader2 className="w-5 h-5 animate-spin text-[#e60023]" />
             Loading your Pinterest data…
           </div>
         ) : (
           <>
-            {/* 6 stat cards */}
+            {/* 7 stat cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {stats.slice(0, 4).map(s => <StatCard key={s.label} {...s} />)}
+            </div>
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-              {stats.map(s => <StatCard key={s.label} {...s} />)}
+              {stats.slice(4).map(s => <StatCard key={s.label} {...s} />)}
             </div>
 
             {chartData.length > 0 && (
               <>
-                {/* Impressions over time */}
+                {/* Impressions */}
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                  <h2 className="text-base font-semibold text-gray-900 mb-1">Impressions over time</h2>
+                  <h2 className="text-base font-semibold text-gray-900 mb-1">Impressions</h2>
                   <p className="text-xs text-gray-400 mb-4">How many times your pins were shown</p>
-                  <ResponsiveContainer width="100%" height={220}>
+                  <ResponsiveContainer width="100%" height={200}>
                     <AreaChart data={chartData}>
                       <defs>
                         <linearGradient id="gImp" x1="0" y1="0" x2="0" y2="1">
@@ -280,32 +314,44 @@ export default function AnalyticsPage() {
                   </ResponsiveContainer>
                 </div>
 
-                {/* Clicks & Saves */}
+                {/* Pin Clicks vs Outbound Clicks */}
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                  <div className="flex items-start justify-between mb-1">
+                    <h2 className="text-base font-semibold text-gray-900">Pin Clicks vs Outbound Clicks</h2>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-4">
+                    <span className="text-indigo-500 font-medium">Pin Clicks</span> = closeup views &nbsp;·&nbsp;
+                    <span className="text-green-500 font-medium">Outbound Clicks</span> = traffic to your website
+                  </p>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="gPC" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gOC" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#22c55e" stopOpacity={0.15} />
+                          <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Area type="monotone" dataKey="Pin Clicks" stroke="#6366f1" strokeWidth={2} fill="url(#gPC)" dot={false} />
+                      <Area type="monotone" dataKey="Outbound Clicks" stroke="#22c55e" strokeWidth={2} fill="url(#gOC)" dot={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Saves & Engagements */}
                 <div className="grid grid-cols-2 gap-6">
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                    <h2 className="text-sm font-semibold text-gray-900 mb-1">Pin Clicks</h2>
-                    <p className="text-xs text-gray-400 mb-4">Clicks on your pins per day</p>
-                    <ResponsiveContainer width="100%" height={180}>
-                      <AreaChart data={chartData}>
-                        <defs>
-                          <linearGradient id="gClk" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#22c55e" stopOpacity={0.15} />
-                            <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Area type="monotone" dataKey="Pin Clicks" stroke="#22c55e" strokeWidth={2} fill="url(#gClk)" dot={false} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-900 mb-1">Saves</h2>
-                    <p className="text-xs text-gray-400 mb-4">Times users saved your pins</p>
-                    <ResponsiveContainer width="100%" height={180}>
+                    <p className="text-xs text-gray-400 mb-4">Times users saved your pins to boards</p>
+                    <ResponsiveContainer width="100%" height={170}>
                       <AreaChart data={chartData}>
                         <defs>
                           <linearGradient id="gSav" x1="0" y1="0" x2="0" y2="1">
@@ -321,22 +367,42 @@ export default function AnalyticsPage() {
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
+
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+                    <h2 className="text-sm font-semibold text-gray-900 mb-1">Engagements</h2>
+                    <p className="text-xs text-gray-400 mb-4">Total interactions (clicks + saves + closeups)</p>
+                    <ResponsiveContainer width="100%" height={170}>
+                      <AreaChart data={chartData}>
+                        <defs>
+                          <linearGradient id="gEng" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#eab308" stopOpacity={0.15} />
+                            <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                        <Tooltip content={<CustomTooltip />} />
+                        <Area type="monotone" dataKey="Engagements" stroke="#eab308" strokeWidth={2} fill="url(#gEng)" dot={false} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
 
                 {/* CTR & Save Rate */}
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-                  <h2 className="text-base font-semibold text-gray-900 mb-1">Click-Through & Save Rate</h2>
-                  <p className="text-xs text-gray-400 mb-4">What % of impressions led to clicks or saves each day</p>
-                  <ResponsiveContainer width="100%" height={200}>
+                  <h2 className="text-base font-semibold text-gray-900 mb-1">Click-Through Rate & Save Rate</h2>
+                  <p className="text-xs text-gray-400 mb-4">CTR = Outbound Clicks ÷ Impressions · Save Rate = Saves ÷ Impressions</p>
+                  <ResponsiveContainer width="100%" height={190}>
                     <AreaChart data={chartData}>
                       <defs>
                         <linearGradient id="gCTR" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
-                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="gSR" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#f97316" stopOpacity={0.15} />
                           <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="gSR" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#a855f7" stopOpacity={0.15} />
+                          <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
@@ -344,16 +410,16 @@ export default function AnalyticsPage() {
                       <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area type="monotone" dataKey="CTR (%)" stroke="#6366f1" strokeWidth={2} fill="url(#gCTR)" dot={false} />
-                      <Area type="monotone" dataKey="Save Rate (%)" stroke="#f97316" strokeWidth={2} fill="url(#gSR)" dot={false} />
+                      <Area type="monotone" dataKey="CTR %" stroke="#f97316" strokeWidth={2} fill="url(#gCTR)" dot={false} />
+                      <Area type="monotone" dataKey="Save Rate %" stroke="#a855f7" strokeWidth={2} fill="url(#gSR)" dot={false} />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
 
-                {/* Daily bar breakdown */}
+                {/* Daily bar chart */}
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                   <h2 className="text-base font-semibold text-gray-900 mb-1">Daily breakdown</h2>
-                  <p className="text-xs text-gray-400 mb-4">Impressions, clicks, and saves side-by-side</p>
+                  <p className="text-xs text-gray-400 mb-4">All key metrics per day</p>
                   <ResponsiveContainer width="100%" height={220}>
                     <BarChart data={chartData} barGap={1} barCategoryGap="30%">
                       <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
@@ -361,9 +427,10 @@ export default function AnalyticsPage() {
                       <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} tickFormatter={v => formatNumber(v)} />
                       <Tooltip content={<CustomTooltip />} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="Impressions" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={10} />
-                      <Bar dataKey="Pin Clicks" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={10} />
-                      <Bar dataKey="Saves" fill="#ec4899" radius={[3, 3, 0, 0]} maxBarSize={10} />
+                      <Bar dataKey="Impressions" fill="#3b82f6" radius={[3, 3, 0, 0]} maxBarSize={8} />
+                      <Bar dataKey="Pin Clicks" fill="#6366f1" radius={[3, 3, 0, 0]} maxBarSize={8} />
+                      <Bar dataKey="Outbound Clicks" fill="#22c55e" radius={[3, 3, 0, 0]} maxBarSize={8} />
+                      <Bar dataKey="Saves" fill="#ec4899" radius={[3, 3, 0, 0]} maxBarSize={8} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
