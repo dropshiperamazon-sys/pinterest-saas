@@ -6,28 +6,37 @@ import { cn } from "@/lib/utils";
 import {
   ShieldCheck, User, Search, ExternalLink, Loader2,
   Tag, LayoutGrid, TrendingUp, Hash, AlertCircle,
-  ChevronRight, Copy, CheckCircle2, Globe,
+  ChevronLeft, ChevronRight, Copy, CheckCircle2, Globe,
+  XCircle, Link2,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-interface Keyword {
+interface Keyword { keyword: string; count: number; sources?: string[] }
+
+interface PinKeyword {
   keyword: string;
-  count: number;
-  sources?: string[];
+  inTitle: boolean;
+  inDescription: boolean;
+  type: "short" | "long";
+}
+
+interface BoardPin {
+  id: string;
+  title: string;
+  description: string;
+  link: string;
+  thumbnail: string;
+  altText: string;
+  keywords: PinKeyword[];
+  createdAt: string;
 }
 
 interface OwnAudit {
   profile: {
-    username: string;
-    displayName: string;
-    about: string;
-    followerCount: number;
-    followingCount: number;
-    pinCount: number;
-    boardCount: number;
-    profileImage: string;
-    website: string;
+    username: string; displayName: string; about: string;
+    followerCount: number; followingCount: number; pinCount: number;
+    boardCount: number; profileImage: string; website: string;
   };
   boards: { id: string; name: string; description: string; pinCount: number }[];
   keywords: Keyword[];
@@ -35,15 +44,11 @@ interface OwnAudit {
 }
 
 interface ExternalAudit {
-  username: string;
-  displayName: string;
-  about: string;
-  followerInfo: string;
-  keywords: Keyword[];
-  textsAnalyzed: number;
+  username: string; displayName: string; about: string;
+  followerInfo: string; keywords: Keyword[]; textsAnalyzed: number;
 }
 
-// ── Keyword Badge ──────────────────────────────────────────────────────────────
+// ── Keyword Badge (clickable copy) ─────────────────────────────────────────────
 
 function KeywordBadge({ kw, index }: { kw: Keyword; index: number }) {
   const [copied, setCopied] = useState(false);
@@ -55,28 +60,234 @@ function KeywordBadge({ kw, index }: { kw: Keyword; index: number }) {
     "bg-orange-100 text-orange-700 border-orange-200",
     "bg-teal-100 text-teal-700 border-teal-200",
   ];
-  const color = colors[index % colors.length];
-
   const copy = () => {
     navigator.clipboard.writeText(kw.keyword);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
-
   return (
-    <button
-      onClick={copy}
-      title={kw.sources?.join(" | ")}
-      className={cn(
-        "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all hover:scale-105 active:scale-95",
-        color
-      )}
-    >
+    <button onClick={copy} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium transition-all hover:scale-105 active:scale-95", colors[index % colors.length])}>
       <Hash className="w-3 h-3 opacity-60" />
       {kw.keyword}
       {kw.count > 1 && <span className="opacity-50 text-[10px]">×{kw.count}</span>}
       {copied ? <CheckCircle2 className="w-3 h-3" /> : <Copy className="w-3 h-3 opacity-30" />}
     </button>
+  );
+}
+
+// ── Pin Keyword chip for the board table ───────────────────────────────────────
+
+function PinKwChip({ kw }: { kw: PinKeyword }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => { navigator.clipboard.writeText(kw.keyword); setCopied(true); setTimeout(() => setCopied(false), 1200); };
+
+  let cls = "bg-gray-100 text-gray-500 border-gray-200";
+  let dot = "bg-gray-300";
+  let title = "Not found in title or description";
+  if (kw.inTitle && kw.inDescription) { cls = "bg-green-100 text-green-700 border-green-300"; dot = "bg-green-500"; title = "Found in title & description"; }
+  else if (kw.inTitle) { cls = "bg-blue-100 text-blue-700 border-blue-300"; dot = "bg-blue-500"; title = "Found in title"; }
+  else if (kw.inDescription) { cls = "bg-purple-100 text-purple-700 border-purple-300"; dot = "bg-purple-500"; title = "Found in description"; }
+
+  return (
+    <button onClick={copy} title={title} className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium transition-all hover:scale-105 whitespace-nowrap", cls)}>
+      <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", dot)} />
+      {kw.type === "long" && <span className="opacity-50">L·</span>}
+      {kw.keyword}
+      {copied && <CheckCircle2 className="w-2.5 h-2.5 ml-0.5" />}
+    </button>
+  );
+}
+
+// ── Board Detail View ──────────────────────────────────────────────────────────
+
+function BoardDetail({
+  board,
+  onBack,
+}: {
+  board: { id: string; name: string; pinCount: number };
+  onBack: () => void;
+}) {
+  const [pins, setPins] = useState<BoardPin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    fetch(`/api/account-audit/board?boardId=${board.id}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) throw new Error(d.error);
+        setPins(d.pins ?? []);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [board.id]);
+
+  const filtered = pins.filter((p) =>
+    !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 font-medium transition-colors">
+          <ChevronLeft className="w-4 h-4" />
+          All Boards
+        </button>
+        <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
+        <span className="text-sm font-semibold text-gray-800">{board.name}</span>
+        <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{board.pinCount} pins</span>
+      </div>
+
+      {/* Legend */}
+      <div className="bg-white rounded-xl border border-gray-100 px-4 py-3 flex flex-wrap items-center gap-4 text-xs text-gray-500">
+        <span className="font-semibold text-gray-700">Keyword legend:</span>
+        {[
+          { dot: "bg-green-500", label: "In title & description" },
+          { dot: "bg-blue-500", label: "In title only" },
+          { dot: "bg-purple-500", label: "In description only" },
+          { dot: "bg-gray-300", label: "Not found" },
+        ].map(({ dot, label }) => (
+          <span key={label} className="flex items-center gap-1.5">
+            <span className={cn("w-2 h-2 rounded-full", dot)} />
+            {label}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5 ml-auto">
+          <span className="opacity-50 font-mono">L·</span> = long-tail keyword
+        </span>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search pins by title or description…"
+          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-3">
+          <Loader2 className="w-8 h-8 text-[#e60023] animate-spin" />
+          <p className="text-sm text-gray-500">Loading pins from {board.name}…</p>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-center">
+          <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-2" />
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">Pins</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-52">Title</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-64">Description</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Link</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keywords</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-sm text-gray-400">No pins found</td>
+                  </tr>
+                ) : filtered.map((pin) => (
+                  <tr key={pin.id} className="hover:bg-gray-50/60 transition-colors align-top">
+                    {/* Thumbnail */}
+                    <td className="px-4 py-3">
+                      {pin.thumbnail ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={pin.thumbnail} alt={pin.title || "pin"} className="w-12 h-12 object-cover rounded-lg border border-gray-100" />
+                      ) : (
+                        <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-gray-300">
+                          <Tag className="w-5 h-5" />
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Title */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        {pin.title ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                        )}
+                        <span className="text-xs text-gray-700 leading-relaxed line-clamp-3">
+                          {pin.title || <span className="text-gray-300 italic">No title</span>}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Description */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        {pin.description ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                        )}
+                        <span className="text-xs text-gray-500 leading-relaxed line-clamp-3">
+                          {pin.description || <span className="text-gray-300 italic">No description</span>}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Link */}
+                    <td className="px-4 py-3">
+                      {pin.link ? (
+                        <a
+                          href={pin.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1 text-[#e60023] hover:underline text-xs font-medium max-w-[120px] truncate"
+                          title={pin.link}
+                        >
+                          <Link2 className="w-3 h-3 flex-shrink-0" />
+                          <span className="truncate">{pin.link.replace(/^https?:\/\/(www\.)?/, "")}</span>
+                        </a>
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs text-red-400">
+                          <XCircle className="w-4 h-4" />
+                          <span className="text-gray-300 italic">No link</span>
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Keywords */}
+                    <td className="px-4 py-3">
+                      {pin.keywords.length === 0 ? (
+                        <span className="text-xs text-gray-300 italic">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1 max-w-xs">
+                          {pin.keywords.map((kw) => (
+                            <PinKwChip key={kw.keyword} kw={kw} />
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {filtered.length > 0 && (
+            <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
+              <span>Showing {filtered.length} of {pins.length} pins</span>
+              <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Click any keyword to copy</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -92,6 +303,7 @@ export default function AccountAuditPage() {
   const [ownError, setOwnError] = useState("");
   const [connected, setConnected] = useState(false);
   const [keywordFilter, setKeywordFilter] = useState("");
+  const [selectedBoard, setSelectedBoard] = useState<{ id: string; name: string; pinCount: number } | null>(null);
 
   // External account state
   const [extUrl, setExtUrl] = useState("");
@@ -107,11 +319,8 @@ export default function AccountAuditPage() {
       .catch(() => {});
   }, [session]);
 
-  // Auto-load own account when tab opens and connected
   useEffect(() => {
-    if (activeTab === "own" && connected && !ownData && !ownLoading) {
-      loadOwn();
-    }
+    if (activeTab === "own" && connected && !ownData && !ownLoading) loadOwn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, connected]);
 
@@ -123,18 +332,13 @@ export default function AccountAuditPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load");
       setOwnData(data);
-    } catch (e) {
-      setOwnError((e as Error).message);
-    } finally {
-      setOwnLoading(false);
-    }
+    } catch (e) { setOwnError((e as Error).message); }
+    finally { setOwnLoading(false); }
   }
 
   async function analyzeExternal() {
     if (!extUrl.trim()) return;
-    setExtLoading(true);
-    setExtError("");
-    setExtData(null);
+    setExtLoading(true); setExtError(""); setExtData(null);
     try {
       const res = await fetch("/api/account-audit/external", {
         method: "POST",
@@ -144,11 +348,8 @@ export default function AccountAuditPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to analyze");
       setExtData(data);
-    } catch (e) {
-      setExtError((e as Error).message);
-    } finally {
-      setExtLoading(false);
-    }
+    } catch (e) { setExtError((e as Error).message); }
+    finally { setExtLoading(false); }
   }
 
   const filteredKeywords = (ownData?.keywords ?? []).filter((k) =>
@@ -157,10 +358,7 @@ export default function AccountAuditPage() {
 
   return (
     <div>
-      <Header
-        title="Account Audit"
-        subtitle="Analyze keyword strategy for your account or any public Pinterest profile"
-      />
+      <Header title="Account Audit" subtitle="Analyze keyword strategy for your account or any public Pinterest profile" />
 
       <div className="p-6 space-y-6">
         {/* Tab Switch */}
@@ -171,12 +369,10 @@ export default function AccountAuditPage() {
           ] as const).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => setActiveTab(key)}
+              onClick={() => { setActiveTab(key); setSelectedBoard(null); }}
               className={cn(
                 "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all",
-                activeTab === key
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
+                activeTab === key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
               )}
             >
               <Icon className="w-4 h-4" />
@@ -206,125 +402,128 @@ export default function AccountAuditPage() {
               <div className="bg-red-50 border border-red-100 rounded-2xl p-6 text-center">
                 <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-2" />
                 <p className="text-sm text-red-600 mb-3">{ownError}</p>
-                <button onClick={loadOwn} className="text-sm font-semibold text-[#e60023] hover:underline">
-                  Try again
-                </button>
+                <button onClick={loadOwn} className="text-sm font-semibold text-[#e60023] hover:underline">Try again</button>
               </div>
             ) : ownData ? (
-              <>
-                {/* Profile Card */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-                  {ownData.profile.profileImage ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={ownData.profile.profileImage} alt={ownData.profile.displayName} className="w-14 h-14 rounded-full object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-14 h-14 rounded-full bg-[#e60023] flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
-                      {(ownData.profile.displayName || ownData.profile.username || "P")[0].toUpperCase()}
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-bold text-gray-900 text-lg">{ownData.profile.displayName || ownData.profile.username}</div>
-                    <div className="text-sm text-gray-500">@{ownData.profile.username}</div>
-                    {ownData.profile.about && <p className="text-xs text-gray-400 mt-1 truncate">{ownData.profile.about}</p>}
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-center flex-shrink-0">
-                    {[
-                      { label: "Followers", val: ownData.profile.followerCount },
-                      { label: "Following", val: ownData.profile.followingCount },
-                      { label: "Pins", val: ownData.profile.pinCount },
-                      { label: "Boards", val: ownData.profile.boardCount },
-                    ].map(({ label, val }) => (
-                      <div key={label}>
-                        <div className="text-sm font-bold text-gray-900">{val?.toLocaleString() ?? "—"}</div>
-                        <div className="text-xs text-gray-400">{label}</div>
+              selectedBoard ? (
+                <BoardDetail board={selectedBoard} onBack={() => setSelectedBoard(null)} />
+              ) : (
+                <>
+                  {/* Profile Card */}
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
+                    {ownData.profile.profileImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={ownData.profile.profileImage} alt={ownData.profile.displayName} className="w-14 h-14 rounded-full object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-[#e60023] flex items-center justify-center text-white text-xl font-bold flex-shrink-0">
+                        {(ownData.profile.displayName || ownData.profile.username || "P")[0].toUpperCase()}
                       </div>
-                    ))}
-                  </div>
-                  <button onClick={loadOwn} className="ml-2 text-xs text-gray-400 hover:text-[#e60023] transition-colors underline flex-shrink-0">
-                    Refresh
-                  </button>
-                </div>
-
-                {/* Stats Row */}
-                <div className="grid grid-cols-3 gap-4">
-                  {[
-                    { icon: LayoutGrid, label: "Boards Analyzed", val: ownData.boards.length, color: "text-blue-600 bg-blue-50" },
-                    { icon: Tag, label: "Keywords Detected", val: ownData.keywords.length, color: "text-[#e60023] bg-[#e60023]/10" },
-                    { icon: TrendingUp, label: "Texts Scanned", val: ownData.totalTextsAnalyzed, color: "text-green-600 bg-green-50" },
-                  ].map(({ icon: Icon, label, val, color }) => (
-                    <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
-                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0", color)}>
-                        <Icon className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <div className="text-xl font-bold text-gray-900">{val}</div>
-                        <div className="text-xs text-gray-500">{label}</div>
-                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-gray-900 text-lg">{ownData.profile.displayName || ownData.profile.username}</div>
+                      <div className="text-sm text-gray-500">@{ownData.profile.username}</div>
+                      {ownData.profile.about && <p className="text-xs text-gray-400 mt-1 truncate">{ownData.profile.about}</p>}
                     </div>
-                  ))}
-                </div>
-
-                {/* Boards */}
-                {ownData.boards.length > 0 && (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-gray-100 flex items-center gap-2">
-                      <LayoutGrid className="w-4 h-4 text-gray-400" />
-                      <span className="font-semibold text-gray-800 text-sm">Your Boards ({ownData.boards.length})</span>
-                    </div>
-                    <div className="grid grid-cols-3 divide-x divide-y divide-gray-50">
-                      {ownData.boards.map((board) => (
-                        <div key={board.id} className="p-3 flex items-center gap-2 group">
-                          <div className="w-8 h-8 rounded-lg bg-[#e60023]/10 flex items-center justify-center flex-shrink-0">
-                            <LayoutGrid className="w-3.5 h-3.5 text-[#e60023]" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-gray-800 truncate">{board.name}</p>
-                            <p className="text-xs text-gray-400">{board.pinCount ?? 0} pins</p>
-                          </div>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-center flex-shrink-0">
+                      {[
+                        { label: "Followers", val: ownData.profile.followerCount },
+                        { label: "Following", val: ownData.profile.followingCount },
+                        { label: "Pins", val: ownData.profile.pinCount },
+                        { label: "Boards", val: ownData.profile.boardCount },
+                      ].map(({ label, val }) => (
+                        <div key={label}>
+                          <div className="text-sm font-bold text-gray-900">{val?.toLocaleString() ?? "—"}</div>
+                          <div className="text-xs text-gray-400">{label}</div>
                         </div>
                       ))}
                     </div>
+                    <button onClick={loadOwn} className="ml-2 text-xs text-gray-400 hover:text-[#e60023] transition-colors underline flex-shrink-0">Refresh</button>
                   </div>
-                )}
 
-                {/* Keywords */}
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-                    <div className="flex items-center gap-2 flex-1">
-                      <Hash className="w-4 h-4 text-[#e60023]" />
-                      <span className="font-semibold text-gray-800 text-sm">
-                        Detected Keywords <span className="text-gray-400 font-normal">({filteredKeywords.length})</span>
-                      </span>
-                    </div>
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                      <input
-                        value={keywordFilter}
-                        onChange={(e) => setKeywordFilter(e.target.value)}
-                        placeholder="Filter keywords…"
-                        className="pl-8 pr-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 w-44"
-                      />
-                    </div>
+                  {/* Stats Row */}
+                  <div className="grid grid-cols-3 gap-4">
+                    {[
+                      { icon: LayoutGrid, label: "Boards", val: ownData.boards.length, color: "text-blue-600 bg-blue-50" },
+                      { icon: Tag, label: "Keywords Detected", val: ownData.keywords.length, color: "text-[#e60023] bg-[#e60023]/10" },
+                      { icon: TrendingUp, label: "Texts Scanned", val: ownData.totalTextsAnalyzed, color: "text-green-600 bg-green-50" },
+                    ].map(({ icon: Icon, label, val, color }) => (
+                      <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
+                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0", color)}>
+                          <Icon className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="text-xl font-bold text-gray-900">{val}</div>
+                          <div className="text-xs text-gray-500">{label}</div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="p-4">
-                    {filteredKeywords.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-6">No keywords found</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {filteredKeywords.map((kw, i) => (
-                          <KeywordBadge key={kw.keyword} kw={kw} index={i} />
+
+                  {/* Boards — clickable */}
+                  {ownData.boards.length > 0 && (
+                    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                      <div className="p-4 border-b border-gray-100 flex items-center gap-2">
+                        <LayoutGrid className="w-4 h-4 text-gray-400" />
+                        <span className="font-semibold text-gray-800 text-sm">Your Boards ({ownData.boards.length})</span>
+                        <span className="ml-auto text-xs text-gray-400">Click a board to audit its pins</span>
+                      </div>
+                      <div className="grid grid-cols-3 divide-x divide-y divide-gray-50">
+                        {ownData.boards.map((board) => (
+                          <button
+                            key={board.id}
+                            onClick={() => setSelectedBoard({ id: board.id, name: board.name, pinCount: board.pinCount })}
+                            className="p-3 flex items-center gap-2 group hover:bg-[#e60023]/5 transition-colors text-left w-full"
+                          >
+                            <div className="w-8 h-8 rounded-lg bg-[#e60023]/10 group-hover:bg-[#e60023]/20 flex items-center justify-center flex-shrink-0 transition-colors">
+                              <LayoutGrid className="w-3.5 h-3.5 text-[#e60023]" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-semibold text-gray-800 truncate group-hover:text-[#e60023] transition-colors">{board.name}</p>
+                              <p className="text-xs text-gray-400">{board.pinCount ?? 0} pins</p>
+                            </div>
+                            <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-[#e60023] flex-shrink-0 transition-colors" />
+                          </button>
                         ))}
                       </div>
-                    )}
+                    </div>
+                  )}
+
+                  {/* Keywords */}
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+                      <div className="flex items-center gap-2 flex-1">
+                        <Hash className="w-4 h-4 text-[#e60023]" />
+                        <span className="font-semibold text-gray-800 text-sm">
+                          Detected Keywords <span className="text-gray-400 font-normal">({filteredKeywords.length})</span>
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                        <input
+                          value={keywordFilter}
+                          onChange={(e) => setKeywordFilter(e.target.value)}
+                          placeholder="Filter keywords…"
+                          className="pl-8 pr-3 py-1.5 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 w-44"
+                        />
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      {filteredKeywords.length === 0 ? (
+                        <p className="text-sm text-gray-400 text-center py-6">No keywords found</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {filteredKeywords.map((kw, i) => <KeywordBadge key={kw.keyword} kw={kw} index={i} />)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="px-4 pb-3">
+                      <p className="text-xs text-gray-400 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Click any keyword to copy. Sorted by frequency.
+                      </p>
+                    </div>
                   </div>
-                  <div className="px-4 pb-3">
-                    <p className="text-xs text-gray-400 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Click any keyword to copy it. Sorted by frequency.
-                    </p>
-                  </div>
-                </div>
-              </>
+                </>
+              )
             ) : null}
           </div>
         )}
@@ -332,7 +531,6 @@ export default function AccountAuditPage() {
         {/* ── Other Account Tab ── */}
         {activeTab === "external" && (
           <div className="space-y-5">
-            {/* URL Input */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
               <div>
                 <label className="text-sm font-semibold text-gray-800 block mb-1">Pinterest Profile URL</label>
@@ -353,24 +551,16 @@ export default function AccountAuditPage() {
                     disabled={extLoading || !extUrl.trim()}
                     className="flex items-center gap-2 bg-[#e60023] text-white px-5 py-3 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
                   >
-                    {extLoading ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing…</>
-                    ) : (
-                      <><Search className="w-4 h-4" /> Analyze</>
-                    )}
+                    {extLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing…</> : <><Search className="w-4 h-4" /> Analyze</>}
                   </button>
                 </div>
               </div>
-
               <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-blue-700">
-                  Only public Pinterest profiles can be analyzed. Keywords are extracted from the profile&apos;s visible boards, pin titles, and descriptions.
-                </p>
+                <p className="text-xs text-blue-700">Only public Pinterest profiles can be analyzed. Keywords are extracted from the profile&apos;s visible boards, pin titles, and descriptions.</p>
               </div>
             </div>
 
-            {/* Error */}
             {extError && (
               <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-center gap-3">
                 <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
@@ -378,10 +568,8 @@ export default function AccountAuditPage() {
               </div>
             )}
 
-            {/* Results */}
             {extData && (
               <div className="space-y-4">
-                {/* Profile summary */}
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
                   <div className="w-12 h-12 rounded-full bg-[#e60023] flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
                     {(extData.displayName || extData.username || "P")[0].toUpperCase()}
@@ -392,17 +580,11 @@ export default function AccountAuditPage() {
                     {extData.about && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{extData.about}</p>}
                     {extData.followerInfo && <p className="text-xs text-gray-400 mt-0.5">{extData.followerInfo}</p>}
                   </div>
-                  <a
-                    href={`https://pinterest.com/${extData.username}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 text-xs text-[#e60023] font-medium hover:underline flex-shrink-0"
-                  >
+                  <a href={`https://pinterest.com/${extData.username}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-[#e60023] font-medium hover:underline flex-shrink-0">
                     View Profile <ChevronRight className="w-3 h-3" />
                   </a>
                 </div>
 
-                {/* Keyword count stat */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-[#e60023]/10 flex items-center justify-center">
@@ -424,7 +606,6 @@ export default function AccountAuditPage() {
                   </div>
                 </div>
 
-                {/* Keywords */}
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="p-4 border-b border-gray-100 flex items-center gap-2">
                     <Hash className="w-4 h-4 text-[#e60023]" />
@@ -437,16 +618,13 @@ export default function AccountAuditPage() {
                       <p className="text-sm text-gray-400 text-center py-6">No keywords could be extracted from this profile.</p>
                     ) : (
                       <div className="flex flex-wrap gap-2">
-                        {extData.keywords.map((kw, i) => (
-                          <KeywordBadge key={kw.keyword} kw={kw} index={i} />
-                        ))}
+                        {extData.keywords.map((kw, i) => <KeywordBadge key={kw.keyword} kw={kw} index={i} />)}
                       </div>
                     )}
                   </div>
                   <div className="px-4 pb-3">
                     <p className="text-xs text-gray-400 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Click any keyword to copy. Use these insights to improve your own content strategy.
+                      <CheckCircle2 className="w-3 h-3" /> Click any keyword to copy. Use these insights to improve your own content strategy.
                     </p>
                   </div>
                 </div>
