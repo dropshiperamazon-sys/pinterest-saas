@@ -698,59 +698,6 @@ export default function SchedulerPage() {
         )}
 
         <div className="space-y-6">
-          {/* ── Pin Composer ── */}
-          <div className="space-y-4">
-            {/* Toolbar */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <LayoutGrid className="w-4 h-4 text-gray-400" />
-                <span className="text-sm font-semibold text-gray-800">
-                  {drafts.length} Pin{drafts.length !== 1 ? "s" : ""} in Queue
-                </span>
-                {validDrafts > 0 && (
-                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
-                    {validDrafts} ready
-                  </span>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={addDraft}
-                  className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors font-medium"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Add Pin
-                </button>
-                <button
-                  onClick={scheduleAll}
-                  disabled={validDrafts === 0}
-                  className="flex items-center gap-1.5 text-sm bg-[#e60023] text-white px-4 py-2 rounded-xl hover:bg-[#ad081b] transition-colors font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Calendar className="w-3.5 h-3.5" />
-                  Schedule {validDrafts > 0 ? `${validDrafts} Pin${validDrafts !== 1 ? "s" : ""}` : "All"}
-                </button>
-              </div>
-            </div>
-
-            {/* Draft Cards — 3 columns */}
-            <div className="grid grid-cols-3 gap-4">
-              {drafts.map((draft, i) => (
-                <DraftCard
-                  key={draft.id}
-                  draft={draft}
-                  index={i}
-                  onChange={(updated) => updateDraft(draft.id, updated)}
-                  onRemove={() => removeDraft(draft.id)}
-                  onAiOpen={() => setAiTarget(draft.id)}
-                  isOnly={drafts.length === 1}
-                  boards={boards}
-                  boardsLoading={boardsLoading}
-                />
-              ))}
-            </div>
-
-          </div>
-
           {/* ── Scheduled Pins Panel ── */}
           <div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -813,6 +760,59 @@ export default function SchedulerPage() {
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* ── Pin Composer ── */}
+          <div className="space-y-4">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <LayoutGrid className="w-4 h-4 text-gray-400" />
+                <span className="text-sm font-semibold text-gray-800">
+                  {drafts.length} Pin{drafts.length !== 1 ? "s" : ""} in Queue
+                </span>
+                {validDrafts > 0 && (
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                    {validDrafts} ready
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={addDraft}
+                  className="flex items-center gap-1.5 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-xl hover:bg-gray-50 transition-colors font-medium"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Pin
+                </button>
+                <button
+                  onClick={scheduleAll}
+                  disabled={validDrafts === 0}
+                  className="flex items-center gap-1.5 text-sm bg-[#e60023] text-white px-4 py-2 rounded-xl hover:bg-[#ad081b] transition-colors font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Calendar className="w-3.5 h-3.5" />
+                  Schedule {validDrafts > 0 ? `${validDrafts} Pin${validDrafts !== 1 ? "s" : ""}` : "All"}
+                </button>
+              </div>
+            </div>
+
+            {/* Draft Cards — 3 columns */}
+            <div className="grid grid-cols-3 gap-4">
+              {drafts.map((draft, i) => (
+                <DraftCard
+                  key={draft.id}
+                  draft={draft}
+                  index={i}
+                  onChange={(updated) => updateDraft(draft.id, updated)}
+                  onRemove={() => removeDraft(draft.id)}
+                  onAiOpen={() => setAiTarget(draft.id)}
+                  isOnly={drafts.length === 1}
+                  boards={boards}
+                  boardsLoading={boardsLoading}
+                />
+              ))}
+            </div>
+
           </div>
 
           {/* Add more */}
