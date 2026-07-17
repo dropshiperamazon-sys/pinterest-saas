@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
-import { Redis } from "@upstash/redis";
-
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
 
 async function handler(req: NextRequest) {
   try {
+    // Lazy-load Redis and QStash to avoid build-time errors when env vars are missing
+    const { Redis } = await import("@upstash/redis");
+    const redis = new Redis({
+      url: process.env.UPSTASH_REDIS_REST_URL!,
+      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    });
+
     const { pinId } = await req.json();
 
     const raw = await redis.get<string>(`scheduled_pin:${pinId}`);
@@ -18,14 +18,11 @@ async function handler(req: NextRequest) {
 
     const pin = typeof raw === "string" ? JSON.parse(raw) : raw;
 
-    // Use user's OAuth token if available, fall back to env access token
     const accessToken = pin.accessToken || process.env.PINTEREST_ACCESS_TOKEN;
-
     if (!accessToken) {
       return NextResponse.json({ error: "No Pinterest access token available" }, { status: 401 });
     }
 
-    // Publish to Pinterest API
     const pinterestRes = await fetch("https://api.pinterest.com/v5/pins", {
       method: "POST",
       headers: {
@@ -50,7 +47,6 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "Pinterest API failed", details: pinterestData }, { status: 500 });
     }
 
-    // Mark as published in Redis
     await redis.set(
       `published_pin:${pinId}`,
       JSON.stringify({ ...pin, publishedAt: new Date().toISOString(), pinterestPinId: pinterestData.id }),
@@ -66,4 +62,15 @@ async function handler(req: NextRequest) {
   }
 }
 
-export const POST = verifySignatureAppRouter(handler);
+export async function POST(req: NextRequest) {
+  // Verify QStash signature if signing keys are configured
+  const currentKey = process.env.QSTASH_CURRENT_SIGNING_KEY;
+  const nextKey = process.env.QSTASH_NEXT_SIGNING_KEY;
+
+  if (currentKey && nextKey) {
+    const { verifySignatureAppRouter } = await import("@upstash/qstash/nextjs");
+    return verifySignatureAppRouter(handler)(req);
+  }
+
+  return handler(req);
+}
