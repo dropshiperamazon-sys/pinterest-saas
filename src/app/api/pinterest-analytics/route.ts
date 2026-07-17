@@ -23,8 +23,8 @@ export async function GET() {
 
   const { accessToken } = typeof raw === "string" ? JSON.parse(raw) : raw as { accessToken: string };
 
-  const endDate = dateStr(1);       // yesterday (Pinterest requires completed days)
-  const startDate = dateStr(30);    // last 30 days
+  const endDate = dateStr(1);
+  const startDate = dateStr(30);
   const prevStart = dateStr(60);
   const prevEnd = dateStr(31);
 
@@ -37,7 +37,11 @@ export async function GET() {
     const res = await fetch(`https://api.pinterest.com/v5/user_account/analytics?${params}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("Pinterest analytics error:", res.status, err);
+      return null;
+    }
     return res.json();
   }
 
@@ -46,28 +50,48 @@ export async function GET() {
     fetchAnalytics(prevStart, prevEnd),
   ]);
 
-  function sumMetric(data: Record<string, { daily_metrics: { metric_type: string; value: number }[] }> | null, metric: string) {
-    if (!data?.all?.daily_metrics) return 0;
-    return data.all.daily_metrics
-      .filter((m: { metric_type: string; value: number }) => m.metric_type === metric)
-      .reduce((sum: number, m: { metric_type: string; value: number }) => sum + (m.value || 0), 0);
+  // Pinterest v5 analytics response shape:
+  // { all: { daily_metrics: [{ date, data_status, metrics: { IMPRESSION: n, PIN_CLICK: n } }], summary_metrics: { IMPRESSION: n, PIN_CLICK: n } } }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function extractMetric(data: any, metric: string): number {
+    if (!data) return 0;
+    // Try summary_metrics first (most reliable)
+    if (data?.all?.summary_metrics?.[metric] !== undefined) {
+      return Number(data.all.summary_metrics[metric]) || 0;
+    }
+    // Fall back to summing daily_metrics
+    const daily = data?.all?.daily_metrics;
+    if (Array.isArray(daily)) {
+      return daily.reduce((sum: number, day: { metrics?: Record<string, number>; metric_type?: string; value?: number }) => {
+        // shape A: { metrics: { IMPRESSION: n } }
+        if (day.metrics?.[metric] !== undefined) return sum + (Number(day.metrics[metric]) || 0);
+        // shape B: { metric_type: "IMPRESSION", value: n }
+        if (day.metric_type === metric) return sum + (Number(day.value) || 0);
+        return sum;
+      }, 0);
+    }
+    return 0;
   }
 
-  const impressions = sumMetric(current, "IMPRESSION");
-  const pinClicks = sumMetric(current, "PIN_CLICK");
-  const prevImpressions = sumMetric(previous, "IMPRESSION");
-  const prevPinClicks = sumMetric(previous, "PIN_CLICK");
+  const impressions = extractMetric(current, "IMPRESSION");
+  const pinClicks = extractMetric(current, "PIN_CLICK");
+  const saves = extractMetric(current, "SAVE");
+  const prevImpressions = extractMetric(previous, "IMPRESSION");
+  const prevPinClicks = extractMetric(previous, "PIN_CLICK");
 
   function pctChange(curr: number, prev: number) {
-    if (!prev) return 0;
+    if (!prev) return null;
     return Math.round(((curr - prev) / prev) * 1000) / 10;
   }
 
   return NextResponse.json({
     impressions,
     pinClicks,
+    saves,
     impressionsChange: pctChange(impressions, prevImpressions),
     pinClicksChange: pctChange(pinClicks, prevPinClicks),
     period: { startDate, endDate },
+    // Include raw for debugging (remove later)
+    _raw: current,
   });
 }
