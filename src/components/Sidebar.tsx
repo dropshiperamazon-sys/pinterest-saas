@@ -13,6 +13,7 @@ import {
   Zap,
   LineChart,
   BarChart2,
+  ShieldCheck,
   LogIn,
   LogOut,
 } from "lucide-react";
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { href: "/keywords", icon: Search, label: "Keyword Research" },
   { href: "/pin-analysis", icon: LineChart, label: "Pin Analysis" },
   { href: "/scheduler", icon: Calendar, label: "Pin Scheduler" },
+  { href: "/account-audit", icon: ShieldCheck, label: "Account Audit" },
   { href: "/ads", icon: Megaphone, label: "Pinterest Ads" },
 ];
 
