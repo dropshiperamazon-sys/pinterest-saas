@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import Header from "@/components/Header";
 import { MOCK_SCHEDULED_PINS } from "@/lib/pinterest-data";
 import { cn } from "@/lib/utils";
@@ -434,9 +435,13 @@ function DraftCard({
               <select
                 value={draft.board}
                 onChange={(e) => set("board", e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white"
+                disabled={boardsLoading}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white disabled:opacity-60"
               >
-                {boards.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
+                {boardsLoading
+                  ? <option>Loading boards...</option>
+                  : boards.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)
+                }
               </select>
             </div>
 
@@ -514,24 +519,30 @@ export default function SchedulerPage() {
   const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
+  const [boardsLoading, setBoardsLoading] = useState(true);
+  const { data: session } = useSession();
 
   useEffect(() => {
-    fetch("/api/pinterest-boards")
+    const accessToken = (session as { accessToken?: string } | null)?.accessToken;
+    const headers: Record<string, string> = {};
+    if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+    fetch("/api/pinterest-boards", { headers })
       .then((r) => r.json())
       .then((data) => {
-        if (data.boards?.length) {
-          setBoards(data.boards);
-          setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: data.boards[0].name } : dr));
-        } else {
-          setBoards(FALLBACK_BOARDS.map((name) => ({ id: name, name })));
-          setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: FALLBACK_BOARDS[0] } : dr));
-        }
+        const list: { id: string; name: string }[] = data.boards?.length
+          ? data.boards
+          : FALLBACK_BOARDS.map((name) => ({ id: name, name }));
+        setBoards(list);
+        setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: list[0].name } : dr));
       })
       .catch(() => {
-        setBoards(FALLBACK_BOARDS.map((name) => ({ id: name, name })));
-        setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: FALLBACK_BOARDS[0] } : dr));
-      });
-  }, []);
+        const list = FALLBACK_BOARDS.map((name) => ({ id: name, name }));
+        setBoards(list);
+        setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: list[0].name } : dr));
+      })
+      .finally(() => setBoardsLoading(false));
+  }, [session]);
 
   const addDraft = () => setDrafts((d) => [...d, newDraft()]);
 
