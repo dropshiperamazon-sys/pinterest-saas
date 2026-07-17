@@ -519,12 +519,12 @@ function DraftCard({
 export default function SchedulerPage() {
   const [scheduled, setScheduled] = useState<ScheduledPin[]>(MOCK_SCHEDULED_PINS);
   const [drafts, setDrafts] = useState<PinDraft[]>([newDraft()]);
-  const [connected, setConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
   const [boardsLoading, setBoardsLoading] = useState(true);
   const { data: session } = useSession();
+  const connected = !!session;
 
   useEffect(() => {
     const accessToken = (session as { accessToken?: string } | null)?.accessToken;
@@ -614,22 +614,20 @@ export default function SchedulerPage() {
                 <div className="text-sm text-gray-500">Authorize My Pin Pro to publish and schedule pins on your behalf.</div>
               </div>
             </div>
-            <button
-              onClick={() => setConnected(true)}
+            <a
+              href="/connect"
               className="bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors whitespace-nowrap flex items-center gap-2"
             >
               <ExternalLink className="w-4 h-4" />
               Connect with Pinterest
-            </button>
+            </a>
           </div>
         ) : (
           <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
             <span className="text-sm font-semibold text-green-800">Pinterest connected!</span>
             <span className="text-sm text-green-600">@yourpinterest is linked and ready.</span>
-            <button onClick={() => setConnected(false)} className="ml-auto text-green-600 hover:text-green-800">
-              <X className="w-4 h-4" />
-            </button>
+            <a href="/connect" className="ml-auto text-green-600 hover:text-green-800 text-xs underline">Manage</a>
           </div>
         )}
 
