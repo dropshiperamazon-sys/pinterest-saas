@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
 import { Redis } from "@upstash/redis";
+import { cookies } from "next/headers";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -8,16 +8,24 @@ const redis = new Redis({
 });
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.email) {
-    return NextResponse.redirect(new URL("/login", process.env.NEXTAUTH_URL!));
+  const baseUrl = process.env.NEXTAUTH_URL!;
+
+  // Get session token from cookie to identify the user
+  const cookieStore = await cookies();
+  const sessionToken =
+    cookieStore.get("authjs.session-token")?.value ||
+    cookieStore.get("__Secure-authjs.session-token")?.value ||
+    cookieStore.get("next-auth.session-token")?.value;
+
+  if (!sessionToken) {
+    return NextResponse.redirect(`${baseUrl}/login`);
   }
 
-  // Store the user's email in a short-lived state token
   const state = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  await redis.set(`pinterest_oauth_state:${state}`, session.user.email, { ex: 600 });
+  // Store session token so we can look up the user on callback
+  await redis.set(`pinterest_oauth_state:${state}`, sessionToken, { ex: 600 });
 
-  const redirectUri = `${process.env.NEXTAUTH_URL}/api/pinterest-oauth/callback`;
+  const redirectUri = `${baseUrl}/api/pinterest-oauth/callback`;
   const url = new URL("https://www.pinterest.com/oauth/");
   url.searchParams.set("client_id", process.env.PINTEREST_CLIENT_ID!);
   url.searchParams.set("redirect_uri", redirectUri);

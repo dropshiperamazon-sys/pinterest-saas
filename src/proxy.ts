@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
 
-const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/pricing", "/about", "/contact", "/api/auth", "/api/auth/signup", "/api/pinterest-oauth"];
+const PUBLIC_PATHS = ["/", "/login", "/signup", "/privacy", "/pricing", "/about", "/contact", "/api/auth", "/api/auth/signup", "/api/pinterest-oauth/callback"];
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
