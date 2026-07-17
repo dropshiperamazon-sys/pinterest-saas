@@ -1,8 +1,10 @@
 "use client";
 import Link from "next/link";
+import PublicNav from "@/components/PublicNav";
+import PublicFooter from "@/components/PublicFooter";
 import {
   Calendar, Search, Megaphone, TrendingUp, Zap, BarChart2,
-  CheckCircle, ArrowRight, Star, Shield, Clock,
+  CheckCircle, ArrowRight, Star, Shield,
 } from "lucide-react";
 
 const FEATURES = [
@@ -101,26 +103,7 @@ const TESTIMONIALS = [
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-white">
-      {/* Nav */}
-      <nav className="border-b border-gray-100 bg-white sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-[#e60023] rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">P</span>
-            </div>
-            <span className="font-bold text-gray-900 text-lg">My Pin Pro</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900 font-medium">Sign in</Link>
-            <Link
-              href="/signup"
-              className="bg-[#e60023] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#ad081b] transition-colors"
-            >
-              Get Started Free
-            </Link>
-          </div>
-        </div>
-      </nav>
+      <PublicNav />
 
       {/* Hero */}
       <section className="max-w-6xl mx-auto px-6 pt-20 pb-16 text-center">
@@ -289,23 +272,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-100 py-8">
-        <div className="max-w-6xl mx-auto px-6 flex items-center justify-between text-sm text-gray-400">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-[#e60023] rounded flex items-center justify-center">
-              <span className="text-white font-bold text-xs">P</span>
-            </div>
-            <span>My Pin Pro</span>
-          </div>
-          <div className="flex items-center gap-6">
-            <Link href="/privacy" className="hover:text-gray-600">Privacy Policy</Link>
-            <Link href="/login" className="hover:text-gray-600">Sign In</Link>
-            <Link href="/signup" className="hover:text-gray-600">Sign Up</Link>
-          </div>
-          <div>© {new Date().getFullYear()} My Pin Pro</div>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }
