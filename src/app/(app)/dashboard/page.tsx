@@ -2,21 +2,8 @@
 import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import { formatNumber } from "@/lib/utils";
-import { TrendingUp, Eye, MousePointerClick, DollarSign, ArrowUpRight, ArrowDownRight, Calendar, Search, Megaphone } from "lucide-react";
+import { TrendingUp, Eye, MousePointerClick, DollarSign, ArrowUpRight, ArrowDownRight, Calendar, Search, Megaphone, Loader2 } from "lucide-react";
 import Link from "next/link";
-
-const STATS = [
-  { label: "Total Impressions", value: 4820000, change: 12.4, icon: Eye, color: "bg-blue-50 text-blue-600" },
-  { label: "Pin Clicks", value: 142300, change: 8.2, icon: MousePointerClick, color: "bg-green-50 text-green-600" },
-  { label: "Keywords Tracked", value: 248, change: 15.0, icon: Search, color: "bg-purple-50 text-purple-600" },
-  { label: "Ad Spend", value: 3240, change: -4.2, icon: DollarSign, color: "bg-orange-50 text-orange-600", isCurrency: true },
-];
-
-const QUICK_ACTIONS = [
-  { href: "/keywords", icon: Search, label: "Research Keywords", desc: "Find trending Pinterest keywords", color: "from-blue-500 to-blue-600" },
-  { href: "/scheduler", icon: Calendar, label: "Schedule a Pin", desc: "Plan your next pin publication", color: "from-purple-500 to-purple-600" },
-  { href: "/ads", icon: Megaphone, label: "Manage Ads", desc: "Launch or optimize campaigns", color: "from-[#e60023] to-[#ad081b]" },
-];
 
 const TRENDING = [
   { keyword: "summer home decor", volume: 1240000, trend: 28 },
@@ -26,18 +13,83 @@ const TRENDING = [
   { keyword: "minimalist outfits", volume: 890000, trend: 14 },
 ];
 
+const QUICK_ACTIONS = [
+  { href: "/keywords", icon: Search, label: "Research Keywords", desc: "Find trending Pinterest keywords", color: "from-blue-500 to-blue-600" },
+  { href: "/scheduler", icon: Calendar, label: "Schedule a Pin", desc: "Plan your next pin publication", color: "from-purple-500 to-purple-600" },
+  { href: "/ads", icon: Megaphone, label: "Manage Ads", desc: "Launch or optimize campaigns", color: "from-[#e60023] to-[#ad081b]" },
+];
+
+interface Analytics {
+  impressions: number;
+  pinClicks: number;
+  impressionsChange: number;
+  pinClicksChange: number;
+  period?: { startDate: string; endDate: string };
+}
+
 export default function Dashboard() {
-  const [pinterestConnected, setPinterestConnected] = useState(true);
+  const [pinterestConnected, setPinterestConnected] = useState(false);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
   useEffect(() => {
-    fetch("/api/pinterest-connection").then(r => r.json()).then(d => setPinterestConnected(d.connected)).catch(() => {});
+    fetch("/api/pinterest-connection")
+      .then(r => r.json())
+      .then(d => {
+        setPinterestConnected(d.connected);
+        if (d.connected) {
+          setAnalyticsLoading(true);
+          fetch("/api/pinterest-analytics")
+            .then(r => r.json())
+            .then(data => { if (!data.error) setAnalytics(data); })
+            .catch(() => {})
+            .finally(() => setAnalyticsLoading(false));
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const stats = [
+    {
+      label: "Total Impressions",
+      value: analytics?.impressions ?? null,
+      change: analytics?.impressionsChange ?? null,
+      icon: Eye,
+      color: "bg-blue-50 text-blue-600",
+    },
+    {
+      label: "Pin Clicks",
+      value: analytics?.pinClicks ?? null,
+      change: analytics?.pinClicksChange ?? null,
+      icon: MousePointerClick,
+      color: "bg-green-50 text-green-600",
+    },
+    {
+      label: "Keywords Tracked",
+      value: 248,
+      change: 15.0,
+      icon: Search,
+      color: "bg-purple-50 text-purple-600",
+      static: true,
+    },
+    {
+      label: "Ad Spend",
+      value: null as number | null,
+      change: null as number | null,
+      icon: DollarSign,
+      color: "bg-orange-50 text-orange-600",
+      isCurrency: true,
+      placeholder: "Connect Ads",
+    },
+  ];
+
   return (
     <div>
       <Header title="Dashboard" subtitle="Welcome back! Here's your Pinterest overview." />
       <div className="p-6 space-y-6">
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {STATS.map(({ label, value, change, icon: Icon, color, isCurrency }) => (
+          {stats.map(({ label, value, change, icon: Icon, color, isCurrency, placeholder, static: isStatic }) => (
             <div key={label} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-gray-500 font-medium">{label}</span>
@@ -45,16 +97,37 @@ export default function Dashboard() {
                   <Icon className="w-4 h-4" />
                 </div>
               </div>
-              <div className="text-2xl font-bold text-gray-900">
-                {isCurrency ? `$${formatNumber(value)}` : formatNumber(value)}
-              </div>
-              <div className={`flex items-center gap-1 mt-1 text-xs font-medium ${change >= 0 ? "text-green-600" : "text-red-500"}`}>
-                {change >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                {Math.abs(change)}% vs last month
-              </div>
+              {analyticsLoading && !isStatic && value === null ? (
+                <div className="flex items-center gap-2 text-gray-400 mt-1">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Loading…</span>
+                </div>
+              ) : value !== null ? (
+                <>
+                  <div className="text-2xl font-bold text-gray-900">
+                    {isCurrency ? `$${formatNumber(value)}` : formatNumber(value)}
+                  </div>
+                  {change !== null && (
+                    <div className={`flex items-center gap-1 mt-1 text-xs font-medium ${change >= 0 ? "text-green-600" : "text-red-500"}`}>
+                      {change >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                      {Math.abs(change)}% vs last month
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="text-sm text-gray-400 mt-1">
+                  {placeholder ?? (pinterestConnected ? "No data yet" : "Connect Pinterest")}
+                </div>
+              )}
             </div>
           ))}
         </div>
+
+        {analytics?.period && (
+          <p className="text-xs text-gray-400">
+            Showing data from {analytics.period.startDate} to {analytics.period.endDate}
+          </p>
+        )}
 
         <div className="grid grid-cols-3 gap-6">
           {/* Quick Actions */}
@@ -102,14 +175,14 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Pinterest Connect Banner - only show when not connected */}
+        {/* Pinterest Connect Banner */}
         {!pinterestConnected && (
           <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-[#e60023] rounded-xl flex items-center justify-center text-white text-xl font-bold">P</div>
               <div>
                 <div className="font-semibold text-gray-900">Connect your Pinterest account</div>
-                <div className="text-sm text-gray-500">Link your account to enable pin scheduling and ads management.</div>
+                <div className="text-sm text-gray-500">Link your account to see real impressions, clicks, and analytics.</div>
               </div>
             </div>
             <a href="/api/pinterest-oauth/start" className="bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors whitespace-nowrap">
