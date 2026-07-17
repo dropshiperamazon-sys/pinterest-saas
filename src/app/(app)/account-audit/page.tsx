@@ -202,14 +202,25 @@ function BoardDetail({
                   <tr key={pin.id} className="hover:bg-gray-50/60 transition-colors align-top">
                     {/* Thumbnail */}
                     <td className="px-4 py-3">
-                      {pin.thumbnail ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={pin.thumbnail} alt={pin.title || "pin"} className="w-12 h-12 object-cover rounded-lg border border-gray-100" />
-                      ) : (
-                        <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-gray-300">
-                          <Tag className="w-5 h-5" />
+                      <a
+                        href={`https://pinterest.com/pin/${pin.id}/`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Open pin on Pinterest"
+                        className="block relative group w-12 h-12 flex-shrink-0"
+                      >
+                        {pin.thumbnail ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={pin.thumbnail} alt={pin.title || "pin"} className="w-12 h-12 object-cover rounded-lg border border-gray-100 group-hover:opacity-80 transition-opacity" />
+                        ) : (
+                          <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-gray-300 group-hover:bg-gray-200 transition-colors">
+                            <Tag className="w-5 h-5" />
+                          </div>
+                        )}
+                        <div className="absolute inset-0 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
+                          <ExternalLink className="w-3.5 h-3.5 text-white" />
                         </div>
-                      )}
+                      </a>
                     </td>
 
                     {/* Title */}
