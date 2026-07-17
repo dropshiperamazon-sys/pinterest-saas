@@ -697,9 +697,9 @@ export default function SchedulerPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-5 gap-6">
-          {/* ── Left: Pin Composer ── */}
-          <div className="col-span-3 space-y-4">
+        <div className="space-y-6">
+          {/* ── Pin Composer ── */}
+          <div className="space-y-4">
             {/* Toolbar */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -732,8 +732,8 @@ export default function SchedulerPage() {
               </div>
             </div>
 
-            {/* Draft Cards */}
-            <div className="space-y-3">
+            {/* Draft Cards — 3 columns */}
+            <div className="grid grid-cols-3 gap-4">
               {drafts.map((draft, i) => (
                 <DraftCard
                   key={draft.id}
@@ -767,9 +767,9 @@ export default function SchedulerPage() {
             </div>
           </div>
 
-          {/* ── Right: Scheduled Pins ── */}
-          <div className="col-span-2">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-4">
+          {/* ── Scheduled Pins Panel ── */}
+          <div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="p-4 border-b border-gray-100 flex items-center gap-1">
                 {(["upcoming", "published"] as const).map((tab) => (
                   <button
@@ -788,27 +788,28 @@ export default function SchedulerPage() {
                 ))}
               </div>
 
-              <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto scrollbar-thin">
+              <div className="grid grid-cols-3 gap-px bg-gray-100 max-h-[400px] overflow-y-auto">
                 {filtered.length === 0 ? (
-                  <div className="p-10 text-center">
+                  <div className="col-span-3 p-10 text-center bg-white">
                     <Calendar className="w-7 h-7 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400">No {activeTab} pins</p>
+                    <p className="text-sm text-gray-400">No {activeTab} pins yet</p>
                   </div>
                 ) : filtered.map((pin) => (
-                  <div key={pin.id} className="p-4 hover:bg-gray-50/50 flex items-center gap-3 group">
-                    <div className="w-10 h-10 bg-gray-100 rounded-xl flex items-center justify-center text-xl flex-shrink-0">
-                      {pin.imageUrl}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-sm text-gray-900 truncate">{pin.title}</div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full truncate max-w-[80px]">{pin.board}</span>
-                        <span className="text-xs text-gray-400">
-                          {format(parseISO(pin.scheduledAt), "MMM d · h:mm a")}
-                        </span>
+                  <div key={pin.id} className="p-4 bg-white hover:bg-gray-50/80 flex flex-col gap-2 group relative">
+                    {pin.imageUrl && pin.imageUrl.startsWith("data:") ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={pin.imageUrl} alt={pin.title} className="w-full h-28 object-cover rounded-lg" />
+                    ) : (
+                      <div className="w-full h-28 bg-gray-100 rounded-lg flex items-center justify-center text-3xl">
+                        {pin.imageUrl || "📌"}
                       </div>
+                    )}
+                    <div className="font-medium text-sm text-gray-900 truncate">{pin.title}</div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full truncate max-w-[90px]">{pin.board}</span>
+                      <span className="text-xs text-gray-400">{format(parseISO(pin.scheduledAt), "MMM d · h:mm a")}</span>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
+                    <div className="flex items-center justify-between">
                       {pin.status === "scheduled" ? (
                         <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium">
                           <Clock className="w-3 h-3" />
