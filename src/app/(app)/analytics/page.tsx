@@ -24,13 +24,13 @@ interface DayData {
 interface Analytics {
   impressions: number;
   engagements: number;
-  outboundClicks: number;
+  pinClicks: number;
   saves: number;
   totalAudience: number;
   engagedAudience: number;
   impressionsChange: number | null;
   engagementsChange: number | null;
-  outboundClicksChange: number | null;
+  pinClicksChange: number | null;
   savesChange: number | null;
   totalAudienceChange: number | null;
   engagedAudienceChange: number | null;
@@ -179,7 +179,7 @@ export default function AnalyticsPage() {
   const stats = [
     { label: "Impressions", value: data?.impressions ?? 0, change: data?.impressionsChange ?? null, icon: Eye, iconBg: "bg-blue-50 text-blue-600", valueColor: "text-blue-700" },
     { label: "Engagements", value: data?.engagements ?? 0, change: data?.engagementsChange ?? null, icon: Zap, iconBg: "bg-yellow-50 text-yellow-600", valueColor: "text-yellow-700" },
-    { label: "Outbound Clicks", value: data?.outboundClicks ?? 0, change: data?.outboundClicksChange ?? null, icon: ExternalLink, iconBg: "bg-green-50 text-green-600", valueColor: "text-green-700" },
+    { label: "Pin Clicks", value: data?.pinClicks ?? 0, change: data?.pinClicksChange ?? null, icon: ExternalLink, iconBg: "bg-green-50 text-green-600", valueColor: "text-green-700" },
     { label: "Saves", value: data?.saves ?? 0, change: data?.savesChange ?? null, icon: Heart, iconBg: "bg-pink-50 text-pink-600", valueColor: "text-pink-700" },
     { label: "Total Audience", value: data?.totalAudience ?? 0, change: data?.totalAudienceChange ?? null, icon: Users, iconBg: "bg-purple-50 text-purple-600", valueColor: "text-purple-700" },
     { label: "Engaged Audience", value: data?.engagedAudience ?? 0, change: data?.engagedAudienceChange ?? null, icon: MousePointerClick, iconBg: "bg-orange-50 text-orange-600", valueColor: "text-orange-700" },
