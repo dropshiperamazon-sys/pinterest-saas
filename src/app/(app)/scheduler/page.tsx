@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Header from "@/components/Header";
-import { MOCK_SCHEDULED_PINS } from "@/lib/pinterest-data";
 import { cn } from "@/lib/utils";
 import {
   Plus, Calendar, Clock, Link2, Image as ImageIcon,
@@ -504,9 +503,40 @@ function DraftCard({
           </div>
 
           {/* Image Upload */}
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 text-center hover:border-[#e60023]/40 transition-colors cursor-pointer">
-            <ImageIcon className="w-5 h-5 text-gray-300 mx-auto mb-1" />
-            <span className="text-xs text-gray-400">Drop image or click to upload</span>
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Pin Image</label>
+            {draft.imageUrl && draft.imageUrl.startsWith("data:") ? (
+              <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={draft.imageUrl} alt="Pin preview" className="w-full max-h-48 object-cover" />
+                <button
+                  onClick={() => set("imageUrl", "")}
+                  className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black/80"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-[#e60023]/40 hover:bg-[#e60023]/5 transition-colors cursor-pointer">
+                <ImageIcon className="w-6 h-6 text-gray-300" />
+                <span className="text-xs text-gray-400">Drop image or click to upload</span>
+                <span className="text-xs text-gray-300">PNG, JPG, WEBP up to 10MB</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      if (ev.target?.result) set("imageUrl", ev.target.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+            )}
           </div>
         </div>
       )}
@@ -517,7 +547,7 @@ function DraftCard({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function SchedulerPage() {
-  const [scheduled, setScheduled] = useState<ScheduledPin[]>(MOCK_SCHEDULED_PINS);
+  const [scheduled, setScheduled] = useState<ScheduledPin[]>([]);
   const [drafts, setDrafts] = useState<PinDraft[]>([newDraft()]);
   const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
@@ -528,13 +558,12 @@ export default function SchedulerPage() {
   const { data: session } = useSession();
 
   useEffect(() => {
-    // Check real Pinterest connection
+    // Load real Pinterest connection + boards + scheduled pins
     fetch("/api/pinterest-connection")
       .then((r) => r.json())
       .then((data) => {
         setConnected(data.connected);
         setPinterestName(data.pinterestName || data.pinterestUsername || "");
-        // Fetch boards using the stored access token
         if (data.connected && data.accessToken) {
           return fetch("/api/pinterest-boards", {
             headers: { Authorization: `Bearer ${data.accessToken}` },
@@ -556,6 +585,14 @@ export default function SchedulerPage() {
         setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: list[0].name } : dr));
       })
       .finally(() => setBoardsLoading(false));
+
+    // Load real scheduled pins
+    fetch("/api/schedule-pin")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.pins) setScheduled(data.pins);
+      })
+      .catch(() => {});
   }, [session]);
 
   const addDraft = () => setDrafts((d) => [...d, newDraft()]);
@@ -574,25 +611,43 @@ export default function SchedulerPage() {
     setAiTarget(null);
   };
 
-  const scheduleAll = () => {
+  const scheduleAll = async () => {
     const valid = drafts.filter((d) => d.title && d.date && d.time);
     if (valid.length === 0) return;
-    const newPins: ScheduledPin[] = valid.map((d) => ({
-      id: d.id,
-      title: d.title,
-      board: d.board,
-      scheduledAt: `${d.date}T${d.time}:00`,
-      status: "scheduled",
-      imageUrl: d.pinType === "promotional" ? "🛍️" : d.pinType === "inspirational" ? "✨" : "📌",
-      description: d.description,
-      link: d.link,
-    }));
-    setScheduled((s) => [...newPins, ...s]);
+    const saved: ScheduledPin[] = [];
+    for (const d of valid) {
+      try {
+        const res = await fetch("/api/schedule-pin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: d.title,
+            description: d.description,
+            imageUrl: d.imageUrl,
+            board: d.board,
+            link: d.link,
+            pinType: d.pinType,
+            scheduledAt: `${d.date}T${d.time}:00`,
+          }),
+        });
+        const json = await res.json();
+        if (json.pin) saved.push(json.pin);
+      } catch { /* non-fatal */ }
+    }
+    setScheduled((s) => [...saved, ...s]);
     setDrafts([newDraft()]);
   };
 
-  const deleteScheduled = (id: string) =>
+  const deleteScheduled = async (id: string) => {
     setScheduled((s) => s.filter((p) => p.id !== id));
+    try {
+      await fetch("/api/schedule-pin", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinId: id }),
+      });
+    } catch { /* non-fatal */ }
+  };
 
   const filtered = scheduled.filter((p) =>
     activeTab === "upcoming" ? p.status === "scheduled" : p.status === "published"
