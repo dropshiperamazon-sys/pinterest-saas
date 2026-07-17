@@ -523,17 +523,27 @@ export default function SchedulerPage() {
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
   const [boardsLoading, setBoardsLoading] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const [pinterestName, setPinterestName] = useState("");
   const { data: session } = useSession();
-  const connected = !!session;
 
   useEffect(() => {
-    const accessToken = (session as { accessToken?: string } | null)?.accessToken;
-    const headers: Record<string, string> = {};
-    if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-
-    fetch("/api/pinterest-boards", { headers })
+    // Check real Pinterest connection
+    fetch("/api/pinterest-connection")
       .then((r) => r.json())
       .then((data) => {
+        setConnected(data.connected);
+        setPinterestName(data.pinterestName || data.pinterestUsername || "");
+        // Fetch boards using the stored access token
+        if (data.connected && data.accessToken) {
+          return fetch("/api/pinterest-boards", {
+            headers: { Authorization: `Bearer ${data.accessToken}` },
+          }).then((r) => r.json());
+        }
+        return fetch("/api/pinterest-boards").then((r) => r.json());
+      })
+      .then((data) => {
+        if (!data) return;
         const list: { id: string; name: string }[] = data.boards?.length
           ? data.boards
           : FALLBACK_BOARDS.map((name) => ({ id: name, name }));
@@ -626,7 +636,7 @@ export default function SchedulerPage() {
           <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
             <span className="text-sm font-semibold text-green-800">Pinterest connected!</span>
-            <span className="text-sm text-green-600">{session?.user?.name ? `@${session.user.name}` : "Your account"} is linked and ready.</span>
+            <span className="text-sm text-green-600">{pinterestName ? `@${pinterestName}` : "Your account"} is linked and ready.</span>
             <a href="/connect" className="ml-auto text-green-600 hover:text-green-800 text-xs underline">Manage</a>
           </div>
         )}
