@@ -376,6 +376,43 @@ function DraftCard({
       {/* Card Body */}
       {expanded && (
         <div className="p-4 space-y-3">
+          {/* Image Upload — first so users pick the image before filling details */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Pin Image</label>
+            {draft.imageUrl && draft.imageUrl.startsWith("data:") ? (
+              <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 w-4/5 mx-auto">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={draft.imageUrl} alt="Pin preview" className="w-full h-auto object-contain max-h-72" />
+                <button
+                  onClick={() => set("imageUrl", "")}
+                  className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black/80"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-[#e60023]/40 hover:bg-[#e60023]/5 transition-colors cursor-pointer">
+                <ImageIcon className="w-6 h-6 text-gray-300" />
+                <span className="text-xs text-gray-400">Drop image or click to upload</span>
+                <span className="text-xs text-gray-300">PNG, JPG, WEBP up to 10MB</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      if (ev.target?.result) set("imageUrl", ev.target.result as string);
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+              </label>
+            )}
+          </div>
+
           {/* Pin Type */}
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1.5">Pin Type</label>
@@ -502,42 +539,6 @@ function DraftCard({
             </div>
           </div>
 
-          {/* Image Upload */}
-          <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1.5">Pin Image</label>
-            {draft.imageUrl && draft.imageUrl.startsWith("data:") ? (
-              <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-50 w-4/5 mx-auto">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={draft.imageUrl} alt="Pin preview" className="w-full h-auto object-contain max-h-72" />
-                <button
-                  onClick={() => set("imageUrl", "")}
-                  className="absolute top-2 right-2 bg-black/60 text-white rounded-full p-1 hover:bg-black/80"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <label className="flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-[#e60023]/40 hover:bg-[#e60023]/5 transition-colors cursor-pointer">
-                <ImageIcon className="w-6 h-6 text-gray-300" />
-                <span className="text-xs text-gray-400">Drop image or click to upload</span>
-                <span className="text-xs text-gray-300">PNG, JPG, WEBP up to 10MB</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const reader = new FileReader();
-                    reader.onload = (ev) => {
-                      if (ev.target?.result) set("imageUrl", ev.target.result as string);
-                    };
-                    reader.readAsDataURL(file);
-                  }}
-                />
-              </label>
-            )}
-          </div>
         </div>
       )}
     </div>
