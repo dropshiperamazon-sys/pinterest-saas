@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useState } from "react";
 import Header from "@/components/Header";
 import { formatNumber } from "@/lib/utils";
 import { TrendingUp, Eye, MousePointerClick, DollarSign, ArrowUpRight, ArrowDownRight, Calendar, Search, Megaphone } from "lucide-react";
@@ -26,6 +27,10 @@ const TRENDING = [
 ];
 
 export default function Dashboard() {
+  const [pinterestConnected, setPinterestConnected] = useState(true);
+  useEffect(() => {
+    fetch("/api/pinterest-connection").then(r => r.json()).then(d => setPinterestConnected(d.connected)).catch(() => {});
+  }, []);
   return (
     <div>
       <Header title="Dashboard" subtitle="Welcome back! Here's your Pinterest overview." />
@@ -97,19 +102,21 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Pinterest Connect Banner */}
-        <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-[#e60023] rounded-xl flex items-center justify-center text-white text-xl font-bold">P</div>
-            <div>
-              <div className="font-semibold text-gray-900">Connect your Pinterest account</div>
-              <div className="text-sm text-gray-500">Link your account to enable pin scheduling and ads management.</div>
+        {/* Pinterest Connect Banner - only show when not connected */}
+        {!pinterestConnected && (
+          <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-[#e60023] rounded-xl flex items-center justify-center text-white text-xl font-bold">P</div>
+              <div>
+                <div className="font-semibold text-gray-900">Connect your Pinterest account</div>
+                <div className="text-sm text-gray-500">Link your account to enable pin scheduling and ads management.</div>
+              </div>
             </div>
+            <a href="/api/pinterest-oauth/start" className="bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors whitespace-nowrap">
+              Connect Pinterest
+            </a>
           </div>
-          <button className="bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors whitespace-nowrap">
-            Connect Pinterest
-          </button>
-        </div>
+        )}
       </div>
     </div>
   );
