@@ -626,7 +626,7 @@ export default function SchedulerPage() {
           <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-center gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
             <span className="text-sm font-semibold text-green-800">Pinterest connected!</span>
-            <span className="text-sm text-green-600">@yourpinterest is linked and ready.</span>
+            <span className="text-sm text-green-600">{session?.user?.name ? `@${session.user.name}` : "Your account"} is linked and ready.</span>
             <a href="/connect" className="ml-auto text-green-600 hover:text-green-800 text-xs underline">Manage</a>
           </div>
         )}
