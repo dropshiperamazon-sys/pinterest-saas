@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ interface PinDraft {
   title: string;
   description: string;
   board: string;
+  boards: string[]; // multi-board selection
   link: string;
   date: string;
   time: string;
@@ -94,6 +95,7 @@ function newDraft(): PinDraft {
     title: "",
     description: "",
     board: "",
+    boards: [],
     link: "",
     date: "",
     time: "",
@@ -102,6 +104,8 @@ function newDraft(): PinDraft {
     pinType: "",
   };
 }
+
+const DRAFTS_STORAGE_KEY = "mypinpro_drafts";
 
 // ── AI Modal ───────────────────────────────────────────────────────────────────
 
@@ -305,8 +309,24 @@ function DraftCard({
   boardsLoading: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
+  const [boardOpen, setBoardOpen] = useState(false);
+  const boardRef = useRef<HTMLDivElement>(null);
   const set = (field: keyof PinDraft, value: string) =>
     onChange({ ...draft, [field]: value });
+
+  const toggleBoard = (name: string) => {
+    const current = draft.boards ?? [];
+    const next = current.includes(name) ? current.filter((b) => b !== name) : [...current, name];
+    onChange({ ...draft, boards: next, board: next[0] ?? "" });
+  };
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (boardRef.current && !boardRef.current.contains(e.target as Node)) setBoardOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const timeToInput = (label: string) => {
     const match = label.match(/(\d+):(\d+)\s*(AM|PM)/i);
@@ -471,20 +491,42 @@ function DraftCard({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            {/* Board */}
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1.5">Board</label>
-              <select
-                value={draft.board}
-                onChange={(e) => set("board", e.target.value)}
+            {/* Board — multi-select dropdown */}
+            <div ref={boardRef} className="relative">
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">
+                Board{(draft.boards?.length ?? 0) > 1 && (
+                  <span className="ml-1 text-[#e60023]">({draft.boards.length} boards · 2-week interval)</span>
+                )}
+              </label>
+              <button
+                type="button"
+                onClick={() => setBoardOpen((o) => !o)}
                 disabled={boardsLoading}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white disabled:opacity-60"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white text-left flex items-center justify-between disabled:opacity-60 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
               >
-                {boardsLoading
-                  ? <option>Loading boards...</option>
-                  : boards.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)
-                }
-              </select>
+                <span className="truncate text-gray-700">
+                  {boardsLoading ? "Loading..." : (draft.boards?.length ? draft.boards.join(", ") : "Select boards…")}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-gray-400 flex-shrink-0 ml-1" />
+              </button>
+              {boardOpen && !boardsLoading && (
+                <div className="absolute z-20 top-full mt-1 left-0 right-0 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  {boards.map((b) => {
+                    const checked = draft.boards?.includes(b.name);
+                    return (
+                      <label key={b.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!checked}
+                          onChange={() => toggleBoard(b.name)}
+                          className="accent-[#e60023] w-3.5 h-3.5"
+                        />
+                        <span className="text-sm text-gray-700">{b.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* URL */}
@@ -561,7 +603,17 @@ function DraftCard({
 
 export default function SchedulerPage() {
   const [scheduled, setScheduled] = useState<ScheduledPin[]>([]);
-  const [drafts, setDrafts] = useState<PinDraft[]>([newDraft(), newDraft(), newDraft()]);
+  const [drafts, setDrafts] = useState<PinDraft[]>(() => {
+    if (typeof window === "undefined") return [newDraft(), newDraft(), newDraft()];
+    try {
+      const saved = localStorage.getItem(DRAFTS_STORAGE_KEY);
+      if (saved) {
+        const parsed: PinDraft[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch { /* ignore */ }
+    return [newDraft(), newDraft(), newDraft()];
+  });
   const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
@@ -590,12 +642,12 @@ export default function SchedulerPage() {
           ? data.boards
           : FALLBACK_BOARDS.map((name) => ({ id: name, name }));
         setBoards(list);
-        setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: list[0].name } : dr));
+        setDrafts((d) => d.map((dr) => (!dr.board && !dr.boards?.length) ? { ...dr, board: list[0].name } : dr));
       })
       .catch(() => {
         const list = FALLBACK_BOARDS.map((name) => ({ id: name, name }));
         setBoards(list);
-        setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: list[0].name } : dr));
+        setDrafts((d) => d.map((dr) => (!dr.board && !dr.boards?.length) ? { ...dr, board: list[0].name } : dr));
       })
       .finally(() => setBoardsLoading(false));
 
@@ -607,6 +659,13 @@ export default function SchedulerPage() {
       })
       .catch(() => {});
   }, [session]);
+
+  // Auto-save drafts to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+    } catch { /* ignore quota errors */ }
+  }, [drafts]);
 
   const addDraft = () => setDrafts((d) => [...d, newDraft()]);
 
@@ -624,56 +683,54 @@ export default function SchedulerPage() {
     setAiTarget(null);
   };
 
-  const scheduleSingle = async (draftId: string) => {
-    const d = drafts.find((dr) => dr.id === draftId);
-    if (!d || !d.title || !d.date || !d.time) return;
+  async function postPin(payload: object): Promise<ScheduledPin | null> {
     try {
       const res = await fetch("/api/schedule-pin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: d.title,
-          description: d.description,
-          imageUrl: d.imageUrl,
-          board: d.board,
-          link: d.link,
-          pinType: d.pinType,
-          scheduledAt: `${d.date}T${d.time}:00`,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
-      if (json.pin) {
-        setScheduled((s) => [json.pin, ...s]);
-        setDrafts((prev) => prev.map((dr) => dr.id === draftId ? newDraft() : dr));
-      }
-    } catch { /* non-fatal */ }
+      return json.pin ?? null;
+    } catch { return null; }
+  }
+
+  // Schedule a single draft — one POST per selected board, each 2 weeks apart
+  const scheduleSingle = async (draftId: string) => {
+    const d = drafts.find((dr) => dr.id === draftId);
+    if (!d || !d.title || !d.date || !d.time) return;
+    const boardList = d.boards?.length ? d.boards : [d.board || ""];
+    const baseMs = new Date(`${d.date}T${d.time}:00`).getTime();
+    const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+    const saved: ScheduledPin[] = [];
+    for (let i = 0; i < boardList.length; i++) {
+      const scheduledAt = new Date(baseMs + i * TWO_WEEKS_MS).toISOString();
+      const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, scheduledAt });
+      if (pin) saved.push(pin);
+    }
+    if (saved.length) {
+      setScheduled((s) => [...saved, ...s]);
+      setDrafts((prev) => prev.map((dr) => dr.id === draftId ? newDraft() : dr));
+    }
   };
 
+  // Schedule all valid drafts, expanding multi-board selections with 2-week intervals
   const scheduleAll = async () => {
     const valid = drafts.filter((d) => d.title && d.date && d.time);
     if (valid.length === 0) return;
+    const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
     const saved: ScheduledPin[] = [];
     for (const d of valid) {
-      try {
-        const res = await fetch("/api/schedule-pin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title: d.title,
-            description: d.description,
-            imageUrl: d.imageUrl,
-            board: d.board,
-            link: d.link,
-            pinType: d.pinType,
-            scheduledAt: `${d.date}T${d.time}:00`,
-          }),
-        });
-        const json = await res.json();
-        if (json.pin) saved.push(json.pin);
-      } catch { /* non-fatal */ }
+      const boardList = d.boards?.length ? d.boards : [d.board || ""];
+      const baseMs = new Date(`${d.date}T${d.time}:00`).getTime();
+      for (let i = 0; i < boardList.length; i++) {
+        const scheduledAt = new Date(baseMs + i * TWO_WEEKS_MS).toISOString();
+        const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, scheduledAt });
+        if (pin) saved.push(pin);
+      }
     }
     setScheduled((s) => [...saved, ...s]);
-    setDrafts([newDraft()]);
+    setDrafts([newDraft(), newDraft(), newDraft()]);
   };
 
   const deleteScheduled = async (id: string) => {
