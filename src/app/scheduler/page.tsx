@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Header from "@/components/Header";
 import { MOCK_SCHEDULED_PINS } from "@/lib/pinterest-data";
 import { cn } from "@/lib/utils";
@@ -35,7 +35,7 @@ interface ScheduledPin {
   link?: string;
 }
 
-const BOARDS = [
+const FALLBACK_BOARDS = [
   "Home Decor", "Food & Recipes", "Fitness", "Interior Design",
   "DIY & Crafts", "Fashion", "Travel", "Weddings", "Beauty",
   "Gardening", "Lifestyle", "Business Tips",
@@ -93,7 +93,7 @@ function newDraft(): PinDraft {
     id: `draft_${Date.now()}_${Math.random().toString(36).slice(2)}`,
     title: "",
     description: "",
-    board: BOARDS[0],
+    board: "",
     link: "",
     date: "",
     time: "",
@@ -436,7 +436,7 @@ function DraftCard({
                 onChange={(e) => set("board", e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white"
               >
-                {BOARDS.map((b) => <option key={b}>{b}</option>)}
+                {boards.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
               </select>
             </div>
 
@@ -512,7 +512,26 @@ export default function SchedulerPage() {
   const [drafts, setDrafts] = useState<PinDraft[]>([newDraft()]);
   const [connected, setConnected] = useState(false);
   const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
-  const [aiTarget, setAiTarget] = useState<string | null>(null); // draft id
+  const [aiTarget, setAiTarget] = useState<string | null>(null);
+  const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    fetch("/api/pinterest-boards")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.boards?.length) {
+          setBoards(data.boards);
+          setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: data.boards[0].name } : dr));
+        } else {
+          setBoards(FALLBACK_BOARDS.map((name) => ({ id: name, name })));
+          setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: FALLBACK_BOARDS[0] } : dr));
+        }
+      })
+      .catch(() => {
+        setBoards(FALLBACK_BOARDS.map((name) => ({ id: name, name })));
+        setDrafts((d) => d.map((dr) => dr.board === "" ? { ...dr, board: FALLBACK_BOARDS[0] } : dr));
+      });
+  }, []);
 
   const addDraft = () => setDrafts((d) => [...d, newDraft()]);
 
