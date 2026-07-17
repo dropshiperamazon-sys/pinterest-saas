@@ -749,22 +749,6 @@ export default function SchedulerPage() {
               ))}
             </div>
 
-            {/* Add more */}
-            <button
-              onClick={addDraft}
-              className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm text-gray-400 hover:border-[#e60023]/40 hover:text-[#e60023] transition-colors flex items-center justify-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Add Another Pin
-            </button>
-
-            {/* Pro tip */}
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-              <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-blue-700">
-                <strong>Pro tip:</strong> Schedule 3–5 pins per day for consistent reach. Mix promotional and inspirational content at a 20/80 ratio for best engagement.
-              </div>
-            </div>
           </div>
 
           {/* ── Scheduled Pins Panel ── */}
@@ -828,6 +812,23 @@ export default function SchedulerPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+
+          {/* Add more */}
+          <button
+            onClick={addDraft}
+            className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm text-gray-400 hover:border-[#e60023]/40 hover:text-[#e60023] transition-colors flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Add Another Pin
+          </button>
+
+          {/* Pro tip */}
+          <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-700">
+              <strong>Pro tip:</strong> Schedule 3–5 pins per day for consistent reach. Mix promotional and inspirational content at a 20/80 ratio for best engagement.
             </div>
           </div>
         </div>
