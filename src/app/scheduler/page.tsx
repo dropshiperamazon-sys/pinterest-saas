@@ -291,6 +291,8 @@ function DraftCard({
   onRemove,
   onAiOpen,
   isOnly,
+  boards,
+  boardsLoading,
 }: {
   draft: PinDraft;
   index: number;
@@ -298,6 +300,8 @@ function DraftCard({
   onRemove: () => void;
   onAiOpen: () => void;
   isOnly: boolean;
+  boards: { id: string; name: string }[];
+  boardsLoading: boolean;
 }) {
   const [expanded, setExpanded] = useState(true);
   const set = (field: keyof PinDraft, value: string) =>
@@ -675,6 +679,8 @@ export default function SchedulerPage() {
                   onRemove={() => removeDraft(draft.id)}
                   onAiOpen={() => setAiTarget(draft.id)}
                   isOnly={drafts.length === 1}
+                  boards={boards}
+                  boardsLoading={boardsLoading}
                 />
               ))}
             </div>
