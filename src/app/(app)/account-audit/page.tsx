@@ -226,13 +226,13 @@ function BoardDetail({
                     {/* Title */}
                     <td className="px-4 py-3">
                       <div className="flex items-start gap-2">
-                        {pin.title ? (
+                        {pin.title.trim() ? (
                           <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
                         ) : (
                           <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
                         )}
                         <span className="text-xs text-gray-700 leading-relaxed line-clamp-3">
-                          {pin.title || <span className="text-gray-300 italic">No title</span>}
+                          {pin.title.trim() || <span className="text-gray-300 italic">No title</span>}
                         </span>
                       </div>
                     </td>
@@ -240,13 +240,13 @@ function BoardDetail({
                     {/* Description */}
                     <td className="px-4 py-3">
                       <div className="flex items-start gap-2">
-                        {pin.description ? (
+                        {pin.description.trim() ? (
                           <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
                         ) : (
                           <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
                         )}
-                        <span className="text-xs text-gray-500 leading-relaxed line-clamp-3">
-                          {pin.description || <span className="text-gray-300 italic">No description</span>}
+                        <span className="text-xs text-gray-600 leading-relaxed line-clamp-3">
+                          {pin.description.trim() || <span className="text-gray-300 italic">No description</span>}
                         </span>
                       </div>
                     </td>

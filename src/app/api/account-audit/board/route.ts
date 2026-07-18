@@ -107,9 +107,9 @@ export async function GET(req: NextRequest) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const enriched = (pins as any[]).map((pin: any) => {
-    const title = pin.title ?? "";
-    const description = pin.description ?? "";
-    const link = pin.link ?? "";
+    const title = (pin.title ?? "").trim();
+    const description = (pin.description ?? "").trim();
+    const link = (pin.link ?? "").trim();
     const thumbnail =
       pin.media?.images?.["150x150"]?.url ??
       pin.media?.images?.["400x300"]?.url ??
