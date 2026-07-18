@@ -495,27 +495,145 @@ function AudiencePlanning() {
   );
 }
 
+// ── Keyword generator ───────────────────────────────────────────────────────
+interface KwRow { keyword: string; volume: number; competition: "low"|"medium"|"high"; suggestedBid: number; difficulty: number; type: "exact"|"phrase"|"broad"; }
+
+function generateKeywords(seed: string): { positive: KwRow[]; negative: string[] } {
+  const s = seed.toLowerCase().trim();
+  const niche = classifyNiche(s);
+
+  // Build 12 keyword variations from the seed
+  type Mod = [string, KwRow["competition"], number, number, KwRow["type"]];
+  const modifiers: Mod[] = [
+    ["ideas", "high", 0.9, 68, "broad"],
+    ["inspiration", "high", 0.85, 65, "broad"],
+    ["on a budget", "low", 0.38, 28, "phrase"],
+    ["aesthetic", "medium", 0.72, 50, "broad"],
+    ["for beginners", "low", 0.42, 32, "phrase"],
+    ["diy", "medium", 0.65, 46, "phrase"],
+    ["2025", "medium", 0.60, 42, "exact"],
+    ["tips", "medium", 0.55, 38, "phrase"],
+    ["tutorial", "low", 0.45, 34, "phrase"],
+    ["cheap", "low", 0.32, 24, "phrase"],
+    ["best", "high", 0.95, 72, "exact"],
+    ["how to", "medium", 0.58, 40, "broad"],
+  ];
+
+  // Seed-based pseudo-random for volume variety
+  const hash = (str: string, i: number) => {
+    let h = 0;
+    for (const c of str + i) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff;
+    return Math.abs(h);
+  };
+
+  const baseVolume = niche
+    ? parseInt(niche.broad.replace(/[^0-9]/g, "")) * (niche.broad.includes("M") ? 50000 : 5000)
+    : 400000;
+
+  const posRaw: KwRow[] = modifiers.map((mod, i): KwRow => ({
+    keyword: `${s} ${mod[0]}`,
+    volume: Math.round((hash(s, i) % 800000) + 80000),
+    competition: mod[1],
+    suggestedBid: mod[2] + (hash(s, i) % 30) / 100,
+    difficulty: mod[3] + (hash(s, i) % 10) - 5,
+    type: mod[4],
+  }));
+  const seedRow: KwRow = { keyword: s, volume: Math.round(baseVolume * 0.6), competition: "high", suggestedBid: 1.10, difficulty: 70, type: "exact" };
+  const positive: KwRow[] = [seedRow, ...posRaw].sort((a, b) => b.volume - a.volume);
+
+  // Generate niche-relevant negative keywords
+  const negMap: Record<string, string[]> = {
+    "Fashion & Clothing": ["free clothes", "thrift store near me", "clothing donation", "cheap knock off"],
+    "Home Decor & Interior": ["free furniture", "rental furniture", "furniture disposal", "second hand"],
+    "Beauty & Makeup": ["free samples", "diy cheap makeup", "cosmetic surgery", "free beauty products"],
+    "Food & Recipes": ["free food", "food bank", "restaurant jobs", "food delivery driver"],
+    "Fitness & Wellness": ["gym jobs", "free gym membership", "fitness instructor course", "personal trainer salary"],
+    "Travel & Adventure": ["travel nursing", "travel jobs", "working holiday visa", "travel grants"],
+    "Wedding & Events": ["free wedding venues", "elope", "wedding cancellation", "divorce"],
+    "Parenting & Kids": ["childcare jobs", "babysitter rates", "school fees", "child support"],
+    "DIY & Crafts": ["free craft supplies", "craft store jobs", "craft fair vendor", "how to sell crafts"],
+    "Gardening & Plants": ["gardening jobs", "plant disposal", "free compost", "landscaping jobs"],
+    "Pets & Animals": ["pet adoption", "animal shelter jobs", "free pet food", "vet school"],
+    "Technology & Gadgets": ["tech jobs", "free software", "open source", "tech support jobs"],
+    "Business & Finance": ["free business grants", "bankruptcy", "debt relief", "business failure"],
+    "Education & Learning": ["free courses", "scholarship application", "student loans", "teaching jobs"],
+  };
+  const negative = negMap[niche?.label ?? ""] ?? ["free", "cheap knockoff", "diy only", "no budget", "tutorial only"];
+
+  return { positive, negative };
+}
+
 function KeywordPlanning() {
-  const positive = KEYWORD_PLAN.filter((k) => !k.negative);
-  const negative = KEYWORD_PLAN.filter((k) => k.negative);
+  const [kwSearch, setKwSearch] = useState("");
+  const [searched, setSearched] = useState<string | null>(null);
+  const [added, setAdded] = useState<Set<string>>(new Set());
+
+  const defaultPositive = KEYWORD_PLAN.filter((k) => !k.negative) as KwRow[];
+  const defaultNegative = KEYWORD_PLAN.filter((k) => k.negative).map(k => k.keyword);
+
+  const { positive, negative } = searched
+    ? generateKeywords(searched)
+    : { positive: defaultPositive, negative: defaultNegative };
+
+  const niche = searched ? classifyNiche(searched) : null;
+
+  const doSearch = () => { if (kwSearch.trim()) setSearched(kwSearch.trim()); };
 
   return (
     <div className="space-y-5">
+      {/* Search bar */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <h3 className="font-semibold text-gray-900 mb-1">Keyword Research</h3>
+        <p className="text-sm text-gray-500 mb-4">Enter a product, niche, or topic to get keyword recommendations tailored to your campaign.</p>
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              value={kwSearch}
+              onChange={e => { setKwSearch(e.target.value); setSearched(null); }}
+              onKeyDown={e => { if (e.key === "Enter") doSearch(); }}
+              placeholder="e.g. yoga mat, boho wall art, keto snacks, wedding bouquet..."
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+            />
+          </div>
+          <button
+            onClick={doSearch}
+            disabled={!kwSearch.trim()}
+            className="bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            <Search className="w-4 h-4" /> Find Keywords
+          </button>
+        </div>
+        {niche && (
+          <div className="mt-3 flex items-center gap-2 text-xs text-gray-400">
+            <span>Identified niche:</span>
+            <span className="bg-[#e60023]/10 text-[#e60023] font-semibold px-2 py-0.5 rounded-full">{niche.label}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Results */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="font-semibold text-gray-900">Keyword Recommendations</h3>
-            <p className="text-sm text-gray-500 mt-0.5">Sorted by search volume. Click to add to your campaign.</p>
+            <h3 className="font-semibold text-gray-900">
+              Keyword Recommendations
+              {searched && <span className="ml-2 text-xs font-normal text-gray-400">for &quot;{searched}&quot;</span>}
+            </h3>
+            <p className="text-sm text-gray-500 mt-0.5">Sorted by search volume.</p>
           </div>
-          <button className="text-sm text-[#e60023] font-medium border border-[#e60023]/30 px-3 py-1.5 rounded-lg hover:bg-[#e60023]/5 transition-colors">
-            + Add All to Campaign
+          <button
+            onClick={() => setAdded(new Set(positive.map(k => k.keyword)))}
+            className="text-sm text-[#e60023] font-medium border border-[#e60023]/30 px-3 py-1.5 rounded-lg hover:bg-[#e60023]/5 transition-colors"
+          >
+            + Add All
           </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr className="text-left">
-                {["Keyword", "Match", "Volume", "Difficulty", "Competition", "Suggested Bid", ""].map((h) => (
+                {["Keyword", "Match", "Volume", "Difficulty", "Competition", "Bid", ""].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
@@ -531,14 +649,28 @@ function KeywordPlanning() {
                       "bg-blue-100 text-blue-700 border-blue-200"
                     )}>{kw.type}</span>
                   </td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(kw.volume)}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-700 w-16">{formatNumber(kw.volume)}</span>
+                      <div className="w-16 bg-gray-100 rounded-full h-1.5">
+                        <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${Math.min(100, (kw.volume / 2500000) * 100)}%` }} />
+                      </div>
+                    </div>
+                  </td>
                   <td className="px-3 py-3"><DifficultyBar score={kw.difficulty} /></td>
                   <td className="px-3 py-3">
                     <span className={cn("text-xs px-2 py-0.5 rounded-full font-semibold capitalize", COMP_COLOR[kw.competition])}>{kw.competition}</span>
                   </td>
                   <td className="px-3 py-3 text-sm font-semibold text-gray-800">${kw.suggestedBid.toFixed(2)}</td>
                   <td className="px-3 py-3">
-                    <button className="text-xs text-[#e60023] font-medium hover:underline">Add</button>
+                    <button
+                      onClick={() => setAdded(prev => { const n = new Set(prev); n.has(kw.keyword) ? n.delete(kw.keyword) : n.add(kw.keyword); return n; })}
+                      className={cn("text-xs font-semibold px-2 py-0.5 rounded-lg transition-colors",
+                        added.has(kw.keyword) ? "bg-green-100 text-green-700" : "text-[#e60023] hover:bg-[#e60023]/5"
+                      )}
+                    >
+                      {added.has(kw.keyword) ? "✓ Added" : "+ Add"}
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -549,19 +681,12 @@ function KeywordPlanning() {
 
       {/* Negative Keywords */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-900 mb-1">Negative Keyword Recommendations</h3>
+        <h3 className="font-semibold text-gray-900 mb-1">Suggested Negative Keywords</h3>
         <p className="text-sm text-gray-500 mb-4">Exclude these to avoid wasted spend on irrelevant searches.</p>
         <div className="flex flex-wrap gap-2">
           {negative.map((kw) => (
-            <div key={kw.keyword} className="flex items-center gap-1.5 bg-red-50 text-red-700 border border-red-200 text-xs px-3 py-1.5 rounded-full font-medium">
-              <span>− {kw.keyword}</span>
-              <button className="text-red-400 hover:text-red-700">+</button>
-            </div>
-          ))}
-          {["low quality", "how to make free", "tutorial only", "no budget", "renter"].map((kw) => (
             <div key={kw} className="flex items-center gap-1.5 bg-red-50 text-red-700 border border-red-200 text-xs px-3 py-1.5 rounded-full font-medium">
               <span>− {kw}</span>
-              <button className="text-red-400 hover:text-red-700">+</button>
             </div>
           ))}
         </div>
