@@ -151,6 +151,25 @@ export default function AdResearchTab() {
 
   // Lookup tab
   const [lookupQ, setLookupQ] = useState("");
+  const [lookupCountry, setLookupCountry] = useState("US");
+
+  const LOOKUP_COUNTRIES: { label: string; code: string }[] = [
+    { label: "United States", code: "US" },
+    { label: "United Kingdom", code: "GB" },
+    { label: "Canada", code: "CA" },
+    { label: "Australia", code: "AU" },
+    { label: "Germany", code: "DE" },
+    { label: "France", code: "FR" },
+    { label: "India", code: "IN" },
+    { label: "Brazil", code: "BR" },
+  ];
+
+  const openLookup = (advertiser?: string) => {
+    const params = new URLSearchParams();
+    params.set("country", lookupCountry);
+    if (advertiser) params.set("advertiserName", encodeURIComponent(advertiser));
+    window.open(`https://ads.pinterest.com/ads-repository/?${params.toString()}`, "_blank", "noopener noreferrer");
+  };
 
   useEffect(() => {
     try {
@@ -456,16 +475,24 @@ export default function AdResearchTab() {
               <h3 className="font-semibold text-gray-900 mb-1">Advertiser Lookup</h3>
               <p className="text-sm text-gray-500">Enter a brand name or domain to search for their active Pinterest ads in the official Ads Library.</p>
             </div>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
+            <div className="flex gap-2 flex-wrap">
+              <select
+                value={lookupCountry}
+                onChange={e => setLookupCountry(e.target.value)}
+                className="border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white">
+                {LOOKUP_COUNTRIES.map(c => (
+                  <option key={c.code} value={c.code}>{c.label}</option>
+                ))}
+              </select>
+              <div className="relative flex-1 min-w-[180px]">
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input value={lookupQ} onChange={e => setLookupQ(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && lookupQ.trim()) window.open(`https://ads.pinterest.com/ads-repository/?advertiser=${encodeURIComponent(lookupQ.trim())}`, "_blank", "noopener noreferrer"); }}
+                  onKeyDown={e => { if (e.key === "Enter" && lookupQ.trim()) openLookup(lookupQ.trim()); }}
                   placeholder="e.g. IKEA, Nike, Sephora, westelm.com"
                   className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
               </div>
               <button
-                onClick={() => { if (lookupQ.trim()) window.open(`https://ads.pinterest.com/ads-repository/?advertiser=${encodeURIComponent(lookupQ.trim())}`, "_blank", "noopener noreferrer"); }}
+                onClick={() => { if (lookupQ.trim()) openLookup(lookupQ.trim()); }}
                 disabled={!lookupQ.trim()}
                 className="flex items-center gap-2 bg-[#e60023] text-white px-5 py-3 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40">
                 <ExternalLink className="w-4 h-4" /> Look Up
@@ -486,7 +513,7 @@ export default function AdResearchTab() {
             <div className="grid grid-cols-2 gap-3">
               {MOCK_ADS.slice(0, 8).map(ad => (
                 <button key={ad.id}
-                  onClick={() => window.open(`https://ads.pinterest.com/ads-repository/?advertiser=${encodeURIComponent(ad.brand)}`, "_blank", "noopener noreferrer")}
+                  onClick={() => openLookup(ad.brand)}
                   className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-[#e60023]/30 hover:bg-[#e60023]/5 transition-all text-left group">
                   <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${ad.imageColor} flex items-center justify-center text-lg flex-shrink-0`}>{ad.imageEmoji}</div>
                   <div className="min-w-0 flex-1">
