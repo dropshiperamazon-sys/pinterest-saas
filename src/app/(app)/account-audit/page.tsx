@@ -141,7 +141,7 @@ function BoardDetail({
   board,
   onBack,
 }: {
-  board: { id: string; name: string; pinCount: number };
+  board: { id: string; name: string; pinCount: number; description?: string };
   onBack: () => void;
 }) {
   const [pins, setPins] = useState<BoardPin[]>([]);
@@ -181,6 +181,19 @@ function BoardDetail({
         <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
         <span className="text-sm font-semibold text-gray-800">{board.name}</span>
         <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{board.pinCount} pins</span>
+
+        {/* Board description badge */}
+        {board.description?.trim() ? (
+          <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-600 border border-green-200">
+            <CheckCircle2 className="w-3 h-3" />
+            Board description found
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-500 border border-red-200">
+            <XCircle className="w-3 h-3" />
+            No board description
+          </span>
+        )}
 
         {/* Duplicate summary badge */}
         {!loading && dupPinCount > 0 && (
@@ -392,7 +405,7 @@ export default function AccountAuditPage() {
   const [ownError, setOwnError] = useState("");
   const [connected, setConnected] = useState(false);
   const [keywordFilter, setKeywordFilter] = useState("");
-  const [selectedBoard, setSelectedBoard] = useState<{ id: string; name: string; pinCount: number } | null>(null);
+  const [selectedBoard, setSelectedBoard] = useState<{ id: string; name: string; pinCount: number; description?: string } | null>(null);
 
   // External account state
   const [extUrl, setExtUrl] = useState("");
@@ -560,7 +573,7 @@ export default function AccountAuditPage() {
                         {ownData.boards.map((board) => (
                           <button
                             key={board.id}
-                            onClick={() => setSelectedBoard({ id: board.id, name: board.name, pinCount: board.pinCount })}
+                            onClick={() => setSelectedBoard({ id: board.id, name: board.name, pinCount: board.pinCount, description: board.description })}
                             className="p-3 flex items-center gap-2 group hover:bg-[#e60023]/5 transition-colors text-left w-full"
                           >
                             <div className="w-8 h-8 rounded-lg bg-[#e60023]/10 group-hover:bg-[#e60023]/20 flex items-center justify-center flex-shrink-0 transition-colors">
