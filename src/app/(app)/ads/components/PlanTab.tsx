@@ -37,9 +37,45 @@ function DifficultyBar({ score }: { score: number }) {
   );
 }
 
+const NICHE_DATA: Record<string, { broad: string; targeted: string; highIntent: string }> = {
+  "home decor":      { broad: "22.1M", targeted: "5.4M",  highIntent: "1.1M"  },
+  "fitness":         { broad: "18.7M", targeted: "4.8M",  highIntent: "960K"  },
+  "wedding":         { broad: "14.2M", targeted: "3.6M",  highIntent: "720K"  },
+  "fashion":         { broad: "31.4M", targeted: "7.9M",  highIntent: "1.6M"  },
+  "food":            { broad: "27.8M", targeted: "6.9M",  highIntent: "1.4M"  },
+  "recipes":         { broad: "25.3M", targeted: "6.3M",  highIntent: "1.2M"  },
+  "travel":          { broad: "19.5M", targeted: "4.9M",  highIntent: "980K"  },
+  "beauty":          { broad: "24.6M", targeted: "6.1M",  highIntent: "1.2M"  },
+  "skincare":        { broad: "16.3M", targeted: "4.1M",  highIntent: "820K"  },
+  "diy":             { broad: "13.8M", targeted: "3.4M",  highIntent: "680K"  },
+  "gardening":       { broad: "11.2M", targeted: "2.8M",  highIntent: "560K"  },
+  "baby":            { broad: "12.4M", targeted: "3.1M",  highIntent: "620K"  },
+  "parenting":       { broad: "10.9M", targeted: "2.7M",  highIntent: "540K"  },
+  "health":          { broad: "20.1M", targeted: "5.0M",  highIntent: "1.0M"  },
+  "education":       { broad: "9.6M",  targeted: "2.4M",  highIntent: "480K"  },
+  "business":        { broad: "8.3M",  targeted: "2.1M",  highIntent: "420K"  },
+  "pets":            { broad: "15.7M", targeted: "3.9M",  highIntent: "780K"  },
+  "kids":            { broad: "13.1M", targeted: "3.3M",  highIntent: "660K"  },
+};
+
+function getNicheEstimate(input: string) {
+  const lower = input.toLowerCase();
+  for (const [key, val] of Object.entries(NICHE_DATA)) {
+    if (lower.includes(key)) return val;
+  }
+  // generic fallback based on string length for variety
+  const seed = input.length % 5;
+  const broadNums  = ["8.2M",  "11.4M", "14.7M", "17.9M", "21.3M"];
+  const targetNums = ["2.0M",  "2.8M",  "3.7M",  "4.5M",  "5.3M" ];
+  const highNums   = ["400K",  "560K",  "740K",  "900K",  "1.1M" ];
+  return { broad: broadNums[seed], targeted: targetNums[seed], highIntent: highNums[seed] };
+}
+
 function AudiencePlanning() {
   const [niche, setNiche] = useState("");
-  const [estimated, setEstimated] = useState(false);
+  const [estimatedNiche, setEstimatedNiche] = useState<string | null>(null);
+
+  const estimate = estimatedNiche ? getNicheEstimate(estimatedNiche) : null;
 
   return (
     <div className="space-y-5">
@@ -50,30 +86,35 @@ function AudiencePlanning() {
         <div className="flex gap-3">
           <input
             value={niche}
-            onChange={(e) => setNiche(e.target.value)}
+            onChange={(e) => { setNiche(e.target.value); setEstimatedNiche(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && niche.trim()) setEstimatedNiche(niche.trim()); }}
             placeholder="e.g. home decor, fitness, wedding planning..."
             className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
           />
           <button
-            onClick={() => setEstimated(true)}
-            className="bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors"
+            onClick={() => { if (niche.trim()) setEstimatedNiche(niche.trim()); }}
+            disabled={!niche.trim()}
+            className="bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Estimate
           </button>
         </div>
-        {estimated && (
-          <div className="mt-4 grid grid-cols-3 gap-3">
-            {[
-              { label: "Broad Audience", size: "18.4M", desc: "Interest-based reach", color: "bg-blue-50 border-blue-100" },
-              { label: "Targeted Audience", size: "4.2M", desc: "Keyword + interest match", color: "bg-purple-50 border-purple-100" },
-              { label: "High-Intent Audience", size: "840K", desc: "Retargeting + lookalike", color: "bg-green-50 border-green-100" },
-            ].map(({ label, size, desc, color }) => (
-              <div key={label} className={`rounded-xl border p-4 text-center ${color}`}>
-                <div className="text-2xl font-bold text-gray-900">{size}</div>
-                <div className="text-sm font-semibold text-gray-700 mt-1">{label}</div>
-                <div className="text-xs text-gray-500 mt-0.5">{desc}</div>
-              </div>
-            ))}
+        {estimate && (
+          <div className="mt-4">
+            <p className="text-xs text-gray-400 mb-3">Estimated Pinterest audience for <strong className="text-gray-600">&quot;{estimatedNiche}&quot;</strong></p>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Broad Audience", size: estimate.broad, desc: "Interest-based reach", color: "bg-blue-50 border-blue-100" },
+                { label: "Targeted Audience", size: estimate.targeted, desc: "Keyword + interest match", color: "bg-purple-50 border-purple-100" },
+                { label: "High-Intent Audience", size: estimate.highIntent, desc: "Retargeting + lookalike", color: "bg-green-50 border-green-100" },
+              ].map(({ label, size, desc, color }) => (
+                <div key={label} className={`rounded-xl border p-4 text-center ${color}`}>
+                  <div className="text-2xl font-bold text-gray-900">{size}</div>
+                  <div className="text-sm font-semibold text-gray-700 mt-1">{label}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{desc}</div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
