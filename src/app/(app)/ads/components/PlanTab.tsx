@@ -37,174 +37,333 @@ function DifficultyBar({ score }: { score: number }) {
   );
 }
 
-const NICHE_DATA: Record<string, { broad: string; targeted: string; highIntent: string }> = {
-  "home decor":      { broad: "22.1M", targeted: "5.4M",  highIntent: "1.1M"  },
-  "fitness":         { broad: "18.7M", targeted: "4.8M",  highIntent: "960K"  },
-  "wedding":         { broad: "14.2M", targeted: "3.6M",  highIntent: "720K"  },
-  "fashion":         { broad: "31.4M", targeted: "7.9M",  highIntent: "1.6M"  },
-  "food":            { broad: "27.8M", targeted: "6.9M",  highIntent: "1.4M"  },
-  "recipes":         { broad: "25.3M", targeted: "6.3M",  highIntent: "1.2M"  },
-  "travel":          { broad: "19.5M", targeted: "4.9M",  highIntent: "980K"  },
-  "beauty":          { broad: "24.6M", targeted: "6.1M",  highIntent: "1.2M"  },
-  "skincare":        { broad: "16.3M", targeted: "4.1M",  highIntent: "820K"  },
-  "diy":             { broad: "13.8M", targeted: "3.4M",  highIntent: "680K"  },
-  "gardening":       { broad: "11.2M", targeted: "2.8M",  highIntent: "560K"  },
-  "baby":            { broad: "12.4M", targeted: "3.1M",  highIntent: "620K"  },
-  "parenting":       { broad: "10.9M", targeted: "2.7M",  highIntent: "540K"  },
-  "health":          { broad: "20.1M", targeted: "5.0M",  highIntent: "1.0M"  },
-  "education":       { broad: "9.6M",  targeted: "2.4M",  highIntent: "480K"  },
-  "business":        { broad: "8.3M",  targeted: "2.1M",  highIntent: "420K"  },
-  "pets":            { broad: "15.7M", targeted: "3.9M",  highIntent: "780K"  },
-  "kids":            { broad: "13.1M", targeted: "3.3M",  highIntent: "660K"  },
-};
+// ── Niche classifier ────────────────────────────────────────────────────────
+// Each niche has a keyword set. We score the user's input against all niches
+// and pick the highest scorer, so any keyword maps sensibly.
 
-interface AudienceRow { id: string; name: string; type: "interest"|"demographic"|"keyword"|"lookalike"|"retargeting"; size: number; ctr: number; convRate: number; spend: number; }
-
-const NICHE_AUDIENCES: Record<string, AudienceRow[]> = {
-  "wedding": [
-    { id:"w1", name:"Brides & Wedding Planners", type:"interest", size:3800000, ctr:3.4, convRate:2.8, spend:720 },
-    { id:"w2", name:"Women 25–34 Engaged", type:"demographic", size:2100000, ctr:2.9, convRate:3.2, spend:580 },
-    { id:"w3", name:"Wedding Keyword Searchers", type:"keyword", size:1400000, ctr:2.6, convRate:2.1, spend:340 },
-    { id:"w4", name:"Lookalike — Past Buyers", type:"lookalike", size:1800000, ctr:3.1, convRate:2.6, spend:410 },
-    { id:"w5", name:"Website Visitors (30d)", type:"retargeting", size:18000, ctr:5.2, convRate:6.1, spend:190 },
-  ],
-  "home decor": [
-    { id:"h1", name:"Home Decor Enthusiasts", type:"interest", size:4200000, ctr:2.8, convRate:1.9, spend:890 },
-    { id:"h2", name:"Women 25–34 USA", type:"demographic", size:8100000, ctr:2.1, convRate:2.4, spend:640 },
-    { id:"h3", name:"Website Visitors (30d)", type:"retargeting", size:24000, ctr:4.2, convRate:5.8, spend:320 },
-    { id:"h4", name:"Lookalike — Top Buyers", type:"lookalike", size:2100000, ctr:3.1, convRate:3.2, spend:480 },
-    { id:"h5", name:"Interior Design Keywords", type:"keyword", size:1800000, ctr:2.4, convRate:1.7, spend:210 },
-  ],
-  "fitness": [
-    { id:"f1", name:"Fitness & Workout Fans", type:"interest", size:5100000, ctr:2.6, convRate:2.0, spend:760 },
-    { id:"f2", name:"Women 18–34 Health Focus", type:"demographic", size:6200000, ctr:2.3, convRate:2.6, spend:580 },
-    { id:"f3", name:"Gym & Activewear Keywords", type:"keyword", size:2200000, ctr:2.1, convRate:1.8, spend:290 },
-    { id:"f4", name:"Lookalike — Active Buyers", type:"lookalike", size:2800000, ctr:2.9, convRate:2.4, spend:440 },
-    { id:"f5", name:"App Visitors Retargeting", type:"retargeting", size:31000, ctr:4.8, convRate:5.4, spend:270 },
-  ],
-  "fashion": [
-    { id:"fa1", name:"Fashion & Style Lovers", type:"interest", size:7400000, ctr:2.9, convRate:1.7, spend:920 },
-    { id:"fa2", name:"Women 18–29 Trend Seekers", type:"demographic", size:9100000, ctr:2.4, convRate:2.0, spend:710 },
-    { id:"fa3", name:"Clothing & Apparel Keywords", type:"keyword", size:3100000, ctr:2.2, convRate:1.5, spend:380 },
-    { id:"fa4", name:"Lookalike — Fashion Buyers", type:"lookalike", size:3600000, ctr:2.7, convRate:2.2, spend:530 },
-    { id:"fa5", name:"Cart Abandoners (14d)", type:"retargeting", size:42000, ctr:5.6, convRate:7.2, spend:310 },
-  ],
-  "beauty": [
-    { id:"b1", name:"Beauty & Skincare Fans", type:"interest", size:5800000, ctr:3.0, convRate:2.1, spend:840 },
-    { id:"b2", name:"Women 20–39 Beauty Buyers", type:"demographic", size:7200000, ctr:2.5, convRate:2.7, spend:660 },
-    { id:"b3", name:"Makeup & Skincare Keywords", type:"keyword", size:2600000, ctr:2.3, convRate:1.9, spend:320 },
-    { id:"b4", name:"Lookalike — Repeat Buyers", type:"lookalike", size:2400000, ctr:3.2, convRate:3.4, spend:490 },
-    { id:"b5", name:"Product Page Visitors (7d)", type:"retargeting", size:28000, ctr:5.8, convRate:6.8, spend:240 },
-  ],
-  "food": [
-    { id:"fo1", name:"Food & Recipe Enthusiasts", type:"interest", size:6300000, ctr:2.2, convRate:1.4, spend:590 },
-    { id:"fo2", name:"Home Cooks 25–44", type:"demographic", size:8400000, ctr:1.9, convRate:1.6, spend:470 },
-    { id:"fo3", name:"Recipe & Cooking Keywords", type:"keyword", size:3800000, ctr:1.8, convRate:1.2, spend:280 },
-    { id:"fo4", name:"Lookalike — Engaged Savers", type:"lookalike", size:3100000, ctr:2.4, convRate:1.8, spend:360 },
-    { id:"fo5", name:"Blog Visitors (30d)", type:"retargeting", size:52000, ctr:3.9, convRate:4.2, spend:180 },
-  ],
-  "travel": [
-    { id:"t1", name:"Travel Planners & Dreamers", type:"interest", size:4600000, ctr:2.5, convRate:1.6, spend:680 },
-    { id:"t2", name:"Adults 25–44 Frequent Travelers", type:"demographic", size:5900000, ctr:2.0, convRate:1.9, spend:520 },
-    { id:"t3", name:"Destination & Travel Keywords", type:"keyword", size:2100000, ctr:1.9, convRate:1.4, spend:310 },
-    { id:"t4", name:"Lookalike — Bookers", type:"lookalike", size:2600000, ctr:2.7, convRate:2.2, spend:420 },
-    { id:"t5", name:"Landing Page Visitors (14d)", type:"retargeting", size:19000, ctr:4.6, convRate:5.0, spend:220 },
-  ],
-};
-
-const NICHE_ALIASES: Record<string, string> = {
-  // fashion
-  "clothing": "fashion", "clothes": "fashion", "apparel": "fashion", "outfit": "fashion",
-  "dress": "fashion", "style": "fashion", "wear": "fashion", "shirt": "fashion",
-  "jeans": "fashion", "shoes": "fashion", "accessori": "fashion",
-  // home decor
-  "interior": "home decor", "furniture": "home decor", "living room": "home decor",
-  "bedroom": "home decor", "kitchen decor": "home decor", "home design": "home decor",
-  "room decor": "home decor", "house decor": "home decor",
-  // beauty
-  "makeup": "beauty", "skincare": "beauty", "skin care": "beauty", "cosmetic": "beauty",
-  "lipstick": "beauty", "foundation": "beauty", "moisturiz": "beauty",
-  // food
-  "recipe": "food", "cooking": "food", "baking": "food", "meal": "food",
-  "dinner": "food", "lunch": "food", "breakfast": "food", "dessert": "food",
-  // fitness
-  "gym": "fitness", "workout": "fitness", "exercise": "fitness", "yoga": "fitness",
-  "running": "fitness", "weight loss": "fitness", "pilates": "fitness",
-  // travel
-  "vacation": "travel", "holiday": "travel", "trip": "travel", "destination": "travel",
-  "hotel": "travel", "flight": "travel", "tourism": "travel",
-  // wedding
-  "bride": "wedding", "bridal": "wedding", "engagement": "wedding", "ceremony": "wedding",
-  "wedding plan": "wedding", "wedding decor": "wedding",
-};
-
-function getNicheAudiences(input: string): AudienceRow[] {
-  const lower = input.toLowerCase();
-  // check direct niche keys first
-  for (const [key, rows] of Object.entries(NICHE_AUDIENCES)) {
-    if (lower.includes(key)) return rows;
-  }
-  // check aliases
-  for (const [alias, niche] of Object.entries(NICHE_ALIASES)) {
-    if (lower.includes(alias)) return NICHE_AUDIENCES[niche] ?? [];
-  }
-  return MOCK_AUDIENCES as unknown as AudienceRow[];
+interface NicheDef {
+  label: string;
+  keywords: string[];
+  broad: string; targeted: string; highIntent: string;
+  demographics: {
+    age: { label: string; pct: number }[];
+    gender: { label: string; pct: number; color: string }[];
+    locations: { name: string; pct: number }[];
+  };
+  audiences: AudienceRow[];
 }
 
-function getNicheEstimate(input: string) {
-  const lower = input.toLowerCase();
-  // check direct keys
-  for (const [key, val] of Object.entries(NICHE_DATA)) {
-    if (lower.includes(key)) return val;
-  }
-  // check aliases → map to niche key
-  for (const [alias, niche] of Object.entries(NICHE_ALIASES)) {
-    if (lower.includes(alias) && NICHE_DATA[niche]) return NICHE_DATA[niche];
-  }
-  // generic fallback based on string length for variety
-  const seed = input.length % 5;
-  const broadNums  = ["8.2M",  "11.4M", "14.7M", "17.9M", "21.3M"];
-  const targetNums = ["2.0M",  "2.8M",  "3.7M",  "4.5M",  "5.3M" ];
-  const highNums   = ["400K",  "560K",  "740K",  "900K",  "1.1M" ];
-  return { broad: broadNums[seed], targeted: targetNums[seed], highIntent: highNums[seed] };
+interface AudienceRow {
+  id: string; name: string;
+  type: "interest"|"demographic"|"keyword"|"lookalike"|"retargeting";
+  size: number; ctr: number; convRate: number; spend: number;
 }
+
+const NICHES: NicheDef[] = [
+  {
+    label: "Fashion & Clothing",
+    keywords: ["fashion","clothing","clothes","outfit","dress","wear","apparel","shirt","jeans","pants","shoes","sneakers","boots","jacket","coat","skirt","blouse","top","hoodie","sweater","activewear","streetwear","style","wardrobe","looks","ootd","trends","boutique","designer","luxury fashion","fast fashion","sustainable fashion","capsule wardrobe","minimalist fashion"],
+    broad:"31.4M", targeted:"7.9M", highIntent:"1.6M",
+    demographics: {
+      age:[{label:"18–24",pct:34},{label:"25–34",pct:36},{label:"35–44",pct:17},{label:"45–54",pct:9},{label:"55+",pct:4}],
+      gender:[{label:"Women",pct:78,color:"bg-pink-400"},{label:"Men",pct:16,color:"bg-blue-400"},{label:"Unspecified",pct:6,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:41},{name:"United Kingdom",pct:13},{name:"Canada",pct:10},{name:"Australia",pct:7},{name:"France",pct:5}],
+    },
+    audiences:[
+      {id:"fa1",name:"Fashion & Style Lovers",type:"interest",size:7400000,ctr:2.9,convRate:1.7,spend:920},
+      {id:"fa2",name:"Women 18–29 Trend Seekers",type:"demographic",size:9100000,ctr:2.4,convRate:2.0,spend:710},
+      {id:"fa3",name:"Clothing & Apparel Keywords",type:"keyword",size:3100000,ctr:2.2,convRate:1.5,spend:380},
+      {id:"fa4",name:"Lookalike — Fashion Buyers",type:"lookalike",size:3600000,ctr:2.7,convRate:2.2,spend:530},
+      {id:"fa5",name:"Cart Abandoners (14d)",type:"retargeting",size:42000,ctr:5.6,convRate:7.2,spend:310},
+    ],
+  },
+  {
+    label: "Home Decor & Interior",
+    keywords: ["home decor","interior","furniture","living room","bedroom","kitchen","bathroom","decor","decoration","cozy","aesthetic","room","house","apartment","boho","farmhouse","modern","minimalist home","scandinavian","rustic","wall art","throw pillow","rug","lamp","shelf","curtain","renovation","remodel","staging","neutral home","neutral tones","home design","interior design"],
+    broad:"22.1M", targeted:"5.4M", highIntent:"1.1M",
+    demographics: {
+      age:[{label:"18–24",pct:22},{label:"25–34",pct:38},{label:"35–44",pct:24},{label:"45–54",pct:11},{label:"55+",pct:5}],
+      gender:[{label:"Women",pct:74,color:"bg-pink-400"},{label:"Men",pct:18,color:"bg-blue-400"},{label:"Unspecified",pct:8,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:38},{name:"United Kingdom",pct:14},{name:"Canada",pct:11},{name:"Australia",pct:8},{name:"Germany",pct:6}],
+    },
+    audiences:[
+      {id:"h1",name:"Home Decor Enthusiasts",type:"interest",size:4200000,ctr:2.8,convRate:1.9,spend:890},
+      {id:"h2",name:"Women 25–44 Homeowners",type:"demographic",size:8100000,ctr:2.1,convRate:2.4,spend:640},
+      {id:"h3",name:"Website Visitors (30d)",type:"retargeting",size:24000,ctr:4.2,convRate:5.8,spend:320},
+      {id:"h4",name:"Lookalike — Top Buyers",type:"lookalike",size:2100000,ctr:3.1,convRate:3.2,spend:480},
+      {id:"h5",name:"Interior Design Keywords",type:"keyword",size:1800000,ctr:2.4,convRate:1.7,spend:210},
+    ],
+  },
+  {
+    label: "Beauty & Makeup",
+    keywords: ["beauty","makeup","cosmetic","lipstick","foundation","mascara","eyeshadow","blush","concealer","skincare","skin care","moisturizer","serum","toner","cleanser","face mask","spf","sunscreen","retinol","glow","routine","self care","nail","nails","nail art","hair","haircare","shampoo","conditioner","hair mask","perfume","fragrance","body lotion","body care"],
+    broad:"24.6M", targeted:"6.1M", highIntent:"1.2M",
+    demographics: {
+      age:[{label:"18–24",pct:38},{label:"25–34",pct:34},{label:"35–44",pct:16},{label:"45–54",pct:8},{label:"55+",pct:4}],
+      gender:[{label:"Women",pct:86,color:"bg-pink-400"},{label:"Men",pct:8,color:"bg-blue-400"},{label:"Unspecified",pct:6,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:40},{name:"United Kingdom",pct:12},{name:"Canada",pct:10},{name:"Australia",pct:8},{name:"India",pct:6}],
+    },
+    audiences:[
+      {id:"b1",name:"Beauty & Skincare Fans",type:"interest",size:5800000,ctr:3.0,convRate:2.1,spend:840},
+      {id:"b2",name:"Women 18–39 Beauty Buyers",type:"demographic",size:7200000,ctr:2.5,convRate:2.7,spend:660},
+      {id:"b3",name:"Makeup & Skincare Keywords",type:"keyword",size:2600000,ctr:2.3,convRate:1.9,spend:320},
+      {id:"b4",name:"Lookalike — Repeat Buyers",type:"lookalike",size:2400000,ctr:3.2,convRate:3.4,spend:490},
+      {id:"b5",name:"Product Page Visitors (7d)",type:"retargeting",size:28000,ctr:5.8,convRate:6.8,spend:240},
+    ],
+  },
+  {
+    label: "Food & Recipes",
+    keywords: ["food","recipe","cooking","baking","meal","dinner","lunch","breakfast","dessert","snack","healthy eating","nutrition","diet","vegan","vegetarian","keto","paleo","gluten free","meal prep","meal plan","quick dinner","easy recipe","slow cooker","air fryer","instant pot","pasta","pizza","cake","cookies","bread","soup","salad","smoothie","cocktail","drink","coffee"],
+    broad:"27.8M", targeted:"6.9M", highIntent:"1.4M",
+    demographics: {
+      age:[{label:"18–24",pct:24},{label:"25–34",pct:35},{label:"35–44",pct:22},{label:"45–54",pct:12},{label:"55+",pct:7}],
+      gender:[{label:"Women",pct:69,color:"bg-pink-400"},{label:"Men",pct:24,color:"bg-blue-400"},{label:"Unspecified",pct:7,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:42},{name:"United Kingdom",pct:12},{name:"Canada",pct:10},{name:"Australia",pct:7},{name:"Germany",pct:5}],
+    },
+    audiences:[
+      {id:"fo1",name:"Food & Recipe Enthusiasts",type:"interest",size:6300000,ctr:2.2,convRate:1.4,spend:590},
+      {id:"fo2",name:"Home Cooks 25–44",type:"demographic",size:8400000,ctr:1.9,convRate:1.6,spend:470},
+      {id:"fo3",name:"Recipe & Cooking Keywords",type:"keyword",size:3800000,ctr:1.8,convRate:1.2,spend:280},
+      {id:"fo4",name:"Lookalike — Engaged Savers",type:"lookalike",size:3100000,ctr:2.4,convRate:1.8,spend:360},
+      {id:"fo5",name:"Blog Visitors (30d)",type:"retargeting",size:52000,ctr:3.9,convRate:4.2,spend:180},
+    ],
+  },
+  {
+    label: "Fitness & Wellness",
+    keywords: ["fitness","workout","exercise","gym","yoga","pilates","running","jogging","cycling","hiit","strength training","weight loss","lose weight","weight lifting","bodybuilding","abs","cardio","stretching","meditation","mindfulness","mental health","wellness","health","nutrition","protein","supplement","pre workout","marathon","5k","crossfit","zumba","dance","aerobics","boot camp"],
+    broad:"18.7M", targeted:"4.8M", highIntent:"960K",
+    demographics: {
+      age:[{label:"18–24",pct:30},{label:"25–34",pct:38},{label:"35–44",pct:20},{label:"45–54",pct:9},{label:"55+",pct:3}],
+      gender:[{label:"Women",pct:64,color:"bg-pink-400"},{label:"Men",pct:31,color:"bg-blue-400"},{label:"Unspecified",pct:5,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:39},{name:"United Kingdom",pct:13},{name:"Canada",pct:11},{name:"Australia",pct:9},{name:"Germany",pct:5}],
+    },
+    audiences:[
+      {id:"f1",name:"Fitness & Workout Fans",type:"interest",size:5100000,ctr:2.6,convRate:2.0,spend:760},
+      {id:"f2",name:"Women 18–34 Health Focus",type:"demographic",size:6200000,ctr:2.3,convRate:2.6,spend:580},
+      {id:"f3",name:"Gym & Activewear Keywords",type:"keyword",size:2200000,ctr:2.1,convRate:1.8,spend:290},
+      {id:"f4",name:"Lookalike — Active Buyers",type:"lookalike",size:2800000,ctr:2.9,convRate:2.4,spend:440},
+      {id:"f5",name:"App Visitors Retargeting",type:"retargeting",size:31000,ctr:4.8,convRate:5.4,spend:270},
+    ],
+  },
+  {
+    label: "Travel & Adventure",
+    keywords: ["travel","vacation","holiday","trip","destination","hotel","resort","airbnb","flight","cruise","backpacking","adventure","explore","wanderlust","bucket list","road trip","beach","mountain","camping","hiking","europe","asia","tropical","safari","honeymoon","solo travel","family travel","travel tips","packing","travel guide","tourism","sightseeing","passport","visa"],
+    broad:"19.5M", targeted:"4.9M", highIntent:"980K",
+    demographics: {
+      age:[{label:"18–24",pct:26},{label:"25–34",pct:40},{label:"35–44",pct:20},{label:"45–54",pct:10},{label:"55+",pct:4}],
+      gender:[{label:"Women",pct:62,color:"bg-pink-400"},{label:"Men",pct:32,color:"bg-blue-400"},{label:"Unspecified",pct:6,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:36},{name:"United Kingdom",pct:16},{name:"Canada",pct:11},{name:"Australia",pct:9},{name:"Germany",pct:7}],
+    },
+    audiences:[
+      {id:"t1",name:"Travel Planners & Dreamers",type:"interest",size:4600000,ctr:2.5,convRate:1.6,spend:680},
+      {id:"t2",name:"Adults 25–44 Frequent Travelers",type:"demographic",size:5900000,ctr:2.0,convRate:1.9,spend:520},
+      {id:"t3",name:"Destination & Travel Keywords",type:"keyword",size:2100000,ctr:1.9,convRate:1.4,spend:310},
+      {id:"t4",name:"Lookalike — Bookers",type:"lookalike",size:2600000,ctr:2.7,convRate:2.2,spend:420},
+      {id:"t5",name:"Landing Page Visitors (14d)",type:"retargeting",size:19000,ctr:4.6,convRate:5.0,spend:220},
+    ],
+  },
+  {
+    label: "Wedding & Events",
+    keywords: ["wedding","bride","bridal","groom","engagement","ceremony","reception","vow","proposal","ring","bouquet","bridesmaid","maid of honor","wedding dress","wedding cake","wedding venue","floral","centerpiece","invitation","rsvp","honeymoon","anniversary","bachelorette","bach party","rehearsal dinner","wedding planner","table setting","wedding decor","wedding photography"],
+    broad:"14.2M", targeted:"3.6M", highIntent:"720K",
+    demographics: {
+      age:[{label:"18–24",pct:26},{label:"25–34",pct:48},{label:"35–44",pct:16},{label:"45–54",pct:7},{label:"55+",pct:3}],
+      gender:[{label:"Women",pct:82,color:"bg-pink-400"},{label:"Men",pct:11,color:"bg-blue-400"},{label:"Unspecified",pct:7,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:44},{name:"United Kingdom",pct:12},{name:"Canada",pct:9},{name:"Australia",pct:8},{name:"India",pct:6}],
+    },
+    audiences:[
+      {id:"w1",name:"Brides & Wedding Planners",type:"interest",size:3800000,ctr:3.4,convRate:2.8,spend:720},
+      {id:"w2",name:"Women 25–34 Engaged",type:"demographic",size:2100000,ctr:2.9,convRate:3.2,spend:580},
+      {id:"w3",name:"Wedding Keyword Searchers",type:"keyword",size:1400000,ctr:2.6,convRate:2.1,spend:340},
+      {id:"w4",name:"Lookalike — Past Buyers",type:"lookalike",size:1800000,ctr:3.1,convRate:2.6,spend:410},
+      {id:"w5",name:"Website Visitors (30d)",type:"retargeting",size:18000,ctr:5.2,convRate:6.1,spend:190},
+    ],
+  },
+  {
+    label: "Parenting & Kids",
+    keywords: ["baby","infant","toddler","kids","children","parenting","mom","dad","mother","father","newborn","pregnancy","pregnant","nursery","stroller","diaper","breastfeeding","formula","baby food","toy","educational toy","kids room","playroom","school","homework","kids activity","craft kids","story time","family","siblings","twins","preschool","kindergarten","child development"],
+    broad:"13.1M", targeted:"3.3M", highIntent:"660K",
+    demographics: {
+      age:[{label:"18–24",pct:18},{label:"25–34",pct:44},{label:"35–44",pct:28},{label:"45–54",pct:8},{label:"55+",pct:2}],
+      gender:[{label:"Women",pct:79,color:"bg-pink-400"},{label:"Men",pct:14,color:"bg-blue-400"},{label:"Unspecified",pct:7,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:41},{name:"United Kingdom",pct:13},{name:"Canada",pct:10},{name:"Australia",pct:8},{name:"India",pct:5}],
+    },
+    audiences:[
+      {id:"k1",name:"Parents & Caregivers",type:"interest",size:4800000,ctr:2.4,convRate:2.0,spend:640},
+      {id:"k2",name:"Moms 25–39",type:"demographic",size:5200000,ctr:2.1,convRate:2.3,spend:510},
+      {id:"k3",name:"Baby & Kids Keywords",type:"keyword",size:1900000,ctr:2.0,convRate:1.7,spend:260},
+      {id:"k4",name:"Lookalike — Family Buyers",type:"lookalike",size:2300000,ctr:2.6,convRate:2.1,spend:380},
+      {id:"k5",name:"Product Page Visitors (14d)",type:"retargeting",size:22000,ctr:4.4,convRate:5.2,spend:210},
+    ],
+  },
+  {
+    label: "DIY & Crafts",
+    keywords: ["diy","craft","handmade","make","create","tutorial","how to","step by step","upcycle","repurpose","thrift flip","sewing","knitting","crochet","embroidery","macrame","candle making","soap making","resin","painting","drawing","art","sketchbook","watercolor","acrylic","woodworking","woodwork","carpentry","home project","renovation diy","garden diy","paper craft"],
+    broad:"13.8M", targeted:"3.4M", highIntent:"680K",
+    demographics: {
+      age:[{label:"18–24",pct:20},{label:"25–34",pct:34},{label:"35–44",pct:26},{label:"45–54",pct:14},{label:"55+",pct:6}],
+      gender:[{label:"Women",pct:76,color:"bg-pink-400"},{label:"Men",pct:17,color:"bg-blue-400"},{label:"Unspecified",pct:7,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:43},{name:"United Kingdom",pct:13},{name:"Canada",pct:10},{name:"Australia",pct:7},{name:"Germany",pct:5}],
+    },
+    audiences:[
+      {id:"d1",name:"DIY & Craft Enthusiasts",type:"interest",size:3900000,ctr:2.3,convRate:1.6,spend:520},
+      {id:"d2",name:"Creative Women 25–44",type:"demographic",size:4600000,ctr:2.0,convRate:1.8,spend:400},
+      {id:"d3",name:"Craft & Tutorial Keywords",type:"keyword",size:1700000,ctr:1.9,convRate:1.4,spend:230},
+      {id:"d4",name:"Lookalike — Craft Buyers",type:"lookalike",size:2000000,ctr:2.5,convRate:1.9,spend:310},
+      {id:"d5",name:"Blog & Video Visitors (30d)",type:"retargeting",size:36000,ctr:3.8,convRate:4.0,spend:160},
+    ],
+  },
+  {
+    label: "Gardening & Plants",
+    keywords: ["garden","gardening","plant","flower","floral","bloom","grow","greenhouse","raised bed","vegetable garden","herb garden","composting","landscaping","lawn","outdoor","patio","backyard","balcony garden","indoor plant","houseplant","succulent","cactus","fiddle leaf","monstera","pothos","propagation","soil","seed","planting","seasonal garden","spring planting","winter garden"],
+    broad:"11.2M", targeted:"2.8M", highIntent:"560K",
+    demographics: {
+      age:[{label:"18–24",pct:14},{label:"25–34",pct:28},{label:"35–44",pct:30},{label:"45–54",pct:18},{label:"55+",pct:10}],
+      gender:[{label:"Women",pct:71,color:"bg-pink-400"},{label:"Men",pct:23,color:"bg-blue-400"},{label:"Unspecified",pct:6,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:40},{name:"United Kingdom",pct:15},{name:"Canada",pct:10},{name:"Australia",pct:9},{name:"Germany",pct:7}],
+    },
+    audiences:[
+      {id:"g1",name:"Gardening & Plant Lovers",type:"interest",size:3200000,ctr:2.0,convRate:1.5,spend:430},
+      {id:"g2",name:"Homeowners 30–54",type:"demographic",size:4100000,ctr:1.8,convRate:1.7,spend:360},
+      {id:"g3",name:"Garden & Plant Keywords",type:"keyword",size:1400000,ctr:1.7,convRate:1.3,spend:200},
+      {id:"g4",name:"Lookalike — Repeat Buyers",type:"lookalike",size:1700000,ctr:2.3,convRate:1.8,spend:280},
+      {id:"g5",name:"Product Page Visitors (30d)",type:"retargeting",size:14000,ctr:3.6,convRate:4.4,spend:130},
+    ],
+  },
+  {
+    label: "Pets & Animals",
+    keywords: ["pet","dog","cat","puppy","kitten","animal","breed","training","pet food","dog food","cat food","vet","veterinary","grooming","leash","collar","cage","tank","fish","bird","hamster","rabbit","pet care","rescue","adopt","shelter","pet toy","treats","paw","fur baby","pet friendly","dog training","cat behavior","exotic pet"],
+    broad:"15.7M", targeted:"3.9M", highIntent:"780K",
+    demographics: {
+      age:[{label:"18–24",pct:22},{label:"25–34",pct:36},{label:"35–44",pct:24},{label:"45–54",pct:12},{label:"55+",pct:6}],
+      gender:[{label:"Women",pct:66,color:"bg-pink-400"},{label:"Men",pct:27,color:"bg-blue-400"},{label:"Unspecified",pct:7,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:44},{name:"United Kingdom",pct:12},{name:"Canada",pct:10},{name:"Australia",pct:8},{name:"Germany",pct:5}],
+    },
+    audiences:[
+      {id:"p1",name:"Pet Owners & Animal Lovers",type:"interest",size:4400000,ctr:2.4,convRate:1.8,spend:610},
+      {id:"p2",name:"Dog & Cat Owners 25–44",type:"demographic",size:5100000,ctr:2.0,convRate:2.0,spend:480},
+      {id:"p3",name:"Pet Food & Care Keywords",type:"keyword",size:1800000,ctr:1.9,convRate:1.6,spend:250},
+      {id:"p4",name:"Lookalike — Subscription Buyers",type:"lookalike",size:2100000,ctr:2.7,convRate:2.4,spend:370},
+      {id:"p5",name:"Store Visitors (14d)",type:"retargeting",size:26000,ctr:4.2,convRate:5.0,spend:190},
+    ],
+  },
+  {
+    label: "Technology & Gadgets",
+    keywords: ["tech","technology","gadget","phone","smartphone","iphone","android","laptop","computer","tablet","ipad","smart home","alexa","smart watch","earbuds","headphones","camera","drone","gaming","console","ps5","xbox","nintendo","streaming","software","app","coding","programming","developer","startup","saas","productivity","tools","automation","ai","artificial intelligence"],
+    broad:"16.4M", targeted:"4.1M", highIntent:"820K",
+    demographics: {
+      age:[{label:"18–24",pct:32},{label:"25–34",pct:38},{label:"35–44",pct:18},{label:"45–54",pct:8},{label:"55+",pct:4}],
+      gender:[{label:"Women",pct:38,color:"bg-pink-400"},{label:"Men",pct:56,color:"bg-blue-400"},{label:"Unspecified",pct:6,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:38},{name:"India",pct:12},{name:"United Kingdom",pct:11},{name:"Canada",pct:8},{name:"Germany",pct:6}],
+    },
+    audiences:[
+      {id:"te1",name:"Tech Enthusiasts & Early Adopters",type:"interest",size:4600000,ctr:2.2,convRate:1.8,spend:720},
+      {id:"te2",name:"Adults 18–34 Tech Buyers",type:"demographic",size:5800000,ctr:2.0,convRate:2.0,spend:580},
+      {id:"te3",name:"Gadget & Device Keywords",type:"keyword",size:2400000,ctr:1.9,convRate:1.5,spend:340},
+      {id:"te4",name:"Lookalike — High-Value Buyers",type:"lookalike",size:2700000,ctr:2.6,convRate:2.3,spend:460},
+      {id:"te5",name:"Product Page Visitors (7d)",type:"retargeting",size:33000,ctr:4.8,convRate:5.8,spend:280},
+    ],
+  },
+  {
+    label: "Business & Finance",
+    keywords: ["business","entrepreneur","startup","finance","investing","money","income","passive income","side hustle","freelance","online business","ecommerce","dropshipping","amazon fba","etsy","stock","crypto","budget","saving","debt","financial freedom","wealth","credit","mortgage","real estate","property","marketing","social media marketing","branding","sales","lead generation","email marketing"],
+    broad:"9.8M", targeted:"2.5M", highIntent:"500K",
+    demographics: {
+      age:[{label:"18–24",pct:20},{label:"25–34",pct:42},{label:"35–44",pct:24},{label:"45–54",pct:10},{label:"55+",pct:4}],
+      gender:[{label:"Women",pct:52,color:"bg-pink-400"},{label:"Men",pct:42,color:"bg-blue-400"},{label:"Unspecified",pct:6,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:45},{name:"United Kingdom",pct:12},{name:"Canada",pct:9},{name:"India",pct:8},{name:"Australia",pct:6}],
+    },
+    audiences:[
+      {id:"bu1",name:"Entrepreneurs & Business Owners",type:"interest",size:3100000,ctr:2.0,convRate:1.6,spend:580},
+      {id:"bu2",name:"Adults 25–44 Income Seekers",type:"demographic",size:4200000,ctr:1.8,convRate:1.9,spend:450},
+      {id:"bu3",name:"Business & Finance Keywords",type:"keyword",size:1600000,ctr:1.7,convRate:1.4,spend:270},
+      {id:"bu4",name:"Lookalike — Course Buyers",type:"lookalike",size:1900000,ctr:2.4,convRate:2.0,spend:360},
+      {id:"bu5",name:"Sales Page Visitors (7d)",type:"retargeting",size:18000,ctr:4.6,convRate:5.4,spend:200},
+    ],
+  },
+  {
+    label: "Education & Learning",
+    keywords: ["education","learning","study","school","college","university","course","online course","skill","certificate","degree","tutoring","homework","exam","test prep","language","spanish","french","english","math","science","history","reading","book","e-learning","udemy","coursera","masterclass","workshop","webinar","training","professional development","resume","career"],
+    broad:"9.6M", targeted:"2.4M", highIntent:"480K",
+    demographics: {
+      age:[{label:"18–24",pct:36},{label:"25–34",pct:34},{label:"35–44",pct:18},{label:"45–54",pct:8},{label:"55+",pct:4}],
+      gender:[{label:"Women",pct:57,color:"bg-pink-400"},{label:"Men",pct:37,color:"bg-blue-400"},{label:"Unspecified",pct:6,color:"bg-gray-300"}],
+      locations:[{name:"United States",pct:36},{name:"India",pct:14},{name:"United Kingdom",pct:11},{name:"Canada",pct:8},{name:"Australia",pct:6}],
+    },
+    audiences:[
+      {id:"e1",name:"Lifelong Learners",type:"interest",size:3400000,ctr:2.1,convRate:1.5,spend:420},
+      {id:"e2",name:"Students & Young Professionals",type:"demographic",size:4800000,ctr:1.9,convRate:1.7,spend:340},
+      {id:"e3",name:"Course & Learning Keywords",type:"keyword",size:1500000,ctr:1.8,convRate:1.3,spend:200},
+      {id:"e4",name:"Lookalike — Course Completers",type:"lookalike",size:1700000,ctr:2.3,convRate:1.8,spend:290},
+      {id:"e5",name:"Landing Page Visitors (14d)",type:"retargeting",size:16000,ctr:4.0,convRate:4.8,spend:150},
+    ],
+  },
+];
+
+// Tokenise input into words, score each niche by keyword hits
+function classifyNiche(input: string): NicheDef | null {
+  if (!input.trim()) return null;
+  const lower = input.toLowerCase();
+  let best: NicheDef | null = null;
+  let bestScore = 0;
+  for (const niche of NICHES) {
+    let score = 0;
+    for (const kw of niche.keywords) {
+      if (lower.includes(kw)) score += kw.split(" ").length; // multi-word phrases score higher
+    }
+    if (score > bestScore) { bestScore = score; best = niche; }
+  }
+  return best;
+}
+
+// Default demographics shown before any search
+const DEFAULT_DEMOGRAPHICS = {
+  age:[{label:"18–24",pct:28},{label:"25–34",pct:38},{label:"35–44",pct:19},{label:"45–54",pct:10},{label:"55+",pct:5}],
+  gender:[{label:"Women",pct:71,color:"bg-pink-400"},{label:"Men",pct:22,color:"bg-blue-400"},{label:"Unspecified",pct:7,color:"bg-gray-300"}],
+  locations:[{name:"United States",pct:38},{name:"United Kingdom",pct:14},{name:"Canada",pct:11},{name:"Australia",pct:8},{name:"Germany",pct:6}],
+};
 
 function AudiencePlanning() {
-  const [niche, setNiche] = useState("");
-  const [estimatedNiche, setEstimatedNiche] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [matched, setMatched] = useState<NicheDef | null>(null);
 
-  const estimate = estimatedNiche ? getNicheEstimate(estimatedNiche) : null;
+  const demographics = matched?.demographics ?? DEFAULT_DEMOGRAPHICS;
+  const audiences = matched?.audiences ?? (MOCK_AUDIENCES as unknown as AudienceRow[]);
 
   return (
     <div className="space-y-5">
       {/* Audience Estimator */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <h3 className="font-semibold text-gray-900 mb-1">Audience Size Estimator</h3>
-        <p className="text-sm text-gray-500 mb-4">Enter your niche or interest to estimate reachable audience size on Pinterest.</p>
+        <p className="text-sm text-gray-500 mb-4">Enter any keyword or niche — we&apos;ll identify the market and show matching audience data.</p>
         <div className="flex gap-3">
           <input
-            value={niche}
-            onChange={(e) => { setNiche(e.target.value); setEstimatedNiche(null); }}
-            onKeyDown={(e) => { if (e.key === "Enter" && niche.trim()) setEstimatedNiche(niche.trim()); }}
-            placeholder="e.g. home decor, fitness, wedding planning..."
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setMatched(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter" && query.trim()) setMatched(classifyNiche(query.trim())); }}
+            placeholder="e.g. women's activewear, organic dog food, watercolor tutorial..."
             className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
           />
           <button
-            onClick={() => { if (niche.trim()) setEstimatedNiche(niche.trim()); }}
-            disabled={!niche.trim()}
+            onClick={() => { if (query.trim()) setMatched(classifyNiche(query.trim())); }}
+            disabled={!query.trim()}
             className="bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Estimate
           </button>
         </div>
-        {estimate && (
+        {matched && (
           <div className="mt-4">
-            <p className="text-xs text-gray-400 mb-3">Estimated Pinterest audience for <strong className="text-gray-600">&quot;{estimatedNiche}&quot;</strong></p>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-gray-400">Identified niche:</span>
+              <span className="bg-[#e60023]/10 text-[#e60023] text-xs font-semibold px-2.5 py-0.5 rounded-full">{matched.label}</span>
+              <span className="text-xs text-gray-400">for &quot;{query}&quot;</span>
+            </div>
             <div className="grid grid-cols-3 gap-3">
               {[
-                { label: "Broad Audience", size: estimate.broad, desc: "Interest-based reach", color: "bg-blue-50 border-blue-100" },
-                { label: "Targeted Audience", size: estimate.targeted, desc: "Keyword + interest match", color: "bg-purple-50 border-purple-100" },
-                { label: "High-Intent Audience", size: estimate.highIntent, desc: "Retargeting + lookalike", color: "bg-green-50 border-green-100" },
+                { label: "Broad Audience", size: matched.broad, desc: "Interest-based reach", color: "bg-blue-50 border-blue-100" },
+                { label: "Targeted Audience", size: matched.targeted, desc: "Keyword + interest match", color: "bg-purple-50 border-purple-100" },
+                { label: "High-Intent Audience", size: matched.highIntent, desc: "Retargeting + lookalike", color: "bg-green-50 border-green-100" },
               ].map(({ label, size, desc, color }) => (
                 <div key={label} className={`rounded-xl border p-4 text-center ${color}`}>
                   <div className="text-2xl font-bold text-gray-900">{size}</div>
@@ -217,20 +376,20 @@ function AudiencePlanning() {
         )}
       </div>
 
-      {/* Demographic Insights */}
+      {/* Demographic Insights — updates with niche */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-900 mb-4">Demographic Insights</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">Demographic Insights</h3>
+          {matched && <span className="text-xs text-gray-400">{matched.label}</span>}
+        </div>
         <div className="grid grid-cols-2 gap-5">
           <div>
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Age Distribution</div>
-            {[
-              { label: "18–24", pct: 28 }, { label: "25–34", pct: 38 }, { label: "35–44", pct: 19 },
-              { label: "45–54", pct: 10 }, { label: "55+", pct: 5 },
-            ].map(({ label, pct }) => (
+            {demographics.age.map(({ label, pct }) => (
               <div key={label} className="flex items-center gap-3 mb-2">
                 <span className="text-xs text-gray-600 w-10">{label}</span>
                 <div className="flex-1 bg-gray-100 rounded-full h-2">
-                  <div className="bg-[#e60023] h-2 rounded-full" style={{ width: `${pct}%` }} />
+                  <div className="bg-[#e60023] h-2 rounded-full transition-all duration-500" style={{ width: `${pct}%` }} />
                 </div>
                 <span className="text-xs font-semibold text-gray-700 w-8">{pct}%</span>
               </div>
@@ -239,40 +398,36 @@ function AudiencePlanning() {
           <div>
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Gender Split</div>
             <div className="space-y-3">
-              {[
-                { label: "Women", pct: 71, color: "bg-pink-400" },
-                { label: "Men", pct: 22, color: "bg-blue-400" },
-                { label: "Unspecified", pct: 7, color: "bg-gray-300" },
-              ].map(({ label, pct, color }) => (
+              {demographics.gender.map(({ label, pct, color }) => (
                 <div key={label} className="flex items-center gap-3">
                   <span className="text-xs text-gray-600 w-20">{label}</span>
                   <div className="flex-1 bg-gray-100 rounded-full h-2">
-                    <div className={`${color} h-2 rounded-full`} style={{ width: `${pct}%` }} />
+                    <div className={`${color} h-2 rounded-full transition-all duration-500`} style={{ width: `${pct}%` }} />
                   </div>
                   <span className="text-xs font-semibold text-gray-700 w-8">{pct}%</span>
                 </div>
               ))}
             </div>
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 mt-5">Top Locations</div>
-            {["United States", "United Kingdom", "Canada", "Australia", "Germany"].map((loc, i) => (
-              <div key={loc} className="flex items-center justify-between py-1.5 border-b border-gray-50">
+            {demographics.locations.map(({ name, pct }, i) => (
+              <div key={name} className="flex items-center justify-between py-1.5 border-b border-gray-50">
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-gray-400 w-4">{i + 1}</span>
-                  <span className="text-sm text-gray-700">{loc}</span>
+                  <span className="text-sm text-gray-700">{name}</span>
                 </div>
-                <span className="text-xs font-semibold text-gray-600">{[38, 14, 11, 8, 6][i]}%</span>
+                <span className="text-xs font-semibold text-gray-600">{pct}%</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Best Performing Audiences */}
+      {/* Audience Segments — updates with niche */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-900">
             Audience Segments
-            {estimatedNiche && <span className="ml-2 text-xs font-normal text-gray-400">for &quot;{estimatedNiche}&quot;</span>}
+            {matched && <span className="ml-2 text-xs font-normal text-gray-400">— {matched.label}</span>}
           </h3>
         </div>
         <div className="overflow-x-auto">
@@ -285,7 +440,7 @@ function AudiencePlanning() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {(estimatedNiche ? getNicheAudiences(estimatedNiche) : MOCK_AUDIENCES as unknown as AudienceRow[]).map((aud) => (
+              {audiences.map((aud) => (
                 <tr key={aud.id} className="hover:bg-gray-50/50">
                   <td className="px-3 py-3 text-sm font-medium text-gray-800">{aud.name}</td>
                   <td className="px-3 py-3">
