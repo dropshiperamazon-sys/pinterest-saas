@@ -452,10 +452,39 @@ function AudiencePlanning() {
                       "bg-gray-100 text-gray-600"
                     )}>{aud.type}</span>
                   </td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(aud.size)}</td>
-                  <td className="px-3 py-3 text-sm font-semibold text-gray-800">{aud.ctr}%</td>
-                  <td className="px-3 py-3 text-sm font-semibold text-green-600">{aud.convRate}%</td>
-                  <td className="px-3 py-3 text-sm text-gray-700">${aud.spend}</td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-700 w-12">{formatNumber(aud.size)}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 min-w-[40px]">
+                        <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${Math.min(100, (aud.size / 10000000) * 100)}%` }} />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={cn("inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full",
+                      aud.ctr >= 4 ? "bg-green-100 text-green-700" :
+                      aud.ctr >= 2.5 ? "bg-blue-100 text-blue-700" :
+                      "bg-gray-100 text-gray-600"
+                    )}>
+                      {aud.ctr >= 4 ? "🔥" : aud.ctr >= 2.5 ? "📈" : "📊"} {aud.ctr}%
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className={cn("inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full",
+                      aud.convRate >= 5 ? "bg-emerald-100 text-emerald-700" :
+                      aud.convRate >= 2.5 ? "bg-green-100 text-green-700" :
+                      aud.convRate >= 1.5 ? "bg-yellow-100 text-yellow-700" :
+                      "bg-gray-100 text-gray-500"
+                    )}>
+                      {aud.convRate >= 5 ? "⭐" : aud.convRate >= 2.5 ? "✅" : "➡️"} {aud.convRate}%
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-4 rounded-sm" style={{ backgroundColor: `hsl(${Math.max(0, 120 - (aud.spend / 10))} 60% 45%)` }} />
+                      <span className="text-sm font-semibold text-gray-800">${aud.spend}</span>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
