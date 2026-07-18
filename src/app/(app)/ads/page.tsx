@@ -31,39 +31,38 @@ export default function AdsPage() {
       <div className="p-6 space-y-6">
         {/* Tab bar */}
         <div className="bg-white border border-gray-200 rounded-2xl p-2 flex gap-2 shadow-sm">
-          {TABS.map(({ key, label, icon: Icon, description }) => {
+          {TABS.map(({ key, label, icon: Icon, description, externalUrl }) => {
             const active = activeTab === key;
+            if (externalUrl) return (
+              <a
+                key={key}
+                href={externalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 flex flex-col items-center gap-1 px-4 py-3 rounded-xl text-sm font-medium transition-all text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+              >
+                <Icon className="w-4 h-4" />
+                <span className="font-semibold">{label}</span>
+                <span className="text-xs text-gray-400">{description} ↗</span>
+              </a>
+            );
             return (
-              {externalUrl ? (
-                <a
-                  key={key}
-                  href={externalUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 flex flex-col items-center gap-1 px-4 py-3 rounded-xl text-sm font-medium transition-all text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                >
-                  <Icon className="w-4 h-4" />
-                  <span className="font-semibold">{label}</span>
-                  <span className="text-xs text-gray-400">{description} ↗</span>
-                </a>
-              ) : (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  className={cn(
-                    "flex-1 flex flex-col items-center gap-1 px-4 py-3 rounded-xl text-sm font-medium transition-all",
-                    active
-                      ? "bg-[#e60023] text-white shadow-sm"
-                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                  )}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span className="font-semibold">{label}</span>
-                  <span className={cn("text-xs", active ? "text-white/70" : "text-gray-400")}>
-                    {description}
-                  </span>
-                </button>
-              )}
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={cn(
+                  "flex-1 flex flex-col items-center gap-1 px-4 py-3 rounded-xl text-sm font-medium transition-all",
+                  active
+                    ? "bg-[#e60023] text-white shadow-sm"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                )}
+              >
+                <Icon className="w-4 h-4" />
+                <span className="font-semibold">{label}</span>
+                <span className={cn("text-xs", active ? "text-white/70" : "text-gray-400")}>
+                  {description}
+                </span>
+              </button>
             );
           })}
         </div>
