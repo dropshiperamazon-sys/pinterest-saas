@@ -2,31 +2,29 @@
 import { useState } from "react";
 import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
-import { Map, Rocket, BarChart2, Zap, BookOpen } from "lucide-react";
+import { Map, BarChart2, Zap, BookOpen } from "lucide-react";
 import PlanTab from "./components/PlanTab";
-import LaunchTab from "./components/LaunchTab";
 import AnalyzeTab from "./components/AnalyzeTab";
 import OptimizeTab from "./components/OptimizeTab";
 import AdResearchTab from "./components/AdResearchTab";
 
-type Tab = "plan" | "launch" | "analyze" | "optimize" | "research";
+type Tab = "plan" | "analyze" | "optimize" | "research";
 
 const TABS: { key: Tab; label: string; icon: React.ElementType; description: string }[] = [
-  { key: "plan", label: "Plan", icon: Map, description: "Research & strategy" },
-  { key: "launch", label: "Launch", icon: Rocket, description: "Build & publish campaigns" },
-  { key: "analyze", label: "Analyze", icon: BarChart2, description: "Performance & insights" },
-  { key: "optimize", label: "Optimize", icon: Zap, description: "Scale & automate" },
-  { key: "research", label: "Ad Research", icon: BookOpen, description: "Spy on competitor ads" },
+  { key: "plan",     label: "Plan",        icon: Map,      description: "Research & strategy" },
+  { key: "analyze",  label: "Analyze",     icon: BarChart2, description: "Performance & insights" },
+  { key: "optimize", label: "Optimize",    icon: Zap,       description: "Scale & automate" },
+  { key: "research", label: "Ad Research", icon: BookOpen,  description: "Spy on competitor ads" },
 ];
 
 export default function AdsPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("plan");
+  const [activeTab, setActiveTab] = useState<Tab>("analyze");
 
   return (
     <div>
       <Header
         title="Pinterest Ads"
-        subtitle="Plan, launch, analyze, and optimize your Pinterest advertising"
+        subtitle="Plan, analyze, and optimize your Pinterest advertising"
       />
 
       <div className="p-6 space-y-6">
@@ -57,7 +55,6 @@ export default function AdsPage() {
 
         {/* Tab content */}
         {activeTab === "plan" && <PlanTab />}
-        {activeTab === "launch" && <LaunchTab />}
         {activeTab === "analyze" && <AnalyzeTab />}
         {activeTab === "optimize" && <OptimizeTab />}
         {activeTab === "research" && <AdResearchTab />}
