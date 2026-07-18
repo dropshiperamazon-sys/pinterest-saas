@@ -73,34 +73,87 @@ function extractUsername(url: string): string | null {
   } catch { return null; }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function walkForPins(obj: any, pins: { id: string; title: string; description: string; thumbnail: string }[], seen: Set<string>) {
+  if (!obj || typeof obj !== "object") return;
+  if (Array.isArray(obj)) { for (const item of obj) walkForPins(item, pins, seen); return; }
+
+  // Looks like a pin object?
+  const id = String(obj.id ?? obj.entityId ?? "");
+  if (/^\d{10,}$/.test(id) && !seen.has(id)) {
+    const title = String(obj.title ?? obj.grid_title ?? "").replace(/\\n/g, " ").trim();
+    const description = String(obj.description ?? obj.closeup_description ?? "").replace(/\\n/g, " ").trim();
+    let thumbnail = "";
+    const imgs = obj.images ?? obj.image_signature;
+    if (typeof imgs === "object" && imgs !== null) {
+      thumbnail = imgs["150x150"]?.url ?? imgs["236x"]?.url ?? imgs["474x"]?.url ?? imgs.orig?.url ?? "";
+    }
+    if (!thumbnail && typeof obj.image_cover_url === "string") thumbnail = obj.image_cover_url;
+    seen.add(id);
+    pins.push({ id, title, description, thumbnail });
+    if (pins.length >= 50) return;
+  }
+
+  for (const val of Object.values(obj)) {
+    if (pins.length >= 50) return;
+    walkForPins(val, pins, seen);
+  }
+}
+
 // Try to pull pins from Pinterest's embedded JSON initial state
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parsePinsFromHtml(html: string): any[] {
   const pins: { id: string; title: string; description: string; thumbnail: string }[] = [];
   const seen = new Set<string>();
 
-  // Pinterest embeds data as escaped JSON in script tags in several formats.
-  // Strategy 1: look for "id":"<numeric>" paired with title / description near an image URL
-  // Extract all JSON-like pin objects from escaped embedded data.
-  const pinBlockRegex = /\\"id\\":\\"(\d{10,})\\"[^}]{0,2000}?\\"title\\":\\"([^"\\]{0,200})\\"/g;
-  let m: RegExpExecArray | null;
-  while ((m = pinBlockRegex.exec(html)) !== null) {
-    const id = m[1];
-    if (seen.has(id)) continue;
-    seen.add(id);
+  // Strategy 1: __PWS_DATA__ / __NEXT_DATA__ / window.__PWS_INITIAL_STATE__ inline JSON blobs
+  const scriptDataRegex = /<script[^>]*id="__PWS_DATA__"[^>]*>([\s\S]*?)<\/script>/i;
+  const nextDataRegex   = /<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i;
+  const initialStateRegex = /window\.__PWS_INITIAL_STATE__\s*=\s*(\{[\s\S]*?\});\s*<\/script>/;
 
-    // Try to find a description near this id
-    const snippet = html.slice(m.index, m.index + 3000);
-    const desc = snippet.match(/\\"description\\":\\"([^"\\]{0,500})\\"/)?.[1] ?? "";
-    const thumb = snippet.match(/\\"url\\":\\"(https:\\\/\\\/i\\.pinimg\\.com[^"\\]+)\\"/)?.[1]
-      ?.replace(/\\\//g, "/") ?? "";
-
-    const title = m[2].replace(/\\n/g, " ").replace(/\\"/g, '"').trim();
-    pins.push({ id, title, description: desc.replace(/\\n/g, " ").replace(/\\"/g, '"').trim(), thumbnail: thumb });
-    if (pins.length >= 50) break;
+  for (const rx of [scriptDataRegex, nextDataRegex, initialStateRegex]) {
+    const m = html.match(rx);
+    if (m?.[1]) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const obj: any = JSON.parse(m[1]);
+        walkForPins(obj, pins, seen);
+        if (pins.length > 0) break;
+      } catch { /* ignore */ }
+    }
   }
 
-  // Strategy 2: un-escaped JSON-LD blocks
+  // Strategy 2: any inline <script> that contains a large JSON blob with pin IDs
+  if (pins.length === 0) {
+    const allScripts = [...html.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]{500,}?)<\/script>/gi)];
+    for (const sm of allScripts) {
+      if (pins.length >= 50) break;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const obj: any = JSON.parse(sm[1]);
+        walkForPins(obj, pins, seen);
+      } catch { /* ignore */ }
+    }
+  }
+
+  // Strategy 3: escaped JSON in script content (Pinterest SPA initial state)
+  if (pins.length === 0) {
+    const pinBlockRegex = /\\"id\\":\\"(\d{10,})\\"[^}]{0,2000}?\\"title\\":\\"([^"\\]{0,200})\\"/g;
+    let m: RegExpExecArray | null;
+    while ((m = pinBlockRegex.exec(html)) !== null) {
+      const id = m[1];
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const snippet = html.slice(m.index, m.index + 3000);
+      const desc  = snippet.match(/\\"description\\":\\"([^"\\]{0,500})\\"/)?.[1] ?? "";
+      const thumb = snippet.match(/\\"url\\":\\"(https:\\\/\\\/i\\.pinimg\\.com[^"\\]+)\\"/)?.[1]?.replace(/\\\//g, "/") ?? "";
+      const title = m[2].replace(/\\n/g, " ").replace(/\\"/g, '"').trim();
+      pins.push({ id, title, description: desc.replace(/\\n/g, " ").replace(/\\"/g, '"').trim(), thumbnail: thumb });
+      if (pins.length >= 50) break;
+    }
+  }
+
+  // Strategy 4: JSON-LD blocks
   if (pins.length === 0) {
     const ldMatches = [...html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)];
     for (const ldm of ldMatches) {

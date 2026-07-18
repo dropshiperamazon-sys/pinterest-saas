@@ -755,7 +755,7 @@ export default function AccountAuditPage() {
                 </div>
 
                 {/* Pin list table */}
-                {extData.pins.length > 0 && (
+                {(
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     <div className="p-4 border-b border-gray-100 flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -851,6 +851,13 @@ export default function AccountAuditPage() {
                         </tbody>
                       </table>
                     </div>
+                    {extData.pins.length === 0 && (
+                      <div className="py-10 text-center text-sm text-gray-400">
+                        <Tag className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                        <p>No pins could be extracted from this profile.</p>
+                        <p className="text-xs mt-1 text-gray-300">Pinterest renders pins via JavaScript — only data embedded in the initial HTML is available.</p>
+                      </div>
+                    )}
                     <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400 flex items-center gap-1">
                       <AlertCircle className="w-3 h-3" />
                       Pin data is extracted from the public profile page — count may be limited to what Pinterest embeds on load.
