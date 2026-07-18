@@ -117,7 +117,17 @@ export async function GET() {
       profileImage: profile.profile_image ?? "",
       website: profile.website_url ?? "",
     },
-    boards: boards.map((b) => ({ id: b.id, name: b.name, description: b.description, pinCount: b.pin_count })),
+    boards: boards.map((b) => {
+    const slug = (b.name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const username = profile.username ?? "";
+    return {
+      id: b.id,
+      name: b.name,
+      description: b.description,
+      pinCount: b.pin_count,
+      url: username && slug ? `https://pinterest.com/${username}/${slug}/` : "",
+    };
+  }),
     keywords,
     totalTextsAnalyzed: allTexts.length,
   });
