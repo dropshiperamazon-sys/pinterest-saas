@@ -7,7 +7,7 @@ import {
   ShieldCheck, User, Search, ExternalLink, Loader2,
   Tag, LayoutGrid, TrendingUp, Hash, AlertCircle,
   ChevronLeft, ChevronRight, Copy, CheckCircle2, Globe,
-  XCircle, Link2,
+  XCircle, Link2, Copy as CopyIcon, Filter,
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -98,6 +98,43 @@ function PinKwChip({ kw }: { kw: PinKeyword }) {
   );
 }
 
+// ── Duplicate detection helpers ────────────────────────────────────────────────
+
+function buildDuplicateMap(pins: BoardPin[]): Map<string, string[]> {
+  // Group pins by each duplicate signal; a pin is a duplicate if it shares
+  // title, description, OR thumbnail with at least one other pin.
+  const byTitle = new Map<string, string[]>();
+  const byDesc  = new Map<string, string[]>();
+  const byThumb = new Map<string, string[]>();
+
+  for (const p of pins) {
+    const t = p.title.trim().toLowerCase();
+    const d = p.description.trim().toLowerCase();
+    const th = p.thumbnail;
+    if (t) { if (!byTitle.has(t)) byTitle.set(t, []); byTitle.get(t)!.push(p.id); }
+    if (d) { if (!byDesc.has(d))  byDesc.set(d, []);  byDesc.get(d)!.push(p.id); }
+    if (th){ if (!byThumb.has(th))byThumb.set(th,[]);  byThumb.get(th)!.push(p.id); }
+  }
+
+  // pinId → set of pinIds it's a duplicate of
+  const dupSets = new Map<string, Set<string>>();
+  const link = (ids: string[]) => {
+    if (ids.length < 2) return;
+    for (const id of ids) {
+      if (!dupSets.has(id)) dupSets.set(id, new Set());
+      for (const other of ids) { if (other !== id) dupSets.get(id)!.add(other); }
+    }
+  };
+  for (const ids of byTitle.values()) link(ids);
+  for (const ids of byDesc.values())  link(ids);
+  for (const ids of byThumb.values()) link(ids);
+
+  // Return pinId → sorted list of duplicate pinIds
+  const result = new Map<string, string[]>();
+  for (const [id, others] of dupSets) result.set(id, Array.from(others));
+  return result;
+}
+
 // ── Board Detail View ──────────────────────────────────────────────────────────
 
 function BoardDetail({
@@ -111,6 +148,7 @@ function BoardDetail({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [showDupsOnly, setShowDupsOnly] = useState(false);
 
   useEffect(() => {
     fetch(`/api/account-audit/board?boardId=${board.id}`)
@@ -123,14 +161,19 @@ function BoardDetail({
       .finally(() => setLoading(false));
   }, [board.id]);
 
-  const filtered = pins.filter((p) =>
-    !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase())
-  );
+  const dupMap = buildDuplicateMap(pins);
+  const dupPinCount = dupMap.size; // total pins that have at least one duplicate
+
+  const filtered = pins.filter((p) => {
+    const matchSearch = !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase());
+    const matchDup = !showDupsOnly || dupMap.has(p.id);
+    return matchSearch && matchDup;
+  });
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 font-medium transition-colors">
           <ChevronLeft className="w-4 h-4" />
           All Boards
@@ -138,6 +181,29 @@ function BoardDetail({
         <ChevronRight className="w-3.5 h-3.5 text-gray-300" />
         <span className="text-sm font-semibold text-gray-800">{board.name}</span>
         <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{board.pinCount} pins</span>
+
+        {/* Duplicate summary badge */}
+        {!loading && dupPinCount > 0 && (
+          <button
+            onClick={() => setShowDupsOnly((v) => !v)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all",
+              showDupsOnly
+                ? "bg-orange-500 text-white border-orange-500"
+                : "bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100"
+            )}
+          >
+            <CopyIcon className="w-3 h-3" />
+            {dupPinCount} duplicate pin{dupPinCount !== 1 ? "s" : ""} detected
+            {showDupsOnly ? " — showing only" : " — click to filter"}
+          </button>
+        )}
+        {!loading && dupPinCount === 0 && pins.length > 0 && (
+          <span className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-600 border border-green-200">
+            <CheckCircle2 className="w-3 h-3" />
+            No duplicates found
+          </span>
+        )}
       </div>
 
       {/* Legend */}
@@ -198,10 +264,11 @@ function BoardDetail({
                   <tr>
                     <td colSpan={5} className="py-12 text-center text-sm text-gray-400">No pins found</td>
                   </tr>
-                ) : filtered.map((pin) => (
-                  <tr key={pin.id} className="hover:bg-gray-50/60 transition-colors align-top">
+                ) : filtered.map((pin) => { const isDup = dupMap.has(pin.id); return (
+                  <tr key={pin.id} className={cn("transition-colors align-top", isDup ? "bg-orange-50/40 hover:bg-orange-50/70" : "hover:bg-gray-50/60")}>
                     {/* Thumbnail */}
                     <td className="px-4 py-3">
+                      <div className="flex flex-col items-center gap-1">
                       <a
                         href={`https://pinterest.com/pin/${pin.id}/`}
                         target="_blank"
@@ -221,6 +288,12 @@ function BoardDetail({
                           <ExternalLink className="w-3.5 h-3.5 text-white" />
                         </div>
                       </a>
+                      {isDup && (
+                        <span className="text-[9px] font-bold text-orange-500 bg-orange-100 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          DUP ×{(dupMap.get(pin.id)?.length ?? 0) + 1}
+                        </span>
+                      )}
+                      </div>
                     </td>
 
                     {/* Title */}
@@ -285,14 +358,19 @@ function BoardDetail({
                       )}
                     </td>
                   </tr>
-                ))}
+                ); })}
               </tbody>
             </table>
           </div>
 
           {filtered.length > 0 && (
             <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
-              <span>Showing {filtered.length} of {pins.length} pins</span>
+              <span>
+                Showing {filtered.length} of {pins.length} pins
+                {dupPinCount > 0 && (
+                  <span className="ml-2 text-orange-500 font-semibold">· {dupPinCount} duplicates</span>
+                )}
+              </span>
               <span className="flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Click any keyword to copy</span>
             </div>
           )}
