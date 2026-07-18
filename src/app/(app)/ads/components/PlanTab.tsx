@@ -112,19 +112,54 @@ const NICHE_AUDIENCES: Record<string, AudienceRow[]> = {
   ],
 };
 
+const NICHE_ALIASES: Record<string, string> = {
+  // fashion
+  "clothing": "fashion", "clothes": "fashion", "apparel": "fashion", "outfit": "fashion",
+  "dress": "fashion", "style": "fashion", "wear": "fashion", "shirt": "fashion",
+  "jeans": "fashion", "shoes": "fashion", "accessori": "fashion",
+  // home decor
+  "interior": "home decor", "furniture": "home decor", "living room": "home decor",
+  "bedroom": "home decor", "kitchen decor": "home decor", "home design": "home decor",
+  "room decor": "home decor", "house decor": "home decor",
+  // beauty
+  "makeup": "beauty", "skincare": "beauty", "skin care": "beauty", "cosmetic": "beauty",
+  "lipstick": "beauty", "foundation": "beauty", "moisturiz": "beauty",
+  // food
+  "recipe": "food", "cooking": "food", "baking": "food", "meal": "food",
+  "dinner": "food", "lunch": "food", "breakfast": "food", "dessert": "food",
+  // fitness
+  "gym": "fitness", "workout": "fitness", "exercise": "fitness", "yoga": "fitness",
+  "running": "fitness", "weight loss": "fitness", "pilates": "fitness",
+  // travel
+  "vacation": "travel", "holiday": "travel", "trip": "travel", "destination": "travel",
+  "hotel": "travel", "flight": "travel", "tourism": "travel",
+  // wedding
+  "bride": "wedding", "bridal": "wedding", "engagement": "wedding", "ceremony": "wedding",
+  "wedding plan": "wedding", "wedding decor": "wedding",
+};
+
 function getNicheAudiences(input: string): AudienceRow[] {
   const lower = input.toLowerCase();
+  // check direct niche keys first
   for (const [key, rows] of Object.entries(NICHE_AUDIENCES)) {
     if (lower.includes(key)) return rows;
   }
-  // generic fallback
+  // check aliases
+  for (const [alias, niche] of Object.entries(NICHE_ALIASES)) {
+    if (lower.includes(alias)) return NICHE_AUDIENCES[niche] ?? [];
+  }
   return MOCK_AUDIENCES as unknown as AudienceRow[];
 }
 
 function getNicheEstimate(input: string) {
   const lower = input.toLowerCase();
+  // check direct keys
   for (const [key, val] of Object.entries(NICHE_DATA)) {
     if (lower.includes(key)) return val;
+  }
+  // check aliases → map to niche key
+  for (const [alias, niche] of Object.entries(NICHE_ALIASES)) {
+    if (lower.includes(alias) && NICHE_DATA[niche]) return NICHE_DATA[niche];
   }
   // generic fallback based on string length for variety
   const seed = input.length % 5;
