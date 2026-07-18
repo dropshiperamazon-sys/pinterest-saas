@@ -1,519 +1,535 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import {
   Search, ExternalLink, BookmarkPlus, Trash2, Tag,
-  AlertCircle, CheckCircle2, Globe, Hash, Star,
-  ChevronRight, Bookmark, Eye, Info, Filter, X,
+  Filter, X, Heart, Share2, Eye, Globe, Hash,
+  ChevronDown, Bookmark, BookmarkCheck, AlertCircle,
+  ArrowUpRight, LayoutGrid, List, SlidersHorizontal,
+  TrendingUp, Building2, MousePointerClick, Info,
 } from "lucide-react";
 
-const STORAGE_KEY = "mypinpro_saved_ads";
+// ── Types ──────────────────────────────────────────────────────────────────────
 
-interface SavedAd {
+interface AdCard {
   id: string;
-  keyword: string;
   brand: string;
+  domain: string;
+  niche: string;
+  format: "standard" | "video" | "carousel" | "idea";
   title: string;
   description: string;
-  imageUrl: string;
+  cta: string;
+  imageColor: string; // gradient fallback
+  imageEmoji: string;
+  likes: number;
+  shares: number;
+  views: string;
+  country: string;
+  lastSeen: string;
   adUrl: string;
-  notes: string;
-  savedAt: string;
   tags: string[];
 }
 
-const NICHES = [
-  "Home Decor", "Fashion", "Beauty", "Food & Recipes", "Fitness",
-  "Travel", "DIY & Crafts", "Weddings", "Parenting", "Finance",
-  "Technology", "Gardening", "Education", "Pets", "Health",
+// ── Mock ad database ──────────────────────────────────────────────────────────
+
+const MOCK_ADS: AdCard[] = [
+  { id:"m1", brand:"Article Furniture", domain:"article.com", niche:"Home Decor", format:"standard", title:"Elevate Your Living Room This Season", description:"Scandinavian-inspired sofas & chairs. Free shipping on orders over $999. Shop the new collection.", cta:"Shop Now", imageColor:"from-amber-100 to-orange-200", imageEmoji:"🛋️", likes:4820, shares:1240, views:"2.1M", country:"US", lastSeen:"2 days ago", adUrl:"https://www.pinterest.com/ads/library/", tags:["sofa","furniture","minimalist"] },
+  { id:"m2", brand:"Ritual Vitamins", domain:"ritual.com", niche:"Health", format:"video", title:"The Only Multivitamin You'll Ever Need", description:"Traceable ingredients. Vegan-friendly. No questionable extras. Start your ritual today — first month 40% off.", cta:"Get 40% Off", imageColor:"from-yellow-100 to-yellow-300", imageEmoji:"💊", likes:3100, shares:890, views:"1.4M", country:"US", lastSeen:"1 day ago", adUrl:"https://www.pinterest.com/ads/library/", tags:["vitamins","wellness","health"] },
+  { id:"m3", brand:"Mejuri", domain:"mejuri.com", niche:"Fashion", format:"carousel", title:"Fine Jewelry for Everyday Moments", description:"Solid gold. Sterling silver. Made to be worn daily. Discover this season's new arrivals.", cta:"Shop Jewelry", imageColor:"from-rose-100 to-pink-200", imageEmoji:"💍", likes:6700, shares:2100, views:"3.8M", country:"CA", lastSeen:"3 days ago", adUrl:"https://www.pinterest.com/ads/library/", tags:["jewelry","fashion","gold"] },
+  { id:"m4", brand:"Headspace", domain:"headspace.com", niche:"Health", format:"standard", title:"Find Calm in Just 10 Minutes a Day", description:"Guided meditations for stress, sleep & focus. Try Headspace free for 30 days — no credit card needed.", cta:"Try Free", imageColor:"from-orange-200 to-red-200", imageEmoji:"🧘", likes:5400, shares:1800, views:"4.2M", country:"US", lastSeen:"Today", adUrl:"https://www.pinterest.com/ads/library/", tags:["meditation","mindfulness","wellness"] },
+  { id:"m5", brand:"West Elm", domain:"westelm.com", niche:"Home Decor", format:"carousel", title:"New Arrivals: Modern & Sustainable", description:"Shop our fall collection — sustainably sourced materials, thoughtfully designed for modern living.", cta:"See New Arrivals", imageColor:"from-stone-200 to-stone-300", imageEmoji:"🪑", likes:8200, shares:3400, views:"5.1M", country:"US", lastSeen:"Today", adUrl:"https://www.pinterest.com/ads/library/", tags:["furniture","sustainable","modern"] },
+  { id:"m6", brand:"Fenty Beauty", domain:"fentybeauty.com", niche:"Beauty", format:"video", title:"Your Shade Exists. We Promise.", description:"40 shades of Pro Filt'r foundation for every skin tone. Long-wear, buildable coverage. Shop now.", cta:"Find Your Shade", imageColor:"from-purple-100 to-pink-200", imageEmoji:"💄", likes:12400, shares:5600, views:"8.7M", country:"US", lastSeen:"Today", adUrl:"https://www.pinterest.com/ads/library/", tags:["makeup","foundation","beauty"] },
+  { id:"m7", brand:"Airbnb", domain:"airbnb.com", niche:"Travel", format:"standard", title:"Don't Just Visit — Live Like a Local", description:"Unique stays in 220 countries. From cozy cabins to designer lofts. Book with free cancellation.", cta:"Explore Stays", imageColor:"from-rose-200 to-red-200", imageEmoji:"🏡", likes:9800, shares:4200, views:"6.3M", country:"GB", lastSeen:"2 days ago", adUrl:"https://www.pinterest.com/ads/library/", tags:["travel","vacation","airbnb"] },
+  { id:"m8", brand:"HelloFresh", domain:"hellofresh.com", niche:"Food & Recipes", format:"carousel", title:"Get Dinner on the Table in 30 Minutes", description:"Fresh pre-portioned ingredients + chef-designed recipes. First box 50% off. Skip or cancel anytime.", cta:"Claim 50% Off", imageColor:"from-green-100 to-emerald-200", imageEmoji:"🥗", likes:7300, shares:2900, views:"4.8M", country:"US", lastSeen:"Today", adUrl:"https://www.pinterest.com/ads/library/", tags:["mealkit","food","cooking"] },
+  { id:"m9", brand:"Peloton", domain:"onepeloton.com", niche:"Fitness", format:"video", title:"The Best Workout Is the One You'll Do", description:"Live & on-demand classes. Cycling, running, yoga, strength. Try Peloton free for 30 days.", cta:"Start Free Trial", imageColor:"from-gray-800 to-gray-900", imageEmoji:"🚴", likes:5200, shares:1700, views:"3.1M", country:"US", lastSeen:"3 days ago", adUrl:"https://www.pinterest.com/ads/library/", tags:["fitness","cycling","workout"] },
+  { id:"m10", brand:"Canva", domain:"canva.com", niche:"Education", format:"idea", title:"Design Anything. Publish Everywhere.", description:"Create stunning graphics, presentations & social media content in minutes. Free forever plan available.", cta:"Design Free", imageColor:"from-cyan-100 to-blue-200", imageEmoji:"🎨", likes:14200, shares:7800, views:"11.2M", country:"AU", lastSeen:"Today", adUrl:"https://www.pinterest.com/ads/library/", tags:["design","tools","creative"] },
+  { id:"m11", brand:"Lush Cosmetics", domain:"lush.com", niche:"Beauty", format:"standard", title:"Fresh. Handmade. Ethical Beauty.", description:"Bath bombs, face masks & skincare made fresh with ethically sourced ingredients. Zero plastic packaging.", cta:"Shop Lush", imageColor:"from-purple-200 to-violet-300", imageEmoji:"🛁", likes:6800, shares:3100, views:"4.4M", country:"GB", lastSeen:"1 day ago", adUrl:"https://www.pinterest.com/ads/library/", tags:["skincare","ethical","bath"] },
+  { id:"m12", brand:"VRBO", domain:"vrbo.com", niche:"Travel", format:"carousel", title:"Your Whole Group. One Amazing Place.", description:"Vacation rentals for groups & families. Entire homes — not just rooms. Space to spread out.", cta:"Find Your Home", imageColor:"from-blue-100 to-sky-200", imageEmoji:"🏖️", likes:4100, shares:1600, views:"2.9M", country:"US", lastSeen:"4 days ago", adUrl:"https://www.pinterest.com/ads/library/", tags:["vacation","family","rental"] },
+  { id:"m13", brand:"Gymshark", domain:"gymshark.com", niche:"Fitness", format:"video", title:"For the Love of Training", description:"Performance activewear designed by athletes. New season collection — engineered to move with you.", cta:"Shop Collection", imageColor:"from-black to-gray-800", imageEmoji:"💪", likes:18700, shares:8900, views:"13.4M", country:"GB", lastSeen:"Today", adUrl:"https://www.pinterest.com/ads/library/", tags:["activewear","gym","fitness"] },
+  { id:"m14", brand:"Duolingo", domain:"duolingo.com", niche:"Education", format:"standard", title:"Learn a Language in 10 Minutes a Day", description:"The world's #1 language learning app. Free lessons. Science-based method. 40+ languages available.", cta:"Start for Free", imageColor:"from-green-300 to-emerald-400", imageEmoji:"🦉", likes:9400, shares:4600, views:"7.2M", country:"US", lastSeen:"2 days ago", adUrl:"https://www.pinterest.com/ads/library/", tags:["language","learning","app"] },
+  { id:"m15", brand:"Anthropologie", domain:"anthropologie.com", niche:"Fashion", format:"carousel", title:"Curated for the Free-Spirited", description:"Bohemian clothing, unique home decor & gifts. New arrivals weekly. Free shipping on orders $150+.", cta:"Shop New Arrivals", imageColor:"from-rose-100 to-amber-100", imageEmoji:"🌸", likes:7600, shares:2800, views:"5.0M", country:"US", lastSeen:"Today", adUrl:"https://www.pinterest.com/ads/library/", tags:["boho","fashion","clothing"] },
+  { id:"m16", brand:"IKEA", domain:"ikea.com", niche:"Home Decor", format:"idea", title:"Small Space? Big Possibilities.", description:"Smart storage solutions and multifunctional furniture for every room — without breaking the bank.", cta:"Get Inspired", imageColor:"from-yellow-200 to-yellow-400", imageEmoji:"🏠", likes:22000, shares:11000, views:"18.6M", country:"US", lastSeen:"Today", adUrl:"https://www.pinterest.com/ads/library/", tags:["storage","smallspace","affordable"] },
 ];
 
-const SEARCH_TIPS = [
-  { icon: "🎯", tip: "Search your exact niche keyword (e.g. 'minimalist bedroom')" },
-  { icon: "🔍", tip: "Look for the 'Promoted' label — that marks a paid ad" },
-  { icon: "📋", tip: "Note the headline, CTA text, and image style of top ads" },
-  { icon: "💡", tip: "Check which brands appear repeatedly — they're spending consistently" },
-  { icon: "📅", tip: "Filter by country to see geo-targeted campaigns" },
-];
+const NICHES = ["All", "Home Decor", "Fashion", "Beauty", "Food & Recipes", "Fitness", "Travel", "Education", "Health"];
+const FORMATS = ["All", "standard", "video", "carousel", "idea"];
+const COUNTRIES = ["All", "US", "GB", "CA", "AU"];
+const SORT_OPTIONS = ["Most Liked", "Most Shared", "Most Viewed", "Most Recent"];
+const STORAGE_KEY = "mypinpro_swipe_file";
 
-function EmptyAds() {
+const FORMAT_LABEL: Record<string, string> = { standard: "Standard", video: "Video", carousel: "Carousel", idea: "Idea Pin" };
+const FORMAT_COLOR: Record<string, string> = {
+  standard: "bg-blue-100 text-blue-700",
+  video: "bg-purple-100 text-purple-700",
+  carousel: "bg-orange-100 text-orange-700",
+  idea: "bg-pink-100 text-pink-700",
+};
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
+function AdDetailModal({ ad, onClose, swipeIds, onSwipe }: {
+  ad: AdCard; onClose: () => void;
+  swipeIds: Set<string>; onSwipe: (id: string) => void;
+}) {
+  const saved = swipeIds.has(ad.id);
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
-        <Bookmark className="w-8 h-8 text-gray-300" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Image */}
+        <div className={`bg-gradient-to-br ${ad.imageColor} h-52 flex items-center justify-center relative`}>
+          <span className="text-7xl">{ad.imageEmoji}</span>
+          <div className="absolute top-3 left-3 flex gap-2">
+            <span className={cn("text-xs font-bold px-2.5 py-1 rounded-full", FORMAT_COLOR[ad.format])}>{FORMAT_LABEL[ad.format]}</span>
+            <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-white/80 text-gray-700">📌 Promoted</span>
+          </div>
+          <button onClick={onClose} className="absolute top-3 right-3 w-7 h-7 bg-white/80 rounded-full flex items-center justify-center hover:bg-white">
+            <X className="w-4 h-4 text-gray-600" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-bold text-[#e60023] uppercase tracking-wide mb-0.5">{ad.brand} · {ad.domain}</p>
+              <h3 className="text-base font-bold text-gray-900 leading-snug">{ad.title}</h3>
+            </div>
+            <button
+              onClick={() => onSwipe(ad.id)}
+              className={cn("flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all", saved ? "bg-green-100 text-green-700" : "bg-[#e60023] text-white hover:bg-[#ad081b]")}
+            >
+              {saved ? <BookmarkCheck className="w-4 h-4" /> : <BookmarkPlus className="w-4 h-4" />}
+              {saved ? "Saved" : "Save"}
+            </button>
+          </div>
+          <p className="text-sm text-gray-600 leading-relaxed">{ad.description}</p>
+          <div className="flex items-center gap-3">
+            <span className="bg-[#e60023] text-white text-xs font-bold px-4 py-2 rounded-full">{ad.cta}</span>
+            <a href={ad.adUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#e60023] transition-colors">
+              <ExternalLink className="w-3.5 h-3.5" /> View in Ads Library
+            </a>
+          </div>
+          <div className="grid grid-cols-3 gap-3 pt-2 border-t border-gray-100">
+            {[
+              { icon: Heart, label: "Likes", val: ad.likes.toLocaleString() },
+              { icon: Share2, label: "Shares", val: ad.shares.toLocaleString() },
+              { icon: Eye, label: "Views", val: ad.views },
+            ].map(({ icon: Icon, label, val }) => (
+              <div key={label} className="text-center">
+                <div className="flex items-center justify-center gap-1 text-gray-500 mb-0.5">
+                  <Icon className="w-3.5 h-3.5" />
+                  <span className="text-xs">{label}</span>
+                </div>
+                <span className="text-sm font-bold text-gray-900">{val}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-400 pt-1 border-t border-gray-50">
+            <span>🌍 {ad.country} · Last seen: {ad.lastSeen}</span>
+            <div className="flex flex-wrap gap-1 justify-end">
+              {ad.tags.map(t => <span key={t} className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">#{t}</span>)}
+            </div>
+          </div>
+        </div>
       </div>
-      <h3 className="text-sm font-semibold text-gray-700 mb-1">No saved ads yet</h3>
-      <p className="text-xs text-gray-400 max-w-xs">
-        Search Pinterest Ads Library above, then manually save interesting ads you find using the form below.
-      </p>
     </div>
   );
 }
 
-export default function AdResearchTab() {
-  const [keyword, setKeyword] = useState("");
-  const [section, setSection] = useState<"search" | "saved">("search");
+// ── Main Component ─────────────────────────────────────────────────────────────
 
-  // Saved ads state
-  const [savedAds, setSavedAds] = useState<SavedAd[]>([]);
-  const [filterKw, setFilterKw] = useState("");
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<Omit<SavedAd, "id" | "savedAt">>({
-    keyword: "", brand: "", title: "", description: "",
-    imageUrl: "", adUrl: "", notes: "", tags: [],
-  });
-  const [tagInput, setTagInput] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
+export default function AdResearchTab() {
+  const [tab, setTab] = useState<"explore" | "swipe" | "lookup">("explore");
+  const [searchQ, setSearchQ] = useState("");
+  const [niche, setNiche] = useState("All");
+  const [format, setFormat] = useState("All");
+  const [country, setCountry] = useState("All");
+  const [sort, setSort] = useState("Most Liked");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [showFilters, setShowFilters] = useState(false);
+  const [selectedAd, setSelectedAd] = useState<AdCard | null>(null);
+  const [swipeIds, setSwipeIds] = useState<Set<string>>(new Set());
+
+  // Lookup tab
+  const [lookupQ, setLookupQ] = useState("");
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setSavedAds(JSON.parse(raw));
+      if (raw) setSwipeIds(new Set(JSON.parse(raw)));
     } catch {}
   }, []);
 
-  function persist(ads: SavedAd[]) {
-    setSavedAds(ads);
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(ads)); } catch {}
+  function toggleSwipe(id: string) {
+    setSwipeIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...next])); } catch {}
+      return next;
+    });
   }
 
-  function openLibrary() {
-    const q = keyword.trim();
-    const url = q
-      ? `https://www.pinterest.com/ads/library/?q=${encodeURIComponent(q)}`
-      : "https://www.pinterest.com/ads/library/";
-    window.open(url, "_blank", "noopener noreferrer");
-  }
+  // Filter + sort
+  const filtered = MOCK_ADS
+    .filter(a => {
+      const q = searchQ.toLowerCase();
+      const matchQ = !q || a.brand.toLowerCase().includes(q) || a.title.toLowerCase().includes(q) || a.description.toLowerCase().includes(q) || a.niche.toLowerCase().includes(q) || a.tags.some(t => t.includes(q));
+      const matchNiche = niche === "All" || a.niche === niche;
+      const matchFormat = format === "All" || a.format === format;
+      const matchCountry = country === "All" || a.country === country;
+      return matchQ && matchNiche && matchFormat && matchCountry;
+    })
+    .sort((a, b) => {
+      if (sort === "Most Liked") return b.likes - a.likes;
+      if (sort === "Most Shared") return b.shares - a.shares;
+      if (sort === "Most Viewed") return parseFloat(b.views) - parseFloat(a.views);
+      return 0;
+    });
 
-  function openPinterestSearch() {
-    const q = keyword.trim();
-    if (!q) return;
-    window.open(`https://pinterest.com/search/pins/?q=${encodeURIComponent(q)}`, "_blank", "noopener noreferrer");
-  }
-
-  function resetForm() {
-    setForm({ keyword: "", brand: "", title: "", description: "", imageUrl: "", adUrl: "", notes: "", tags: [] });
-    setTagInput("");
-    setEditingId(null);
-    setShowForm(false);
-  }
-
-  function saveAd() {
-    if (!form.title.trim() && !form.brand.trim()) return;
-    if (editingId) {
-      persist(savedAds.map(a => a.id === editingId ? { ...form, id: editingId, savedAt: a.savedAt } : a));
-    } else {
-      const newAd: SavedAd = { ...form, id: Date.now().toString(), savedAt: new Date().toISOString() };
-      persist([newAd, ...savedAds]);
-    }
-    resetForm();
-  }
-
-  function deleteAd(id: string) {
-    persist(savedAds.filter(a => a.id !== id));
-  }
-
-  function startEdit(ad: SavedAd) {
-    setForm({ keyword: ad.keyword, brand: ad.brand, title: ad.title, description: ad.description, imageUrl: ad.imageUrl, adUrl: ad.adUrl, notes: ad.notes, tags: ad.tags });
-    setEditingId(ad.id);
-    setShowForm(true);
-    setSection("saved");
-  }
-
-  function addTag() {
-    const t = tagInput.trim();
-    if (t && !form.tags.includes(t)) setForm(f => ({ ...f, tags: [...f.tags, t] }));
-    setTagInput("");
-  }
-
-  function removeTag(t: string) {
-    setForm(f => ({ ...f, tags: f.tags.filter(x => x !== t) }));
-  }
-
-  const filtered = savedAds.filter(a =>
-    !filterKw ||
-    a.keyword.toLowerCase().includes(filterKw.toLowerCase()) ||
-    a.brand.toLowerCase().includes(filterKw.toLowerCase()) ||
-    a.title.toLowerCase().includes(filterKw.toLowerCase()) ||
-    a.tags.some(t => t.toLowerCase().includes(filterKw.toLowerCase()))
-  );
+  const swipeAds = MOCK_ADS.filter(a => swipeIds.has(a.id));
+  const activeFilters = [niche !== "All" && niche, format !== "All" && FORMAT_LABEL[format], country !== "All" && country].filter(Boolean) as string[];
 
   return (
-    <div className="space-y-5">
-      {/* Section switcher */}
+    <div className="space-y-4">
+      {/* Tab switcher */}
       <div className="flex bg-gray-100 rounded-2xl p-1 w-fit gap-1">
         {([
-          { key: "search", label: "Ads Library Search", icon: Search },
-          { key: "saved", label: `Saved Ads${savedAds.length ? ` (${savedAds.length})` : ""}`, icon: Bookmark },
+          { key: "explore", label: "Explore Ads", icon: LayoutGrid },
+          { key: "swipe", label: `Swipe File${swipeIds.size ? ` (${swipeIds.size})` : ""}`, icon: Bookmark },
+          { key: "lookup", label: "Advertiser Lookup", icon: Building2 },
         ] as const).map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setSection(key)}
-            className={cn(
-              "flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all",
-              section === key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-            )}
-          >
-            <Icon className="w-4 h-4" />
-            {label}
+          <button key={key} onClick={() => setTab(key)}
+            className={cn("flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all",
+              tab === key ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+            )}>
+            <Icon className="w-4 h-4" />{label}
           </button>
         ))}
       </div>
 
-      {/* ── SEARCH SECTION ── */}
-      {section === "search" && (
-        <div className="space-y-5">
-          {/* Legal notice */}
-          <div className="bg-blue-50 border border-blue-100 rounded-2xl p-4 flex items-start gap-3">
-            <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-            <div className="text-xs text-blue-700">
-              <strong>How this works:</strong> We link directly to Pinterest&apos;s official <strong>Ads Transparency Library</strong> — a free, public tool where any advertiser&apos;s active ads can be legally viewed. Search a keyword, browse real running ads on Pinterest, then save the best ones below for reference.
-            </div>
+      {/* ── EXPLORE TAB ── */}
+      {tab === "explore" && (
+        <div className="space-y-4">
+          {/* Demo banner */}
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+            <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+            <p className="text-xs text-amber-800">
+              <strong>Sample Ad Intelligence Database</strong> — These are realistic example ads for research & inspiration. For live ads, use the <a href="https://www.pinterest.com/ads/library/" target="_blank" rel="noopener noreferrer" className="underline font-semibold">Pinterest Ads Library</a>.
+            </p>
           </div>
 
-          {/* Search card */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-            <div>
-              <h3 className="font-semibold text-gray-900 mb-1">Search Pinterest Ads Library</h3>
-              <p className="text-sm text-gray-500">Enter a keyword to open Pinterest&apos;s official Ads Transparency Library with your search pre-filled.</p>
+          {/* Search + controls */}
+          <div className="flex gap-2 flex-wrap">
+            <div className="relative flex-1 min-w-60">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input value={searchQ} onChange={e => setSearchQ(e.target.value)}
+                placeholder="Search brand, keyword, niche…"
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
             </div>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  value={keyword}
-                  onChange={e => setKeyword(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && openLibrary()}
-                  placeholder="e.g. home decor, minimalist bedroom, skincare..."
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                />
-              </div>
-              <button
-                onClick={openLibrary}
-                className="flex items-center gap-2 bg-[#e60023] text-white px-5 py-3 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors whitespace-nowrap"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Open Ads Library
+            <button onClick={() => setShowFilters(v => !v)}
+              className={cn("flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all",
+                showFilters ? "bg-[#e60023] text-white border-[#e60023]" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+              )}>
+              <SlidersHorizontal className="w-4 h-4" />
+              Filters {activeFilters.length > 0 && <span className="bg-white/30 text-xs px-1.5 py-0.5 rounded-full">{activeFilters.length}</span>}
+            </button>
+            {/* Sort */}
+            <div className="relative">
+              <select value={sort} onChange={e => setSort(e.target.value)}
+                className="appearance-none bg-white border border-gray-200 rounded-xl px-4 py-2.5 pr-8 text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 cursor-pointer">
+                {SORT_OPTIONS.map(s => <option key={s}>{s}</option>)}
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+            </div>
+            <div className="flex bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <button onClick={() => setViewMode("grid")} className={cn("px-3 py-2.5 transition-colors", viewMode === "grid" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-600")}>
+                <LayoutGrid className="w-4 h-4" />
               </button>
-              <button
-                onClick={openPinterestSearch}
-                disabled={!keyword.trim()}
-                className="flex items-center gap-2 bg-gray-800 text-white px-4 py-3 rounded-xl text-sm font-semibold hover:bg-gray-700 transition-colors whitespace-nowrap disabled:opacity-40"
-                title="Search Pinterest and look for 'Promoted' pins"
-              >
-                <Globe className="w-4 h-4" />
-                Pinterest Search
+              <button onClick={() => setViewMode("list")} className={cn("px-3 py-2.5 transition-colors", viewMode === "list" ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-600")}>
+                <List className="w-4 h-4" />
               </button>
             </div>
-
-            {/* Quick niche buttons */}
-            <div>
-              <p className="text-xs text-gray-400 mb-2 font-medium">Quick niches:</p>
-              <div className="flex flex-wrap gap-1.5">
-                {NICHES.map(n => (
-                  <button
-                    key={n}
-                    onClick={() => setKeyword(n)}
-                    className={cn(
-                      "text-xs px-3 py-1.5 rounded-full border font-medium transition-all",
-                      keyword === n
-                        ? "bg-[#e60023] text-white border-[#e60023]"
-                        : "bg-gray-50 text-gray-600 border-gray-200 hover:border-[#e60023]/40 hover:text-[#e60023]"
-                    )}
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
 
-          {/* Where to find ads */}
-          <div className="grid grid-cols-2 gap-5">
-            {/* Official Ads Library */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-[#e60023]/10 rounded-xl flex items-center justify-center">
-                  <Eye className="w-4 h-4 text-[#e60023]" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900">Pinterest Ads Library</h4>
-                  <p className="text-xs text-gray-400">Official transparency tool</p>
-                </div>
-                <a
-                  href="https://www.pinterest.com/ads/library/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-auto flex items-center gap-1 text-xs text-[#e60023] font-medium hover:underline"
-                >
-                  Open <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-              <ul className="space-y-2">
-                {[
-                  "Search by keyword or advertiser name",
-                  "Filter by country",
-                  "View all currently running ads",
-                  "See ad creative, headline & CTA",
-                  "100% legal — Pinterest's own tool",
-                ].map(item => (
-                  <li key={item} className="flex items-start gap-2 text-xs text-gray-600">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0 mt-0.5" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Pinterest Search */}
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-8 h-8 bg-gray-100 rounded-xl flex items-center justify-center">
-                  <Search className="w-4 h-4 text-gray-600" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-gray-900">Pinterest Search</h4>
-                  <p className="text-xs text-gray-400">Find promoted pins manually</p>
-                </div>
-                <a
-                  href="https://pinterest.com/search/pins/?q=home+decor"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="ml-auto flex items-center gap-1 text-xs text-gray-500 font-medium hover:underline"
-                >
-                  Open <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-              <ul className="space-y-2">
-                {[
-                  "Search any keyword on Pinterest",
-                  "Ads are marked with 'Promoted' label",
-                  "See real ads shown to real users",
-                  "Observe format, image style & copy",
-                  "Save the ad URL to track below",
-                ].map(item => (
-                  <li key={item} className="flex items-start gap-2 text-xs text-gray-600">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-blue-500 flex-shrink-0 mt-0.5" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          {/* Research tips */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <h4 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
-              <Star className="w-4 h-4 text-yellow-500" />
-              Competitive Research Tips
-            </h4>
-            <div className="grid grid-cols-1 gap-3">
-              {SEARCH_TIPS.map(({ icon, tip }) => (
-                <div key={tip} className="flex items-start gap-3 bg-gray-50 rounded-xl px-4 py-3">
-                  <span className="text-lg flex-shrink-0">{icon}</span>
-                  <span className="text-xs text-gray-700">{tip}</span>
+          {/* Filter panel */}
+          {showFilters && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 grid grid-cols-3 gap-4">
+              {[
+                { label: "Niche", options: NICHES, value: niche, onChange: setNiche },
+                { label: "Ad Format", options: FORMATS, value: format, onChange: setFormat },
+                { label: "Country", options: COUNTRIES, value: country, onChange: setCountry },
+              ].map(({ label, options, value, onChange }) => (
+                <div key={label}>
+                  <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">{label}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {options.map(o => (
+                      <button key={o} onClick={() => onChange(o)}
+                        className={cn("text-xs px-3 py-1.5 rounded-full border font-medium transition-all",
+                          value === o ? "bg-[#e60023] text-white border-[#e60023]" : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300"
+                        )}>
+                        {o === "standard" ? "Standard" : o === "video" ? "Video" : o === "carousel" ? "Carousel" : o === "idea" ? "Idea Pin" : o}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
-            <div className="mt-4 bg-yellow-50 border border-yellow-100 rounded-xl p-3 flex items-start gap-2">
-              <AlertCircle className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-yellow-800">
-                Found a great ad? Switch to <strong>Saved Ads</strong> tab and log it for future reference — track competitor copy, creative style, and CTA patterns over time.
-              </p>
+          )}
+
+          {/* Active filter chips */}
+          {activeFilters.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-400">Active:</span>
+              {activeFilters.map(f => (
+                <span key={f} className="flex items-center gap-1 bg-[#e60023]/10 text-[#e60023] text-xs px-2.5 py-1 rounded-full font-medium">
+                  {f} <button onClick={() => { if (NICHES.includes(f)) setNiche("All"); if (Object.values(FORMAT_LABEL).includes(f)) setFormat("All"); if (COUNTRIES.includes(f)) setCountry("All"); }}><X className="w-3 h-3" /></button>
+                </span>
+              ))}
+              <button onClick={() => { setNiche("All"); setFormat("All"); setCountry("All"); }} className="text-xs text-gray-400 hover:text-gray-600 underline">Clear all</button>
+            </div>
+          )}
+
+          {/* Results count */}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400">{filtered.length} ads found</p>
+            <a href="https://www.pinterest.com/ads/library/" target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-xs text-[#e60023] font-semibold hover:underline">
+              <ExternalLink className="w-3 h-3" /> Search live ads on Pinterest →
+            </a>
+          </div>
+
+          {/* Grid view */}
+          {viewMode === "grid" && (
+            <div className="grid grid-cols-3 gap-4">
+              {filtered.map(ad => {
+                const saved = swipeIds.has(ad.id);
+                return (
+                  <div key={ad.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden group cursor-pointer hover:shadow-md hover:border-gray-200 transition-all"
+                    onClick={() => setSelectedAd(ad)}>
+                    {/* Image */}
+                    <div className={`bg-gradient-to-br ${ad.imageColor} h-40 flex items-center justify-center relative`}>
+                      <span className="text-5xl">{ad.imageEmoji}</span>
+                      <div className="absolute top-2.5 left-2.5 flex gap-1.5">
+                        <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full", FORMAT_COLOR[ad.format])}>{FORMAT_LABEL[ad.format]}</span>
+                      </div>
+                      <button
+                        onClick={e => { e.stopPropagation(); toggleSwipe(ad.id); }}
+                        className={cn("absolute top-2.5 right-2.5 w-7 h-7 rounded-full flex items-center justify-center shadow transition-all",
+                          saved ? "bg-[#e60023] text-white" : "bg-white/80 text-gray-400 opacity-0 group-hover:opacity-100"
+                        )}>
+                        {saved ? <BookmarkCheck className="w-3.5 h-3.5" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
+                      </button>
+                      <span className="absolute bottom-2 right-2.5 text-[9px] bg-white/70 text-gray-600 font-semibold px-1.5 py-0.5 rounded">📌 Promoted</span>
+                    </div>
+                    {/* Content */}
+                    <div className="p-3.5">
+                      <p className="text-[10px] font-bold text-[#e60023] uppercase tracking-wide mb-0.5">{ad.brand}</p>
+                      <p className="text-sm font-semibold text-gray-900 line-clamp-2 leading-snug mb-2">{ad.title}</p>
+                      <p className="text-xs text-gray-500 line-clamp-2 mb-3">{ad.description}</p>
+                      <div className="flex items-center justify-between">
+                        <span className="bg-[#e60023]/10 text-[#e60023] text-[10px] font-bold px-2.5 py-1 rounded-full">{ad.cta}</span>
+                        <div className="flex items-center gap-2 text-xs text-gray-400">
+                          <span className="flex items-center gap-0.5"><Heart className="w-3 h-3" />{(ad.likes/1000).toFixed(1)}k</span>
+                          <span className="flex items-center gap-0.5"><Eye className="w-3 h-3" />{ad.views}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* List view */}
+          {viewMode === "list" && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    {["Ad", "Format", "Niche", "CTA", "Likes", "Views", "Country", ""].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {filtered.map(ad => {
+                    const saved = swipeIds.has(ad.id);
+                    return (
+                      <tr key={ad.id} className="hover:bg-gray-50/60 cursor-pointer transition-colors" onClick={() => setSelectedAd(ad)}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${ad.imageColor} flex items-center justify-center text-xl flex-shrink-0`}>{ad.imageEmoji}</div>
+                            <div>
+                              <p className="text-xs font-bold text-[#e60023]">{ad.brand}</p>
+                              <p className="text-sm font-medium text-gray-800 line-clamp-1 max-w-48">{ad.title}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3"><span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full", FORMAT_COLOR[ad.format])}>{FORMAT_LABEL[ad.format]}</span></td>
+                        <td className="px-4 py-3 text-xs text-gray-600">{ad.niche}</td>
+                        <td className="px-4 py-3"><span className="text-xs bg-[#e60023]/10 text-[#e60023] font-semibold px-2.5 py-1 rounded-full">{ad.cta}</span></td>
+                        <td className="px-4 py-3 text-sm font-semibold text-gray-800">{ad.likes.toLocaleString()}</td>
+                        <td className="px-4 py-3 text-sm text-gray-600">{ad.views}</td>
+                        <td className="px-4 py-3 text-xs text-gray-500">🌍 {ad.country}</td>
+                        <td className="px-4 py-3">
+                          <button onClick={e => { e.stopPropagation(); toggleSwipe(ad.id); }}
+                            className={cn("p-1.5 rounded-lg transition-colors", saved ? "text-[#e60023]" : "text-gray-300 hover:text-[#e60023]")}>
+                            {saved ? <BookmarkCheck className="w-4 h-4" /> : <BookmarkPlus className="w-4 h-4" />}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {filtered.length === 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-16 text-center">
+              <Search className="w-10 h-10 text-gray-200 mx-auto mb-3" />
+              <p className="text-sm text-gray-400">No ads match your filters. Try adjusting your search.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── SWIPE FILE TAB ── */}
+      {tab === "swipe" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-gray-900">Your Swipe File</h3>
+              <p className="text-sm text-gray-400">{swipeIds.size} saved ad{swipeIds.size !== 1 ? "s" : ""} — click the bookmark icon on any ad to save it here</p>
+            </div>
+            {swipeIds.size > 0 && (
+              <button onClick={() => { setSwipeIds(new Set()); localStorage.removeItem(STORAGE_KEY); }}
+                className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-600 font-medium">
+                <Trash2 className="w-3.5 h-3.5" /> Clear all
+              </button>
+            )}
+          </div>
+
+          {swipeAds.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center justify-center py-20 text-center">
+              <Bookmark className="w-12 h-12 text-gray-200 mb-4" />
+              <h4 className="text-sm font-semibold text-gray-700 mb-1">Your swipe file is empty</h4>
+              <p className="text-xs text-gray-400 max-w-xs">Go to Explore Ads and click the bookmark icon on any ad you want to save for inspiration.</p>
+              <button onClick={() => setTab("explore")} className="mt-4 flex items-center gap-2 bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors">
+                <LayoutGrid className="w-4 h-4" /> Browse Ads
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-4">
+              {swipeAds.map(ad => (
+                <div key={ad.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden group cursor-pointer hover:shadow-md transition-all"
+                  onClick={() => setSelectedAd(ad)}>
+                  <div className={`bg-gradient-to-br ${ad.imageColor} h-40 flex items-center justify-center relative`}>
+                    <span className="text-5xl">{ad.imageEmoji}</span>
+                    <button onClick={e => { e.stopPropagation(); toggleSwipe(ad.id); }}
+                      className="absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-white/80 flex items-center justify-center text-red-400 opacity-0 group-hover:opacity-100 transition-all hover:bg-white">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                    <span className={cn("absolute top-2.5 left-2.5 text-[10px] font-bold px-2 py-0.5 rounded-full", FORMAT_COLOR[ad.format])}>{FORMAT_LABEL[ad.format]}</span>
+                  </div>
+                  <div className="p-3.5">
+                    <p className="text-[10px] font-bold text-[#e60023] uppercase tracking-wide mb-0.5">{ad.brand}</p>
+                    <p className="text-sm font-semibold text-gray-900 line-clamp-2 leading-snug mb-2">{ad.title}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="bg-[#e60023]/10 text-[#e60023] text-[10px] font-bold px-2.5 py-1 rounded-full">{ad.cta}</span>
+                      <div className="flex items-center gap-2 text-xs text-gray-400">
+                        <span className="flex items-center gap-0.5"><Heart className="w-3 h-3" />{(ad.likes/1000).toFixed(1)}k</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ADVERTISER LOOKUP TAB ── */}
+      {tab === "lookup" && (
+        <div className="space-y-5">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
+            <div>
+              <h3 className="font-semibold text-gray-900 mb-1">Advertiser Lookup</h3>
+              <p className="text-sm text-gray-500">Enter a brand name or domain to search for their active Pinterest ads in the official Ads Library.</p>
+            </div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input value={lookupQ} onChange={e => setLookupQ(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && lookupQ.trim()) window.open(`https://www.pinterest.com/ads/library/?advertiserName=${encodeURIComponent(lookupQ.trim())}`, "_blank", "noopener noreferrer"); }}
+                  placeholder="e.g. IKEA, Nike, Sephora, westelm.com"
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
+              </div>
+              <button
+                onClick={() => { if (lookupQ.trim()) window.open(`https://www.pinterest.com/ads/library/?advertiserName=${encodeURIComponent(lookupQ.trim())}`, "_blank", "noopener noreferrer"); }}
+                disabled={!lookupQ.trim()}
+                className="flex items-center gap-2 bg-[#e60023] text-white px-5 py-3 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40">
+                <ExternalLink className="w-4 h-4" /> Look Up
+              </button>
+            </div>
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2">
+              <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-blue-700">This opens Pinterest&apos;s official Ads Transparency Library filtered by advertiser — 100% legal. You can see every active ad a brand is currently running on Pinterest.</p>
+            </div>
+          </div>
+
+          {/* Quick competitor suggestions based on mock data */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h4 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-[#e60023]" />
+              Top Active Advertisers in Our Database
+            </h4>
+            <div className="grid grid-cols-2 gap-3">
+              {MOCK_ADS.slice(0, 8).map(ad => (
+                <button key={ad.id}
+                  onClick={() => window.open(`https://www.pinterest.com/ads/library/?advertiserName=${encodeURIComponent(ad.brand)}`, "_blank", "noopener noreferrer")}
+                  className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:border-[#e60023]/30 hover:bg-[#e60023]/5 transition-all text-left group">
+                  <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${ad.imageColor} flex items-center justify-center text-lg flex-shrink-0`}>{ad.imageEmoji}</div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{ad.brand}</p>
+                    <p className="text-xs text-gray-400 truncate">{ad.domain} · {ad.niche}</p>
+                  </div>
+                  <ArrowUpRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-[#e60023] flex-shrink-0 transition-colors" />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Stats on what to look for */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h4 className="text-sm font-semibold text-gray-900 mb-4 flex items-center gap-2">
+              <MousePointerClick className="w-4 h-4 text-[#e60023]" />
+              What to Analyse in Competitor Ads
+            </h4>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { emoji: "🎯", label: "CTA Copy", tip: "What words do they use? Shop, Get, Try, Discover, Save?" },
+                { emoji: "🖼️", label: "Image Style", tip: "Lifestyle photos vs product shots vs text overlays?" },
+                { emoji: "📝", label: "Headline Formula", tip: "Benefit-led, question-based, or urgency-driven?" },
+                { emoji: "🎨", label: "Color Palette", tip: "Brand colours vs contrast for stopping power?" },
+                { emoji: "📦", label: "Offer Type", tip: "Discount, free trial, free shipping, or content?" },
+                { emoji: "🔁", label: "Ad Frequency", tip: "Are they running 1 ad or dozens? High volume = working." },
+              ].map(({ emoji, label, tip }) => (
+                <div key={label} className="flex items-start gap-3 bg-gray-50 rounded-xl p-3">
+                  <span className="text-xl flex-shrink-0">{emoji}</span>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800">{label}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{tip}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── SAVED ADS SECTION ── */}
-      {section === "saved" && (
-        <div className="space-y-5">
-          {/* Toolbar */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="relative flex-1 min-w-48">
-              <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                value={filterKw}
-                onChange={e => setFilterKw(e.target.value)}
-                placeholder="Filter by keyword, brand, or tag…"
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-              />
-            </div>
-            <button
-              onClick={() => { setShowForm(v => !v); setEditingId(null); if (!showForm) setForm({ keyword:"",brand:"",title:"",description:"",imageUrl:"",adUrl:"",notes:"",tags:[] }); }}
-              className="flex items-center gap-2 bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors"
-            >
-              <BookmarkPlus className="w-4 h-4" />
-              Save Ad
-            </button>
-          </div>
-
-          {/* Add / Edit form */}
-          {showForm && (
-            <div className="bg-white rounded-2xl border border-[#e60023]/20 shadow-sm p-5 space-y-4">
-              <div className="flex items-center justify-between mb-1">
-                <h4 className="font-semibold text-gray-900">{editingId ? "Edit saved ad" : "Save a competitor ad"}</h4>
-                <button onClick={resetForm} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
-              </div>
-              <p className="text-xs text-gray-400">Copy details from the Pinterest Ads Library or a promoted pin you spotted.</p>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Keyword / Niche</label>
-                  <input value={form.keyword} onChange={e => setForm(f => ({...f, keyword: e.target.value}))} placeholder="e.g. home decor" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Brand / Advertiser</label>
-                  <input value={form.brand} onChange={e => setForm(f => ({...f, brand: e.target.value}))} placeholder="e.g. IKEA" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Ad Headline / Title</label>
-                  <input value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} placeholder="The ad's headline or pin title" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Ad Description / Copy</label>
-                  <textarea value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} rows={2} placeholder="The ad body text or description" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] resize-none" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Ad / Pin URL</label>
-                  <input value={form.adUrl} onChange={e => setForm(f => ({...f, adUrl: e.target.value}))} placeholder="https://pinterest.com/pin/..." className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Image URL <span className="text-gray-400">(optional)</span></label>
-                  <input value={form.imageUrl} onChange={e => setForm(f => ({...f, imageUrl: e.target.value}))} placeholder="https://i.pinimg.com/..." className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Notes / Observations</label>
-                  <textarea value={form.notes} onChange={e => setForm(f => ({...f, notes: e.target.value}))} rows={2} placeholder="What makes this ad effective? CTA used, image style, angle..." className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] resize-none" />
-                </div>
-                <div className="col-span-2">
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Tags</label>
-                  <div className="flex gap-2 mb-2">
-                    <input
-                      value={tagInput}
-                      onChange={e => setTagInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-                      placeholder="Type a tag and press Enter"
-                      className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                    />
-                    <button onClick={addTag} className="px-3 py-2 bg-gray-100 text-gray-700 rounded-xl text-sm hover:bg-gray-200 font-medium">Add</button>
-                  </div>
-                  {form.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5">
-                      {form.tags.map(t => (
-                        <span key={t} className="flex items-center gap-1 bg-[#e60023]/10 text-[#e60023] text-xs px-2.5 py-1 rounded-full font-medium">
-                          <Hash className="w-2.5 h-2.5" />{t}
-                          <button onClick={() => removeTag(t)} className="ml-0.5 hover:text-red-700"><X className="w-2.5 h-2.5" /></button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                <button
-                  onClick={saveAd}
-                  disabled={!form.title.trim() && !form.brand.trim()}
-                  className="flex items-center gap-2 bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40"
-                >
-                  <BookmarkPlus className="w-4 h-4" />
-                  {editingId ? "Update Ad" : "Save Ad"}
-                </button>
-                <button onClick={resetForm} className="px-4 py-2.5 text-sm text-gray-500 hover:text-gray-700 font-medium">Cancel</button>
-              </div>
-            </div>
-          )}
-
-          {/* Saved ads grid */}
-          {savedAds.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-              <EmptyAds />
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm py-12 text-center">
-              <p className="text-sm text-gray-400">No ads match your filter.</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-4">
-              {filtered.map(ad => (
-                <div key={ad.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden group">
-                  <div className="flex gap-0">
-                    {/* Image */}
-                    <div className="w-24 flex-shrink-0 bg-gray-100 relative">
-                      {ad.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={ad.imageUrl} alt={ad.title} className="w-full h-full object-cover" style={{ minHeight: "120px" }} />
-                      ) : (
-                        <div className="flex items-center justify-center h-full min-h-[120px] bg-gradient-to-br from-gray-100 to-gray-200">
-                          <Tag className="w-8 h-8 text-gray-300" />
-                        </div>
-                      )}
-                      <div className="absolute top-2 left-2 bg-white/90 text-[#e60023] text-[9px] font-bold px-1.5 py-0.5 rounded">
-                        AD
-                      </div>
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 p-4 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <div className="min-w-0">
-                          {ad.brand && <p className="text-[10px] font-bold text-[#e60023] uppercase tracking-wide truncate">{ad.brand}</p>}
-                          <p className="text-sm font-semibold text-gray-900 line-clamp-2 leading-snug">{ad.title || <span className="text-gray-400 italic">No title</span>}</p>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          {ad.adUrl && (
-                            <a href={ad.adUrl} target="_blank" rel="noopener noreferrer" title="Open ad on Pinterest" className="p-1 text-gray-300 hover:text-[#e60023] transition-colors">
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </a>
-                          )}
-                          <button onClick={() => startEdit(ad)} className="p-1 text-gray-300 hover:text-blue-500 transition-colors" title="Edit">
-                            <ChevronRight className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => deleteAd(ad.id)} className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Delete">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {ad.description && (
-                        <p className="text-xs text-gray-500 line-clamp-2 mb-2">{ad.description}</p>
-                      )}
-
-                      {ad.notes && (
-                        <div className="bg-yellow-50 border border-yellow-100 rounded-lg px-2.5 py-1.5 mb-2">
-                          <p className="text-xs text-yellow-800 line-clamp-2">{ad.notes}</p>
-                        </div>
-                      )}
-
-                      <div className="flex items-center flex-wrap gap-1.5">
-                        {ad.keyword && (
-                          <span className="flex items-center gap-1 text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                            <Search className="w-2.5 h-2.5" />{ad.keyword}
-                          </span>
-                        )}
-                        {ad.tags.map(t => (
-                          <span key={t} className="flex items-center gap-0.5 text-[10px] bg-[#e60023]/10 text-[#e60023] px-2 py-0.5 rounded-full font-medium">
-                            <Hash className="w-2.5 h-2.5" />{t}
-                          </span>
-                        ))}
-                        <span className="ml-auto text-[10px] text-gray-300 flex-shrink-0">
-                          {new Date(ad.savedAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {savedAds.length > 0 && (
-            <p className="text-xs text-gray-400 text-center">
-              {filtered.length} of {savedAds.length} saved ads · Stored locally in your browser
-            </p>
-          )}
-        </div>
+      {/* Ad detail modal */}
+      {selectedAd && (
+        <AdDetailModal ad={selectedAd} onClose={() => setSelectedAd(null)} swipeIds={swipeIds} onSwipe={toggleSwipe} />
       )}
     </div>
   );
