@@ -58,6 +58,69 @@ const NICHE_DATA: Record<string, { broad: string; targeted: string; highIntent: 
   "kids":            { broad: "13.1M", targeted: "3.3M",  highIntent: "660K"  },
 };
 
+interface AudienceRow { id: string; name: string; type: "interest"|"demographic"|"keyword"|"lookalike"|"retargeting"; size: number; ctr: number; convRate: number; spend: number; }
+
+const NICHE_AUDIENCES: Record<string, AudienceRow[]> = {
+  "wedding": [
+    { id:"w1", name:"Brides & Wedding Planners", type:"interest", size:3800000, ctr:3.4, convRate:2.8, spend:720 },
+    { id:"w2", name:"Women 25–34 Engaged", type:"demographic", size:2100000, ctr:2.9, convRate:3.2, spend:580 },
+    { id:"w3", name:"Wedding Keyword Searchers", type:"keyword", size:1400000, ctr:2.6, convRate:2.1, spend:340 },
+    { id:"w4", name:"Lookalike — Past Buyers", type:"lookalike", size:1800000, ctr:3.1, convRate:2.6, spend:410 },
+    { id:"w5", name:"Website Visitors (30d)", type:"retargeting", size:18000, ctr:5.2, convRate:6.1, spend:190 },
+  ],
+  "home decor": [
+    { id:"h1", name:"Home Decor Enthusiasts", type:"interest", size:4200000, ctr:2.8, convRate:1.9, spend:890 },
+    { id:"h2", name:"Women 25–34 USA", type:"demographic", size:8100000, ctr:2.1, convRate:2.4, spend:640 },
+    { id:"h3", name:"Website Visitors (30d)", type:"retargeting", size:24000, ctr:4.2, convRate:5.8, spend:320 },
+    { id:"h4", name:"Lookalike — Top Buyers", type:"lookalike", size:2100000, ctr:3.1, convRate:3.2, spend:480 },
+    { id:"h5", name:"Interior Design Keywords", type:"keyword", size:1800000, ctr:2.4, convRate:1.7, spend:210 },
+  ],
+  "fitness": [
+    { id:"f1", name:"Fitness & Workout Fans", type:"interest", size:5100000, ctr:2.6, convRate:2.0, spend:760 },
+    { id:"f2", name:"Women 18–34 Health Focus", type:"demographic", size:6200000, ctr:2.3, convRate:2.6, spend:580 },
+    { id:"f3", name:"Gym & Activewear Keywords", type:"keyword", size:2200000, ctr:2.1, convRate:1.8, spend:290 },
+    { id:"f4", name:"Lookalike — Active Buyers", type:"lookalike", size:2800000, ctr:2.9, convRate:2.4, spend:440 },
+    { id:"f5", name:"App Visitors Retargeting", type:"retargeting", size:31000, ctr:4.8, convRate:5.4, spend:270 },
+  ],
+  "fashion": [
+    { id:"fa1", name:"Fashion & Style Lovers", type:"interest", size:7400000, ctr:2.9, convRate:1.7, spend:920 },
+    { id:"fa2", name:"Women 18–29 Trend Seekers", type:"demographic", size:9100000, ctr:2.4, convRate:2.0, spend:710 },
+    { id:"fa3", name:"Clothing & Apparel Keywords", type:"keyword", size:3100000, ctr:2.2, convRate:1.5, spend:380 },
+    { id:"fa4", name:"Lookalike — Fashion Buyers", type:"lookalike", size:3600000, ctr:2.7, convRate:2.2, spend:530 },
+    { id:"fa5", name:"Cart Abandoners (14d)", type:"retargeting", size:42000, ctr:5.6, convRate:7.2, spend:310 },
+  ],
+  "beauty": [
+    { id:"b1", name:"Beauty & Skincare Fans", type:"interest", size:5800000, ctr:3.0, convRate:2.1, spend:840 },
+    { id:"b2", name:"Women 20–39 Beauty Buyers", type:"demographic", size:7200000, ctr:2.5, convRate:2.7, spend:660 },
+    { id:"b3", name:"Makeup & Skincare Keywords", type:"keyword", size:2600000, ctr:2.3, convRate:1.9, spend:320 },
+    { id:"b4", name:"Lookalike — Repeat Buyers", type:"lookalike", size:2400000, ctr:3.2, convRate:3.4, spend:490 },
+    { id:"b5", name:"Product Page Visitors (7d)", type:"retargeting", size:28000, ctr:5.8, convRate:6.8, spend:240 },
+  ],
+  "food": [
+    { id:"fo1", name:"Food & Recipe Enthusiasts", type:"interest", size:6300000, ctr:2.2, convRate:1.4, spend:590 },
+    { id:"fo2", name:"Home Cooks 25–44", type:"demographic", size:8400000, ctr:1.9, convRate:1.6, spend:470 },
+    { id:"fo3", name:"Recipe & Cooking Keywords", type:"keyword", size:3800000, ctr:1.8, convRate:1.2, spend:280 },
+    { id:"fo4", name:"Lookalike — Engaged Savers", type:"lookalike", size:3100000, ctr:2.4, convRate:1.8, spend:360 },
+    { id:"fo5", name:"Blog Visitors (30d)", type:"retargeting", size:52000, ctr:3.9, convRate:4.2, spend:180 },
+  ],
+  "travel": [
+    { id:"t1", name:"Travel Planners & Dreamers", type:"interest", size:4600000, ctr:2.5, convRate:1.6, spend:680 },
+    { id:"t2", name:"Adults 25–44 Frequent Travelers", type:"demographic", size:5900000, ctr:2.0, convRate:1.9, spend:520 },
+    { id:"t3", name:"Destination & Travel Keywords", type:"keyword", size:2100000, ctr:1.9, convRate:1.4, spend:310 },
+    { id:"t4", name:"Lookalike — Bookers", type:"lookalike", size:2600000, ctr:2.7, convRate:2.2, spend:420 },
+    { id:"t5", name:"Landing Page Visitors (14d)", type:"retargeting", size:19000, ctr:4.6, convRate:5.0, spend:220 },
+  ],
+};
+
+function getNicheAudiences(input: string): AudienceRow[] {
+  const lower = input.toLowerCase();
+  for (const [key, rows] of Object.entries(NICHE_AUDIENCES)) {
+    if (lower.includes(key)) return rows;
+  }
+  // generic fallback
+  return MOCK_AUDIENCES as unknown as AudienceRow[];
+}
+
 function getNicheEstimate(input: string) {
   const lower = input.toLowerCase();
   for (const [key, val] of Object.entries(NICHE_DATA)) {
@@ -171,7 +234,12 @@ function AudiencePlanning() {
 
       {/* Best Performing Audiences */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-900 mb-4">Audience Segments</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">
+            Audience Segments
+            {estimatedNiche && <span className="ml-2 text-xs font-normal text-gray-400">for &quot;{estimatedNiche}&quot;</span>}
+          </h3>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
@@ -182,7 +250,7 @@ function AudiencePlanning() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {MOCK_AUDIENCES.map((aud) => (
+              {(estimatedNiche ? getNicheAudiences(estimatedNiche) : MOCK_AUDIENCES as unknown as AudienceRow[]).map((aud) => (
                 <tr key={aud.id} className="hover:bg-gray-50/50">
                   <td className="px-3 py-3 text-sm font-medium text-gray-800">{aud.name}</td>
                   <td className="px-3 py-3">
