@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { formatNumber, cn } from "@/lib/utils";
 import { MOCK_CAMPAIGNS, MOCK_CREATIVES, MOCK_AUDIENCES, FUNNEL_DATA, AI_INSIGHTS } from "@/lib/ads-data";
 import {
@@ -59,36 +59,85 @@ function StatCard({ label, value, change, icon: Icon, color }: {
   );
 }
 
+interface RealCampaign {
+  id: string; name: string; status: string; objective: string;
+  dailyBudget: number | null; spend: number; impressions: number;
+  clicks: number; saves: number; engagements: number; ctr: number;
+}
+interface AdsApiData {
+  adAccountName: string;
+  period: { startDate: string; endDate: string };
+  totals: { spend: number; impressions: number; clicks: number; saves: number; engagements: number };
+  campaigns: RealCampaign[];
+}
+
 function PerformanceDashboard() {
-  const totals = MOCK_CAMPAIGNS.reduce((acc, c) => ({
-    spend: acc.spend + c.totalSpend,
-    impressions: acc.impressions + c.impressions,
-    clicks: acc.clicks + c.clicks,
-    saves: acc.saves + c.saves,
-    conversions: acc.conversions + c.conversions,
-    revenue: acc.revenue + c.revenue,
+  const [real, setReal] = useState<AdsApiData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/pinterest-ads")
+      .then(r => r.json())
+      .then(d => { if (d.error) setError(d.error); else setReal(d); })
+      .catch(() => setError("Failed to load"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Fall back to mock totals when no real data
+  const mockTotals = MOCK_CAMPAIGNS.reduce((acc, c) => ({
+    spend: acc.spend + c.totalSpend, impressions: acc.impressions + c.impressions,
+    clicks: acc.clicks + c.clicks, saves: acc.saves + c.saves,
+    conversions: acc.conversions + c.conversions, revenue: acc.revenue + c.revenue,
   }), { spend: 0, impressions: 0, clicks: 0, saves: 0, conversions: 0, revenue: 0 });
 
-  const avgRoas = (totals.revenue / totals.spend).toFixed(1);
-  const avgCtr = ((totals.clicks / totals.impressions) * 100).toFixed(2);
-  const avgCpc = (totals.spend / totals.clicks).toFixed(2);
-  const avgCpm = ((totals.spend / totals.impressions) * 1000).toFixed(2);
+  const totals = real?.totals ?? { spend: mockTotals.spend, impressions: mockTotals.impressions, clicks: mockTotals.clicks, saves: mockTotals.saves, engagements: 0 };
+  const campaigns = real?.campaigns ?? null;
+  const isReal = !!real;
+
+  const avgCtr = totals.impressions ? ((totals.clicks / totals.impressions) * 100).toFixed(2) : "0.00";
+  const avgCpc = totals.clicks ? (totals.spend / totals.clicks).toFixed(2) : "0.00";
+  const avgCpm = totals.impressions ? ((totals.spend / totals.impressions) * 1000).toFixed(2) : "0.00";
+  const avgRoas = isReal ? null : (mockTotals.revenue / mockTotals.spend).toFixed(1);
 
   return (
     <div className="space-y-5">
+      {/* Data source banner */}
+      {loading ? (
+        <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-gray-400 animate-pulse">
+          <span className="w-2 h-2 rounded-full bg-gray-300" /> Loading Pinterest Business data…
+        </div>
+      ) : isReal ? (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-green-700">
+          <span className="w-2 h-2 rounded-full bg-green-500" />
+          Live data from <strong>{real.adAccountName}</strong> · {real.period.startDate} → {real.period.endDate}
+        </div>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-amber-700">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          {error === "Pinterest not connected" ? "Connect your Pinterest account to see real ad data." : `Using sample data${error ? ` (${error})` : ""}.`}
+        </div>
+      )}
+
       {/* Top metrics */}
       <div className="grid grid-cols-4 gap-3">
-        <StatCard label="Total Spend" value={`$${formatNumber(totals.spend)}`} change={8.4} icon={DollarSign} color="bg-[#e60023]/10 text-[#e60023]" />
-        <StatCard label="Impressions" value={formatNumber(totals.impressions)} change={14.2} icon={Eye} color="bg-blue-50 text-blue-600" />
-        <StatCard label="Clicks" value={formatNumber(totals.clicks)} change={11.8} icon={MousePointerClick} color="bg-purple-50 text-purple-600" />
-        <StatCard label="Saves" value={formatNumber(totals.saves)} change={22.1} icon={Bookmark} color="bg-pink-50 text-pink-600" />
-        <StatCard label="Conversions" value={formatNumber(totals.conversions)} change={18.6} icon={TrendingUp} color="bg-green-50 text-green-600" />
-        <StatCard label="Revenue" value={`$${formatNumber(totals.revenue)}`} change={24.3} icon={DollarSign} color="bg-emerald-50 text-emerald-600" />
-        <StatCard label="Avg. ROAS" value={`${avgRoas}×`} change={14.8} icon={BarChart2} color="bg-orange-50 text-orange-600" />
-        <StatCard label="Avg. CTR" value={`${avgCtr}%`} change={-2.1} icon={MousePointerClick} color="bg-indigo-50 text-indigo-600" />
+        <StatCard label="Total Spend" value={`$${formatNumber(totals.spend)}`} icon={DollarSign} color="bg-[#e60023]/10 text-[#e60023]" />
+        <StatCard label="Impressions" value={formatNumber(totals.impressions)} icon={Eye} color="bg-blue-50 text-blue-600" />
+        <StatCard label="Clicks" value={formatNumber(totals.clicks)} icon={MousePointerClick} color="bg-purple-50 text-purple-600" />
+        <StatCard label="Saves" value={formatNumber(totals.saves)} icon={Bookmark} color="bg-pink-50 text-pink-600" />
+        {isReal ? (
+          <StatCard label="Engagements" value={formatNumber(totals.engagements)} icon={TrendingUp} color="bg-green-50 text-green-600" />
+        ) : (
+          <>
+            <StatCard label="Conversions" value={formatNumber(mockTotals.conversions)} change={18.6} icon={TrendingUp} color="bg-green-50 text-green-600" />
+            <StatCard label="Revenue" value={`$${formatNumber(mockTotals.revenue)}`} change={24.3} icon={DollarSign} color="bg-emerald-50 text-emerald-600" />
+            <StatCard label="Avg. ROAS" value={`${avgRoas}×`} change={14.8} icon={BarChart2} color="bg-orange-50 text-orange-600" />
+          </>
+        )}
+        <StatCard label="Avg. CTR" value={`${avgCtr}%`} icon={MousePointerClick} color="bg-indigo-50 text-indigo-600" />
       </div>
 
-      {/* Secondary metrics row */}
+      {/* Secondary metrics */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center justify-between">
           <span className="text-sm text-gray-500">Avg. CPC</span>
@@ -109,34 +158,41 @@ function PerformanceDashboard() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr className="text-left">
-                {["Campaign", "Status", "Spend", "Impressions", "Clicks", "CTR", "CPC", "Conversions", "ROAS"].map((h) => (
+                {["Campaign", "Status", "Spend", "Impressions", "Clicks", "CTR", isReal ? "Saves" : "Conversions", isReal ? "" : "ROAS"].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {MOCK_CAMPAIGNS.map((c) => (
-                <tr key={c.id} className="hover:bg-gray-50/50">
-                  <td className="px-3 py-3">
-                    <div className="text-sm font-medium text-gray-800 whitespace-nowrap">{c.name}</div>
-                    <div className="text-xs text-gray-400 capitalize">{c.objective}</div>
-                  </td>
-                  <td className="px-3 py-3">
-                    <span className={cn("text-xs px-2 py-0.5 rounded-full font-semibold capitalize", STATUS_STYLE[c.status])}>{c.status}</span>
-                  </td>
-                  <td className="px-3 py-3 text-sm font-semibold text-gray-800">${formatNumber(c.totalSpend)}</td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(c.impressions)}</td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(c.clicks)}</td>
-                  <td className="px-3 py-3 text-sm font-semibold text-gray-800">{c.ctr}%</td>
-                  <td className="px-3 py-3 text-sm text-gray-700">${c.cpc}</td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(c.conversions)}</td>
-                  <td className="px-3 py-3">
-                    <span className={cn("text-sm font-bold", c.roas >= 5 ? "text-green-600" : c.roas >= 3 ? "text-yellow-600" : "text-red-500")}>
-                      {c.roas}×
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {(campaigns ?? MOCK_CAMPAIGNS).map((c) => {
+                const rc = c as RealCampaign;
+                const mc = c as typeof MOCK_CAMPAIGNS[0];
+                return (
+                  <tr key={c.id} className="hover:bg-gray-50/50">
+                    <td className="px-3 py-3">
+                      <div className="text-sm font-medium text-gray-800 whitespace-nowrap">{c.name}</div>
+                      <div className="text-xs text-gray-400 capitalize">{c.objective?.replace(/_/g, " ")}</div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <span className={cn("text-xs px-2 py-0.5 rounded-full font-semibold capitalize", STATUS_STYLE[c.status] ?? "bg-gray-100 text-gray-600")}>{c.status}</span>
+                    </td>
+                    <td className="px-3 py-3 text-sm font-semibold text-gray-800">${formatNumber(isReal ? rc.spend : mc.totalSpend)}</td>
+                    <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.impressions : mc.impressions)}</td>
+                    <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.clicks : mc.clicks)}</td>
+                    <td className="px-3 py-3 text-sm font-semibold text-gray-800">{isReal ? rc.ctr : mc.ctr}%</td>
+                    {isReal ? (
+                      <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(rc.saves)}</td>
+                    ) : (
+                      <>
+                        <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(mc.conversions)}</td>
+                        <td className="px-3 py-3">
+                          <span className={cn("text-sm font-bold", mc.roas >= 5 ? "text-green-600" : mc.roas >= 3 ? "text-yellow-600" : "text-red-500")}>{mc.roas}×</span>
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
