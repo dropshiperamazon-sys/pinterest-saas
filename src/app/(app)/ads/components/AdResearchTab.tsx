@@ -151,10 +151,9 @@ export default function AdResearchTab() {
 
   // Lookup tab
   const [lookupQ, setLookupQ] = useState("");
-  const [lookupCountry, setLookupCountry] = useState("US");
+  const [lookupCountry, setLookupCountry] = useState("GB");
 
   const LOOKUP_COUNTRIES: { label: string; code: string }[] = [
-    { label: "United States", code: "US" },
     { label: "United Kingdom", code: "GB" },
     { label: "Canada", code: "CA" },
     { label: "Australia", code: "AU" },
@@ -470,10 +469,42 @@ export default function AdResearchTab() {
       {/* ── ADVERTISER LOOKUP TAB ── */}
       {tab === "lookup" && (
         <div className="space-y-5">
+
+          {/* USA notice */}
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex gap-3 items-start">
+            <span className="text-xl flex-shrink-0">🇺🇸</span>
+            <div>
+              <p className="text-sm font-semibold text-amber-800">Targeting the USA market?</p>
+              <p className="text-xs text-amber-700 mt-0.5 mb-2">Pinterest&apos;s Ads Repository does <strong>not</strong> include the United States — it only covers EU &amp; select countries. For US ads, use the Pinterest search below to find promoted pins directly.</p>
+              <div className="flex gap-2 flex-wrap">
+                <input
+                  id="us-search-input"
+                  placeholder="Search US promoted pins (e.g. home decor)"
+                  className="flex-1 min-w-[180px] border border-amber-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white"
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      const val = (e.target as HTMLInputElement).value.trim();
+                      if (val) window.open(`https://www.pinterest.com/search/pins/?q=${encodeURIComponent(val)}&rs=typed`, "_blank", "noopener noreferrer");
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const el = document.getElementById("us-search-input") as HTMLInputElement;
+                    if (el?.value.trim()) window.open(`https://www.pinterest.com/search/pins/?q=${encodeURIComponent(el.value.trim())}&rs=typed`, "_blank", "noopener noreferrer");
+                  }}
+                  className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-semibold transition-colors">
+                  <ExternalLink className="w-3.5 h-3.5" /> Search Pinterest
+                </button>
+              </div>
+              <p className="text-xs text-amber-600 mt-1.5">Tip: look for the <strong>&quot;Promoted&quot;</strong> label on pins — those are paid ads from US advertisers.</p>
+            </div>
+          </div>
+
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
             <div>
-              <h3 className="font-semibold text-gray-900 mb-1">Advertiser Lookup</h3>
-              <p className="text-sm text-gray-500">Enter a brand name or domain to search for their active Pinterest ads in the official Ads Library.</p>
+              <h3 className="font-semibold text-gray-900 mb-1">Advertiser Lookup <span className="text-xs font-normal text-gray-400 ml-1">(EU &amp; other countries)</span></h3>
+              <p className="text-sm text-gray-500">Enter a brand name to see their active Pinterest ads in the official Ads Repository.</p>
             </div>
             <div className="flex gap-2 flex-wrap">
               <select
@@ -500,7 +531,7 @@ export default function AdResearchTab() {
             </div>
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2">
               <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-blue-700">This opens Pinterest&apos;s official Ads Transparency Library filtered by advertiser — 100% legal. You can see every active ad a brand is currently running on Pinterest.</p>
+              <p className="text-xs text-blue-700">Opens Pinterest&apos;s official Ads Repository filtered by advertiser &amp; country — 100% legal.</p>
             </div>
           </div>
 
