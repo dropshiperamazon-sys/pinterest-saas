@@ -49,7 +49,7 @@ export async function GET() {
   const startDate = dateStr(30);
   const endDate = dateStr(1);
 
-  // 2. Fetch campaigns + analytics in parallel
+  // 2. Fetch campaigns + account analytics in parallel
   const [campaignsData, analyticsData] = await Promise.all([
     pinterestGet(`/ad_accounts/${adAccountId}/campaigns?page_size=25`, accessToken),
     pinterestGet(
@@ -70,14 +70,19 @@ export async function GET() {
     createdTime: c.created_time,
   }));
 
-  // 3. Fetch per-campaign analytics
+  // 3. Fetch per-campaign analytics + ad groups in parallel
   if (campaigns.length > 0) {
     const ids = campaigns.map((c: { id: unknown }) => c.id).join(",");
-    const camAnalytics = await pinterestGet(
-      `/ad_accounts/${adAccountId}/campaigns/analytics?start_date=${startDate}&end_date=${endDate}&campaign_ids=${ids}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_SAVE,TOTAL_ENGAGEMENT&granularity=TOTAL`,
-      accessToken
-    );
 
+    const [camAnalytics, adGroupsData] = await Promise.all([
+      pinterestGet(
+        `/ad_accounts/${adAccountId}/campaigns/analytics?start_date=${startDate}&end_date=${endDate}&campaign_ids=${ids}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_SAVE,TOTAL_ENGAGEMENT&granularity=TOTAL`,
+        accessToken
+      ),
+      pinterestGet(`/ad_accounts/${adAccountId}/ad_groups?page_size=50`, accessToken),
+    ]);
+
+    // Attach analytics to each campaign
     if (Array.isArray(camAnalytics)) {
       const byId: Record<string, Record<string, number>> = {};
       for (const row of camAnalytics) {
@@ -92,12 +97,38 @@ export async function GET() {
         (c as Record<string, unknown>).engagements = row.TOTAL_ENGAGEMENT ?? 0;
         const imps = row.IMPRESSION_1 || 1;
         const clicks = row.CLICK_1 || 0;
+        const spend = row.SPEND_IN_DOLLAR || 0;
         (c as Record<string, unknown>).ctr = Math.round((clicks / imps) * 10000) / 100;
+        (c as Record<string, unknown>).cpc = clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : 0;
+        (c as Record<string, unknown>).cpm = imps > 0 ? Math.round((spend / imps) * 1000 * 100) / 100 : 0;
+        (c as Record<string, unknown>).saveRate = clicks > 0 ? Math.round((row.TOTAL_SAVE ?? 0) / clicks * 10000) / 100 : 0;
+      }
+    }
+
+    // Attach ad groups to each campaign
+    if (Array.isArray(adGroupsData?.items)) {
+      const groupsByCampaign: Record<string, unknown[]> = {};
+      for (const ag of adGroupsData.items as Record<string, unknown>[]) {
+        const cid = ag.campaign_id as string;
+        if (!groupsByCampaign[cid]) groupsByCampaign[cid] = [];
+        groupsByCampaign[cid].push({
+          id: ag.id,
+          name: ag.name,
+          status: (ag.status as string)?.toLowerCase(),
+          targetingType: ag.targeting_type,
+          bidInMicroCurrency: ag.bid_in_micro_currency ? Number(ag.bid_in_micro_currency) / 1_000_000 : null,
+          optimizationGoalMetadata: ag.optimization_goal_metadata,
+          placementGroup: ag.placement_group,
+          budgetInMicroCurrency: ag.budget_in_micro_currency ? Number(ag.budget_in_micro_currency) / 1_000_000 : null,
+        });
+      }
+      for (const c of campaigns) {
+        (c as Record<string, unknown>).adGroups = groupsByCampaign[c.id as string] ?? [];
       }
     }
   }
 
-  // 4. Summarise account-level totals from analytics
+  // 4. Account-level totals
   const totals = analyticsData?.[0] ?? {};
 
   return NextResponse.json({
