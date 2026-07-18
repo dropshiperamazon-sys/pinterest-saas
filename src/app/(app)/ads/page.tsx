@@ -2,19 +2,21 @@
 import { useState } from "react";
 import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
-import { Map, Rocket, BarChart2, Zap } from "lucide-react";
+import { Map, Rocket, BarChart2, Zap, BookOpen } from "lucide-react";
 import PlanTab from "./components/PlanTab";
 import LaunchTab from "./components/LaunchTab";
 import AnalyzeTab from "./components/AnalyzeTab";
 import OptimizeTab from "./components/OptimizeTab";
+import AdResearchTab from "./components/AdResearchTab";
 
-type Tab = "plan" | "launch" | "analyze" | "optimize";
+type Tab = "plan" | "launch" | "analyze" | "optimize" | "research";
 
 const TABS: { key: Tab; label: string; icon: React.ElementType; description: string }[] = [
   { key: "plan", label: "Plan", icon: Map, description: "Research & strategy" },
   { key: "launch", label: "Launch", icon: Rocket, description: "Build & publish campaigns" },
   { key: "analyze", label: "Analyze", icon: BarChart2, description: "Performance & insights" },
   { key: "optimize", label: "Optimize", icon: Zap, description: "Scale & automate" },
+  { key: "research", label: "Ad Research", icon: BookOpen, description: "Spy on competitor ads" },
 ];
 
 export default function AdsPage() {
@@ -58,6 +60,7 @@ export default function AdsPage() {
         {activeTab === "launch" && <LaunchTab />}
         {activeTab === "analyze" && <AnalyzeTab />}
         {activeTab === "optimize" && <OptimizeTab />}
+        {activeTab === "research" && <AdResearchTab />}
       </div>
     </div>
   );
