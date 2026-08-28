@@ -462,6 +462,31 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
   );
 }
 
+// ── Search limit gate ────────────────────────────────────────────────────────
+function SearchLimitGate({ remaining, limit, onClose }: { remaining: number; limit: number; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4 text-center">
+        <div className="text-5xl mb-4">🔍</div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Daily search limit reached</h2>
+        <p className="text-gray-500 text-sm mb-4">
+          Free accounts get <strong>{limit} keyword searches per day</strong>. Your limit resets at midnight UTC.
+        </p>
+        <div className="bg-gray-100 rounded-lg p-3 mb-6 text-sm text-gray-600">
+          Used today: <strong>{limit - remaining} / {limit}</strong>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-full py-2.5 rounded-xl bg-[#E60023] text-white font-semibold hover:bg-[#c0001e] transition-colors"
+        >
+          Got it
+        </button>
+        <p className="text-xs text-gray-400 mt-3">Upgrade coming soon for unlimited searches</p>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function KeywordsPage() {
   const [query, setQuery] = useState("");
@@ -471,14 +496,38 @@ export default function KeywordsPage() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("volume");
+  const [searchRemaining, setSearchRemaining] = useState<number | null>(null);
+  const [searchLimit, setSearchLimit] = useState(10);
+  const [showLimitGate, setShowLimitGate] = useState(false);
   const [sortAsc, setSortAsc] = useState(false);
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
   const [isLive, setIsLive] = useState(false);
   const [trendingOpen, setTrendingOpen] = useState(false);
 
+  // Fetch remaining searches on mount
+  useEffect(() => {
+    fetch("/api/search-limit").then(r => r.json()).then(d => {
+      if (d.remaining != null) { setSearchRemaining(d.remaining); setSearchLimit(d.limit); }
+    }).catch(() => {});
+  }, []);
+
   const handleSearch = useCallback(async (q: string) => {
     if (!q.trim()) return;
+
+    // Check + increment search limit
+    try {
+      const limitRes = await fetch("/api/search-limit", { method: "POST" });
+      const limitData = await limitRes.json();
+      if (!limitData.allowed) {
+        setShowLimitGate(true);
+        setSearchRemaining(0);
+        return;
+      }
+      setSearchRemaining(limitData.remaining);
+      setSearchLimit(limitData.limit);
+    } catch { /* allow search if limit API fails */ }
+
     setQuery(q.trim());
     setLoading(true);
     setMatchFilter("all");
@@ -551,6 +600,13 @@ export default function KeywordsPage() {
 
   return (
     <div>
+      {showLimitGate && (
+        <SearchLimitGate
+          remaining={searchRemaining ?? 0}
+          limit={searchLimit}
+          onClose={() => setShowLimitGate(false)}
+        />
+      )}
       <Header title="Keyword Research" subtitle="Discover 100+ closely relevant Pinterest keywords by match type" />
       <div className="flex h-[calc(100vh-73px)]">
         {/* Sidebar */}
@@ -618,10 +674,27 @@ export default function KeywordsPage() {
                   </button>
                 )}
               </div>
-              <button onClick={() => handleSearch(query)}
-                className="bg-[#e60023] text-white px-6 py-3 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors flex items-center gap-2">
-                <Search className="w-4 h-4" /> Search
-              </button>
+              <div className="flex flex-col items-end gap-1">
+                <button onClick={() => handleSearch(query)}
+                  className="bg-[#e60023] text-white px-6 py-3 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors flex items-center gap-2">
+                  <Search className="w-4 h-4" /> Search
+                </button>
+                {searchRemaining !== null && (
+                  <span
+                    title="Free accounts get 10 keyword searches per day. Resets at midnight UTC."
+                    className={cn(
+                      "text-xs px-2 py-0.5 rounded-full cursor-help font-medium",
+                      searchRemaining === 0
+                        ? "bg-red-100 text-red-600"
+                        : searchRemaining <= 3
+                        ? "bg-yellow-100 text-yellow-700"
+                        : "bg-gray-100 text-gray-500"
+                    )}
+                  >
+                    {searchRemaining}/{searchLimit} searches left today
+                  </span>
+                )}
+              </div>
             </div>
 
             {(selectedCategory || selectedSubcategory) && (
