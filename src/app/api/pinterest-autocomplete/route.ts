@@ -15,27 +15,35 @@ const CONTEXT_MODIFIERS: { patterns: RegExp; suffixes: string[] }[] = [
   },
   {
     patterns: /nail|nails/i,
-    suffixes: ["aesthetic", "design", "acrylic", "gel", "art", "simple", "short", "french", "ideas 2026", "summer", "for beginners", "cute"],
+    suffixes: ["aesthetic", "design", "acrylic", "gel", "art", "simple", "short", "french", "summer", "for beginners", "cute", "color"],
   },
   {
     patterns: /hair|hairstyle|haircut/i,
-    suffixes: ["color ideas", "cut", "style", "braids", "highlights", "balayage", "ideas 2026", "for women", "short", "long", "curly", "natural"],
+    suffixes: ["color ideas", "cut", "style", "braids", "highlights", "balayage", "for women", "short", "long", "curly", "natural", "layers"],
   },
   {
-    patterns: /home decor|interior|living room|bedroom|kitchen|bathroom/i,
-    suffixes: ["ideas", "aesthetic", "modern", "boho", "minimalist", "on a budget", "small", "diy", "inspiration", "cozy", "simple", "2026"],
+    patterns: /home decor|interior|room decor/i,
+    suffixes: ["aesthetic", "modern", "boho", "minimalist", "on a budget", "small", "diy", "inspiration", "cozy", "simple", "living room", "bedroom"],
+  },
+  {
+    patterns: /living room/i,
+    suffixes: ["ideas", "decor", "aesthetic", "modern", "small", "cozy", "boho", "minimalist", "on a budget", "furniture", "layout", "color"],
+  },
+  {
+    patterns: /bedroom/i,
+    suffixes: ["ideas", "decor", "aesthetic", "small", "cozy", "teen", "adult", "pink", "blue", "green", "minimalist", "boho"],
   },
   {
     patterns: /outfit|fashion|style|clothing|dress|clothes/i,
-    suffixes: ["ideas", "aesthetic", "summer", "fall", "winter", "spring", "for women", "casual", "trendy", "2026", "boho", "minimalist"],
+    suffixes: ["ideas", "aesthetic", "summer", "fall", "winter", "spring", "for women", "casual", "trendy", "boho", "minimalist", "inspo"],
   },
   {
     patterns: /recipe|food|meal|dinner|lunch|breakfast|cake|cookie|bread/i,
-    suffixes: ["easy", "healthy", "quick", "ideas", "for beginners", "simple", "homemade", "best", "vegetarian", "delicious", "2026", "inspiration"],
+    suffixes: ["easy", "healthy", "quick", "for beginners", "simple", "homemade", "best", "vegetarian", "delicious", "inspiration", "ideas", "creamy"],
   },
   {
     patterns: /wedding|bride|bridal/i,
-    suffixes: ["ideas", "aesthetic", "inspiration", "dress", "decor", "flowers", "hairstyle", "makeup", "simple", "boho", "elegant", "2026"],
+    suffixes: ["ideas", "aesthetic", "inspiration", "dress", "decor", "flowers", "hairstyle", "makeup", "simple", "boho", "elegant", "color palette"],
   },
   {
     patterns: /tattoo/i,
@@ -43,17 +51,25 @@ const CONTEXT_MODIFIERS: { patterns: RegExp; suffixes: string[] }[] = [
   },
   {
     patterns: /makeup|beauty|skincare|eyeshadow|lipstick/i,
-    suffixes: ["ideas", "aesthetic", "tutorial", "natural", "glam", "everyday", "for beginners", "summer", "tips", "routine", "2026", "inspiration"],
+    suffixes: ["tutorial", "natural", "glam", "everyday", "for beginners", "summer", "tips", "routine", "inspiration", "aesthetic", "no makeup", "dewy"],
   },
   {
     patterns: /garden|plant|flower|gardening/i,
-    suffixes: ["ideas", "aesthetic", "design", "small", "diy", "inspiration", "layout", "backyard", "indoor", "beginner", "raised bed", "2026"],
+    suffixes: ["ideas", "aesthetic", "design", "small", "diy", "inspiration", "layout", "backyard", "indoor", "beginner", "raised bed", "cottage"],
+  },
+  {
+    patterns: /travel|vacation|trip/i,
+    suffixes: ["ideas", "aesthetic", "destinations", "outfits", "packing", "photography", "Europe", "Asia", "budget", "solo", "couple", "bucket list"],
+  },
+  {
+    patterns: /fitness|workout|exercise|gym/i,
+    suffixes: ["routine", "motivation", "aesthetic", "at home", "for women", "beginner", "tips", "plan", "inspiration", "outfits", "healthy", "weight loss"],
   },
 ];
 
 const DEFAULT_SUFFIXES = [
   "ideas", "aesthetic", "inspiration", "design", "tutorial",
-  "2026", "simple", "for beginners", "diy", "ideas 2026",
+  "simple", "for beginners", "diy", "on a budget", "modern",
 ];
 
 function fallbackSuggestions(q: string): string[] {
@@ -64,7 +80,7 @@ function fallbackSuggestions(q: string): string[] {
 
   return suffixes
     .filter(s => {
-      // Skip suffix if its first word is already in the query (avoids "ideas ideas", "aesthetic aesthetic")
+      // Skip suffix if its first word already appears in the query
       const firstWord = s.split(" ")[0];
       return !baseWords.has(firstWord);
     })
@@ -72,20 +88,66 @@ function fallbackSuggestions(q: string): string[] {
     .slice(0, 10);
 }
 
-async function tryPinterestAutocomplete(q: string): Promise<string[] | null> {
-  // Pinterest's internal SearchAutocompletesResource endpoint
-  const params = new URLSearchParams({
-    source_url: "/search/pins/",
-    data: JSON.stringify({ options: { query: q, proxied: false }, context: {} }),
-    _: Date.now().toString(),
-  });
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const q = searchParams.get("q")?.trim();
+  if (!q) return NextResponse.json({ suggestions: [] });
 
-  const urls = [
-    `https://www.pinterest.com/resource/SearchAutocompletesResource/get/?${params}`,
+  // Get user's Pinterest token for authenticated requests
+  let accessToken: string | null = null;
+  try {
+    const session = await auth();
+    const email = session?.user?.email;
+    if (email) {
+      const raw = await redis.get(`pinterest_connection:${email}`);
+      if (raw) {
+        const parsed = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
+        accessToken = parsed.accessToken;
+      }
+    }
+  } catch { /* continue without token */ }
+
+  // 1. Try Pinterest Trends search API (what trends.pinterest.com search box uses)
+  const trendsEndpoints = [
+    `https://trends.pinterest.com/api/v1/keywords/search?query=${encodeURIComponent(q)}&country_code=US`,
+    `https://trends.pinterest.com/api/v1/search?query=${encodeURIComponent(q)}&country_code=US`,
+  ];
+
+  for (const url of trendsEndpoints) {
+    try {
+      const headers: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "application/json",
+        Referer: "https://trends.pinterest.com/",
+      };
+      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(4000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      const items: unknown[] = data?.keywords ?? data?.results ?? data?.suggestions ?? data?.data ?? (Array.isArray(data) ? data : []);
+      const suggestions = items
+        .map((item: unknown) => {
+          if (typeof item === "string") return item;
+          const o = item as Record<string, unknown>;
+          return (o.keyword ?? o.term ?? o.query ?? o.display ?? o.name ?? "") as string;
+        })
+        .filter(Boolean);
+
+      if (suggestions.length > 0) {
+        return NextResponse.json({ suggestions: suggestions.slice(0, 12), source: "trends_search" });
+      }
+    } catch { /* try next */ }
+  }
+
+  // 2. Try Pinterest general autocomplete endpoints
+  const autocompleteEndpoints = [
+    `https://www.pinterest.com/resource/SearchAutocompletesResource/get/?source_url=/&data=${encodeURIComponent(JSON.stringify({ options: { query: q }, context: {} }))}&_=${Date.now()}`,
     `https://www.pinterest.com/search/autocomplete/?q=${encodeURIComponent(q)}`,
   ];
 
-  for (const url of urls) {
+  for (const url of autocompleteEndpoints) {
     try {
       const res = await fetch(url, {
         headers: {
@@ -95,16 +157,15 @@ async function tryPinterestAutocomplete(q: string): Promise<string[] | null> {
           "X-Requested-With": "XMLHttpRequest",
           Referer: "https://www.pinterest.com/",
         },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(4000),
       });
       if (!res.ok) continue;
       const data = await res.json();
 
-      // SearchAutocompletesResource wraps in resource_response.data
       const items: unknown[] =
         data?.resource_response?.data ??
         data?.resource_response?.data?.items ??
-        (Array.isArray(data) ? data : null) ??
+        (Array.isArray(data) ? data : []) ??
         data?.items ?? [];
 
       const suggestions = items
@@ -115,64 +176,50 @@ async function tryPinterestAutocomplete(q: string): Promise<string[] | null> {
         })
         .filter(Boolean);
 
-      if (suggestions.length > 0) return suggestions.slice(0, 12);
+      if (suggestions.length > 0) {
+        return NextResponse.json({ suggestions: suggestions.slice(0, 12), source: "autocomplete" });
+      }
     } catch { /* try next */ }
   }
-  return null;
-}
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const q = searchParams.get("q")?.trim();
-  if (!q) return NextResponse.json({ suggestions: [] });
+  // 3. Try Pinterest API v5 keyword suggestions with OAuth token
+  if (accessToken) {
+    try {
+      const accountsRes = await fetch("https://api.pinterest.com/v5/ad_accounts?page_size=1", {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(4000),
+      });
 
-  // 1. Try Pinterest's public autocomplete endpoints
-  const live = await tryPinterestAutocomplete(q);
-  if (live) return NextResponse.json({ suggestions: live, source: "live" });
+      if (accountsRes.ok) {
+        const accountsData = await accountsRes.json();
+        const adAccountId: string | null = accountsData?.items?.[0]?.id ?? null;
 
-  // 2. Try Pinterest API v5 keyword suggestions using user's OAuth token
-  try {
-    const session = await auth();
-    const email = session?.user?.email;
-    if (email) {
-      const raw = await redis.get(`pinterest_connection:${email}`);
-      if (raw) {
-        const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
-
-        const accountsRes = await fetch("https://api.pinterest.com/v5/ad_accounts?page_size=1", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          signal: AbortSignal.timeout(4000),
-        });
-
-        if (accountsRes.ok) {
-          const accountsData = await accountsRes.json();
-          const adAccountId: string | null = accountsData?.items?.[0]?.id ?? null;
-
-          if (adAccountId) {
-            const kwRes = await fetch(
-              `https://api.pinterest.com/v5/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${encodeURIComponent(q)}&limit=12`,
-              {
-                headers: { Authorization: `Bearer ${accessToken}` },
-                signal: AbortSignal.timeout(4000),
-              }
-            );
-            if (kwRes.ok) {
-              const kwData = await kwRes.json();
-              const suggestions: string[] = (kwData?.suggestions ?? kwData?.keywords ?? kwData?.items ?? [])
-                .map((k: unknown) => {
-                  if (typeof k === "string") return k;
-                  const o = k as Record<string, unknown>;
-                  return (o.keyword ?? o.name ?? o.query ?? "") as string;
-                })
-                .filter(Boolean);
-              if (suggestions.length > 0) return NextResponse.json({ suggestions: suggestions.slice(0, 12), source: "api" });
+        if (adAccountId) {
+          const kwRes = await fetch(
+            `https://api.pinterest.com/v5/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${encodeURIComponent(q)}&limit=12`,
+            {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              signal: AbortSignal.timeout(4000),
+            }
+          );
+          if (kwRes.ok) {
+            const kwData = await kwRes.json();
+            const suggestions: string[] = (kwData?.suggestions ?? kwData?.keywords ?? kwData?.items ?? [])
+              .map((k: unknown) => {
+                if (typeof k === "string") return k;
+                const o = k as Record<string, unknown>;
+                return (o.keyword ?? o.name ?? o.query ?? "") as string;
+              })
+              .filter(Boolean);
+            if (suggestions.length > 0) {
+              return NextResponse.json({ suggestions: suggestions.slice(0, 12), source: "api" });
             }
           }
         }
       }
-    }
-  } catch { /* fall through */ }
+    } catch { /* fall through */ }
+  }
 
-  // 3. Context-aware static fallback
+  // 4. Context-aware static fallback
   return NextResponse.json({ suggestions: fallbackSuggestions(q), source: "fallback" });
 }
