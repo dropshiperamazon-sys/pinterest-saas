@@ -8,7 +8,8 @@ const redis = new Redis({
 });
 
 // Free tier: 10 searches per day. Reset at UTC midnight.
-const FREE_DAILY_LIMIT = 10;
+// Set high during development — change back to 10 before launch.
+const FREE_DAILY_LIMIT = 10000;
 
 function todayKey(email: string) {
   const d = new Date();
