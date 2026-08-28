@@ -112,8 +112,32 @@ const SEARCH_SAMPLES: Record<TrendTab, TrendItem[]> = {
   ],
 };
 
-function TrendingPanel({ onSearch }: { onSearch: (q: string) => void }) {
-  const [open, setOpen] = useState(false);
+// Sidebar trigger button only
+function TrendingTrigger({ open, isLive, onToggle }: { open: boolean; isLive: boolean; onToggle: () => void }) {
+  return (
+    <div className="border-b border-gray-100">
+      <button
+        onClick={onToggle}
+        className={cn("w-full flex items-center gap-3 px-4 py-3 transition-all",
+          open ? "bg-gradient-to-r from-orange-50 to-red-50" : "hover:bg-orange-50/50"
+        )}
+      >
+        <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0">
+          <Flame className="w-4 h-4 text-white" />
+        </div>
+        <div className="flex-1 text-left">
+          <div className="text-sm font-semibold text-gray-800">Pinterest Trending Now</div>
+          <div className="text-xs text-gray-500">Search Trends · Shopping Trends</div>
+        </div>
+        {isLive && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">● Live</span>}
+        {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+      </button>
+    </div>
+  );
+}
+
+// Full trending panel rendered above search bar in main content
+function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; onClose: () => void }) {
   const [trendTab, setTrendTab] = useState<TrendTab>("growing");
   const [trendKind, setTrendKind] = useState<TrendKind>("search");
   const [location, setLocation] = useState("United States");
@@ -160,206 +184,181 @@ function TrendingPanel({ onSearch }: { onSearch: (q: string) => void }) {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     if (trendKind === "search") loadTrends(trendTab, location, interest);
     else loadShopping();
-  }, [open, trendKind, trendTab, location, interest, loadTrends, loadShopping]);
+  }, [trendKind, trendTab, location, interest, loadTrends, loadShopping]);
 
   return (
-    <div className="border-b border-gray-100">
-      {/* Collapsed trigger */}
-      <button
-        onClick={() => setOpen(p => !p)}
-        className={cn("w-full flex items-center gap-3 px-4 py-3 transition-all",
-          open ? "bg-gradient-to-r from-orange-50 to-red-50" : "hover:bg-orange-50/50"
-        )}
-      >
-        <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-red-500 rounded-xl flex items-center justify-center flex-shrink-0">
-          <Flame className="w-4 h-4 text-white" />
-        </div>
-        <div className="flex-1 text-left">
-          <div className="text-sm font-semibold text-gray-800">Pinterest Trending Now</div>
-          <div className="text-xs text-gray-500">Search Trends · Shopping Trends</div>
-        </div>
-        {isLive && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">● Live</span>}
-        {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-      </button>
-
-      {open && (
-        <div className="bg-gradient-to-br from-orange-50/40 to-red-50/20 border-t border-orange-100">
-          {/* Search / Shopping kind toggle */}
-          <div className="px-4 pt-3 pb-2 flex gap-1 bg-white/60">
-            <button onClick={() => setTrendKind("search")}
-              className={cn("flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-semibold transition-all flex-1 justify-center",
-                trendKind === "search" ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-100"
-              )}>
-              <Search className="w-3 h-3" /> Search Trends
-            </button>
-            <button onClick={() => setTrendKind("shopping")}
-              className={cn("flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-semibold transition-all flex-1 justify-center",
-                trendKind === "shopping" ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-100"
-              )}>
-              <ShoppingBag className="w-3 h-3" /> Shopping Trends <span className="text-[10px] opacity-70">Beta</span>
-            </button>
+    <div className="border border-orange-100 rounded-2xl bg-gradient-to-br from-orange-50/60 to-red-50/30 overflow-hidden shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3 bg-white/70 border-b border-orange-100">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 bg-gradient-to-br from-orange-400 to-red-500 rounded-lg flex items-center justify-center">
+            <Flame className="w-3.5 h-3.5 text-white" />
           </div>
+          <div>
+            <span className="text-sm font-bold text-gray-800">Pinterest Trending Now</span>
+            {isLive && <span className="ml-2 text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">● Live</span>}
+          </div>
+        </div>
+        <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
 
-          {/* Search Trends sub-tabs */}
+      <div className="p-4 space-y-3">
+        {/* Search / Shopping kind toggle */}
+        <div className="flex gap-1 bg-white/80 rounded-xl p-1 border border-gray-100 w-fit">
+          <button onClick={() => setTrendKind("search")}
+            className={cn("flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold transition-all",
+              trendKind === "search" ? "bg-[#e60023] text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
+            )}>
+            <Search className="w-3 h-3" /> Search Trends
+          </button>
+          <button onClick={() => setTrendKind("shopping")}
+            className={cn("flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold transition-all",
+              trendKind === "shopping" ? "bg-[#e60023] text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
+            )}>
+            <ShoppingBag className="w-3 h-3" /> Shopping Trends <span className="text-[10px] opacity-70 ml-0.5">Beta</span>
+          </button>
+        </div>
+
+        {/* Sub-tabs + Filters row */}
+        <div className="flex flex-wrap items-center gap-2">
           {trendKind === "search" && (
-            <div className="px-4 py-2 flex gap-1 flex-wrap">
+            <>
               {(["growing","seasonal","monthly","yearly"] as const).map(t => (
                 <button key={t} onClick={() => setTrendTab(t)}
-                  className={cn("text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-all border",
+                  className={cn("text-xs px-3 py-1.5 rounded-lg font-semibold transition-all border",
                     trendTab === t ? "bg-[#e60023] text-white border-[#e60023]" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
                   )}>
-                  {t === "growing" ? "↗ Growing trends" : t === "seasonal" ? "✦ Seasonal trends" : t === "monthly" ? "⊟ Top monthly" : "⊟ Top yearly"}
+                  {t === "growing" ? "↗ Growing" : t === "seasonal" ? "✦ Seasonal" : t === "monthly" ? "⊟ Monthly" : "⊟ Yearly"}
                 </button>
               ))}
-            </div>
-          )}
-
-          {/* Shopping Trends sub-tabs */}
-          {trendKind === "shopping" && (
-            <div className="px-4 py-2 flex gap-1">
-              <button className="text-xs px-2.5 py-1.5 rounded-lg font-semibold bg-[#e60023] text-white border border-[#e60023]">↗ Trending categories</button>
-              <button className="text-xs px-2.5 py-1.5 rounded-lg font-semibold bg-white text-gray-600 border border-gray-200 hover:border-gray-300">◇ All categories</button>
-            </div>
-          )}
-
-          {/* Filters */}
-          <div className="px-4 pb-3 flex flex-wrap gap-2">
-            {/* Search Trends filters */}
-            {trendKind === "search" && (<>
+              <div className="h-5 w-px bg-gray-200 mx-1" />
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Globe className="w-3 h-3 text-gray-400" />
-                <select value={location} onChange={e => setLocation(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
+                <select value={location} onChange={e => setLocation(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
                   {LOCATIONS.map(l => <option key={l}>{l}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Filter className="w-3 h-3 text-gray-400" />
-                <select value={interest} onChange={e => setInterest(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
+                <select value={interest} onChange={e => setInterest(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
                   {INTERESTS.map(i => <option key={i}>{i}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Calendar className="w-3 h-3 text-gray-400" />
-                <select value={moment} onChange={e => setMoment(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[100px]">
+                <select value={moment} onChange={e => setMoment(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[100px]">
                   {MOMENTS.map(m => <option key={m}>{m}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Users className="w-3 h-3 text-gray-400" />
-                <select value={age} onChange={e => setAge(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[80px]">
+                <select value={age} onChange={e => setAge(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[80px]">
                   {AGE_GROUPS.map(a => <option key={a}>{a}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Users className="w-3 h-3 text-gray-400" />
-                <select value={gender} onChange={e => setGender(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[70px]">
+                <select value={gender} onChange={e => setGender(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[70px]">
                   {GENDERS.map(g => <option key={g}>{g}</option>)}
                 </select>
               </div>
-            </>)}
-
-            {/* Shopping Trends filters */}
-            {trendKind === "shopping" && (<>
+            </>
+          )}
+          {trendKind === "shopping" && (
+            <>
+              <button className="text-xs px-3 py-1.5 rounded-lg font-semibold bg-[#e60023] text-white border border-[#e60023]">↗ Trending categories</button>
+              <button className="text-xs px-3 py-1.5 rounded-lg font-semibold bg-white text-gray-600 border border-gray-200 hover:border-gray-300">◇ All categories</button>
+              <div className="h-5 w-px bg-gray-200 mx-1" />
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Filter className="w-3 h-3 text-gray-400" />
-                <select value={vertical} onChange={e => setVertical(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[120px]">
+                <select value={vertical} onChange={e => setVertical(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[120px]">
                   {TOP_VERTICALS.map(v => <option key={v}>{v}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Users className="w-3 h-3 text-gray-400" />
-                <select value={age} onChange={e => setAge(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[80px]">
+                <select value={age} onChange={e => setAge(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[80px]">
                   {AGE_GROUPS.map(a => <option key={a}>{a}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Users className="w-3 h-3 text-gray-400" />
-                <select value={gender} onChange={e => setGender(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[70px]">
+                <select value={gender} onChange={e => setGender(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[70px]">
                   {GENDERS.map(g => <option key={g}>{g}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <BarChart2 className="w-3 h-3 text-gray-400" />
-                <select value={rankedBy} onChange={e => setRankedBy(e.target.value)}
-                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
+                <select value={rankedBy} onChange={e => setRankedBy(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[120px]">
                   {RANKED_BY.map(r => <option key={r}>Ranked by: {r}</option>)}
                 </select>
               </div>
-            </>)}
-          </div>
-
-          {/* Results */}
-          {loading ? (
-            <div className="flex items-center justify-center py-6">
-              <div className="w-5 h-5 border-2 border-orange-200 border-t-orange-500 rounded-full animate-spin" />
-            </div>
-          ) : trendKind === "search" ? (
-            /* Search Trends table */
-            <div className="px-4 pb-4">
-              <div className="bg-white rounded-xl border border-orange-100 overflow-hidden">
-                <div className="grid grid-cols-4 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
-                  <span className="col-span-2">Keyword</span>
-                  <span className="text-right">Weekly</span>
-                  <span className="text-right">Monthly</span>
-                </div>
-                <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
-                  {trends.map((t, i) => (
-                    <button key={t.keyword} onClick={() => { onSearch(t.keyword); setOpen(false); }}
-                      className="w-full grid grid-cols-4 items-center px-3 py-2.5 text-left hover:bg-orange-50 transition-colors group">
-                      <div className="col-span-2 flex items-center gap-2">
-                        <span className="text-xs text-gray-400 w-5 font-bold flex-shrink-0">#{i + 1}</span>
-                        <span className="text-xs font-semibold text-gray-800 capitalize group-hover:text-[#e60023] transition-colors">{t.keyword}</span>
-                      </div>
-                      <span className={cn("text-xs font-bold text-right", (t.weeklyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
-                        {(t.weeklyChange ?? 0) >= 0 ? "+" : ""}{t.weeklyChange ?? "—"}%
-                      </span>
-                      <span className={cn("text-xs font-bold text-right", (t.monthlyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
-                        {(t.monthlyChange ?? 0) >= 0 ? "+" : ""}{t.monthlyChange ?? "—"}%
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {!isLive && <p className="text-xs text-gray-400 mt-1.5 text-center">Sample data · Connect Pinterest for live trends</p>}
-            </div>
-          ) : (
-            /* Shopping Trends table */
-            <div className="px-4 pb-4">
-              <div className="bg-white rounded-xl border border-orange-100 overflow-hidden">
-                <div className="grid grid-cols-12 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
-                  <span className="col-span-1">Rank</span>
-                  <span className="col-span-8">Product Category</span>
-                  <span className="col-span-3 text-right">Clicks Growth</span>
-                </div>
-                <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
-                  {shopping.map(s => (
-                    <div key={s.category} className="grid grid-cols-12 items-center px-3 py-2.5">
-                      <span className="col-span-1 text-xs font-bold text-gray-400">{s.rank}</span>
-                      <div className="col-span-8 flex items-center gap-2">
-                        <div className="w-6 h-6 bg-gradient-to-br from-orange-100 to-red-100 rounded-md flex-shrink-0" />
-                        <span className="text-xs font-semibold text-gray-800">{s.category}</span>
-                      </div>
-                      <span className="col-span-3 text-xs font-bold text-green-600 text-right">{s.outboundClicksGrowth}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <p className="text-xs text-gray-400 mt-1.5 text-center">Shopping trends updated weekly · Sample data</p>
-            </div>
+            </>
           )}
         </div>
-      )}
+
+        {/* Results table */}
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-6 h-6 border-2 border-orange-200 border-t-orange-500 rounded-full animate-spin" />
+          </div>
+        ) : trendKind === "search" ? (
+          <div className="bg-white rounded-xl border border-orange-100 overflow-hidden">
+            <div className="grid grid-cols-12 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+              <span className="col-span-6">Keyword</span>
+              <span className="col-span-2 text-right">Weekly %</span>
+              <span className="col-span-2 text-right">Monthly %</span>
+              <span className="col-span-2 text-right">Yearly %</span>
+            </div>
+            <div className="divide-y divide-gray-50 max-h-56 overflow-y-auto">
+              {trends.map((t, i) => (
+                <button key={t.keyword} onClick={() => onSearch(t.keyword)}
+                  className="w-full grid grid-cols-12 items-center px-4 py-2.5 text-left hover:bg-orange-50 transition-colors group">
+                  <div className="col-span-6 flex items-center gap-2">
+                    <span className="text-xs text-gray-400 w-5 font-bold flex-shrink-0">#{i+1}</span>
+                    <span className="text-sm font-semibold text-gray-800 capitalize group-hover:text-[#e60023] transition-colors">{t.keyword}</span>
+                  </div>
+                  <span className={cn("col-span-2 text-xs font-bold text-right", (t.weeklyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
+                    {(t.weeklyChange ?? 0) >= 0 ? "+" : ""}{t.weeklyChange ?? "—"}%
+                  </span>
+                  <span className={cn("col-span-2 text-xs font-bold text-right", (t.monthlyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
+                    {(t.monthlyChange ?? 0) >= 0 ? "+" : ""}{t.monthlyChange ?? "—"}%
+                  </span>
+                  <span className={cn("col-span-2 text-xs font-bold text-right", (t.yearlyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
+                    {(t.yearlyChange ?? 0) >= 0 ? "+" : ""}{t.yearlyChange ?? "—"}%
+                  </span>
+                </button>
+              ))}
+            </div>
+            {!isLive && <p className="text-xs text-gray-400 py-2 text-center border-t border-gray-50">Sample data · Connect Pinterest for live trends</p>}
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-orange-100 overflow-hidden">
+            <div className="grid grid-cols-12 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+              <span className="col-span-1">#</span>
+              <span className="col-span-9">Product Category</span>
+              <span className="col-span-2 text-right">Clicks Growth</span>
+            </div>
+            <div className="divide-y divide-gray-50 max-h-56 overflow-y-auto">
+              {shopping.map(s => (
+                <div key={s.category} className="grid grid-cols-12 items-center px-4 py-2.5">
+                  <span className="col-span-1 text-xs font-bold text-gray-400">{s.rank}</span>
+                  <div className="col-span-9 flex items-center gap-2">
+                    <div className="w-6 h-6 bg-gradient-to-br from-orange-100 to-red-100 rounded-md flex-shrink-0" />
+                    <span className="text-sm font-semibold text-gray-800">{s.category}</span>
+                  </div>
+                  <span className="col-span-2 text-xs font-bold text-green-600 text-right">{s.outboundClicksGrowth}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 py-2 text-center border-t border-gray-50">Shopping trends updated weekly · Sample data</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -377,6 +376,7 @@ export default function KeywordsPage() {
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
   const [isLive, setIsLive] = useState(false);
+  const [trendingOpen, setTrendingOpen] = useState(false);
 
   const handleSearch = useCallback(async (q: string) => {
     if (!q.trim()) return;
@@ -456,8 +456,8 @@ export default function KeywordsPage() {
       <div className="flex h-[calc(100vh-73px)]">
         {/* Sidebar */}
         <aside className="w-72 bg-white border-r border-gray-100 overflow-y-auto flex-shrink-0 flex flex-col">
-          {/* Trending Panel — above browse categories */}
-          <TrendingPanel onSearch={handleSearch} />
+          {/* Trending trigger — above browse categories */}
+          <TrendingTrigger open={trendingOpen} isLive={false} onToggle={() => setTrendingOpen(p => !p)} />
 
           {/* Browse Categories */}
           <div className="p-4 border-b border-gray-100">
@@ -495,6 +495,13 @@ export default function KeywordsPage() {
 
         {/* Main Content */}
         <div className="flex-1 overflow-auto">
+          {/* Trending Panel — above search bar */}
+          {trendingOpen && (
+            <div className="px-6 pt-6">
+              <TrendingPanel onSearch={(q) => { handleSearch(q); setTrendingOpen(false); }} onClose={() => setTrendingOpen(false)} />
+            </div>
+          )}
+
           {/* Search Bar */}
           <div className="p-6 pb-4 space-y-3">
             <div className="flex gap-3">
