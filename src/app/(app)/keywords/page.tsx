@@ -207,41 +207,54 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
       </div>
 
       <div className="p-4 space-y-3">
-        {/* Search / Shopping kind toggle */}
-        <div className="flex gap-1 bg-white/80 rounded-xl p-1 border border-gray-100 w-fit">
-          <button onClick={() => setTrendKind("search")}
-            className={cn("flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold transition-all",
-              trendKind === "search" ? "bg-[#e60023] text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
-            )}>
-            <Search className="w-3 h-3" /> Search Trends
-          </button>
-          <button onClick={() => setTrendKind("shopping")}
-            className={cn("flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold transition-all",
-              trendKind === "shopping" ? "bg-[#e60023] text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
-            )}>
-            <ShoppingBag className="w-3 h-3" /> Shopping Trends <span className="text-[10px] opacity-70 ml-0.5">Beta</span>
-          </button>
+        {/* Row 1: Location (global — applies to all) + Search/Shopping toggle */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-1.5 bg-white border border-gray-300 rounded-lg px-3 py-2 shadow-sm">
+            <Globe className="w-3.5 h-3.5 text-gray-500" />
+            <select value={location} onChange={e => setLocation(e.target.value)} className="text-xs text-gray-800 bg-transparent outline-none cursor-pointer font-semibold">
+              {LOCATIONS.map(l => <option key={l}>{l}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-1 bg-white/80 rounded-xl p-1 border border-gray-100">
+            <button onClick={() => setTrendKind("search")}
+              className={cn("flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold transition-all",
+                trendKind === "search" ? "bg-[#e60023] text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
+              )}>
+              <Search className="w-3 h-3" /> Search Trends
+            </button>
+            <button onClick={() => setTrendKind("shopping")}
+              className={cn("flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold transition-all",
+                trendKind === "shopping" ? "bg-[#e60023] text-white shadow-sm" : "text-gray-600 hover:bg-gray-100"
+              )}>
+              <ShoppingBag className="w-3 h-3" /> Shopping Trends <span className="text-[10px] opacity-70 ml-0.5">Beta</span>
+            </button>
+          </div>
         </div>
 
-        {/* Sub-tabs + Filters row */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Row 2: Trend type tabs in one row */}
+        {trendKind === "search" && (
+          <div className="flex items-center gap-2">
+            {(["growing","seasonal","monthly","yearly"] as const).map(t => (
+              <button key={t} onClick={() => setTrendTab(t)}
+                className={cn("text-xs px-4 py-2 rounded-lg font-semibold transition-all border",
+                  trendTab === t ? "bg-[#e60023] text-white border-[#e60023]" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                )}>
+                {t === "growing" ? "↗ Growing" : t === "seasonal" ? "✦ Seasonal" : t === "monthly" ? "⊟ Monthly" : "⊟ Yearly"}
+              </button>
+            ))}
+          </div>
+        )}
+        {trendKind === "shopping" && (
+          <div className="flex items-center gap-2">
+            <button className="text-xs px-4 py-2 rounded-lg font-semibold bg-[#e60023] text-white border border-[#e60023]">↗ Trending categories</button>
+            <button className="text-xs px-4 py-2 rounded-lg font-semibold bg-white text-gray-600 border border-gray-200 hover:border-gray-300">◇ All categories</button>
+          </div>
+        )}
+
+        {/* Row 3: Secondary filters (visible after tab selected) */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-orange-100 pt-3">
           {trendKind === "search" && (
             <>
-              {(["growing","seasonal","monthly","yearly"] as const).map(t => (
-                <button key={t} onClick={() => setTrendTab(t)}
-                  className={cn("text-xs px-3 py-1.5 rounded-lg font-semibold transition-all border",
-                    trendTab === t ? "bg-[#e60023] text-white border-[#e60023]" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                  )}>
-                  {t === "growing" ? "↗ Growing" : t === "seasonal" ? "✦ Seasonal" : t === "monthly" ? "⊟ Monthly" : "⊟ Yearly"}
-                </button>
-              ))}
-              <div className="h-5 w-px bg-gray-200 mx-1" />
-              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-                <Globe className="w-3 h-3 text-gray-400" />
-                <select value={location} onChange={e => setLocation(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
-                  {LOCATIONS.map(l => <option key={l}>{l}</option>)}
-                </select>
-              </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Filter className="w-3 h-3 text-gray-400" />
                 <select value={interest} onChange={e => setInterest(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
@@ -270,9 +283,6 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
           )}
           {trendKind === "shopping" && (
             <>
-              <button className="text-xs px-3 py-1.5 rounded-lg font-semibold bg-[#e60023] text-white border border-[#e60023]">↗ Trending categories</button>
-              <button className="text-xs px-3 py-1.5 rounded-lg font-semibold bg-white text-gray-600 border border-gray-200 hover:border-gray-300">◇ All categories</button>
-              <div className="h-5 w-px bg-gray-200 mx-1" />
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
                 <Filter className="w-3 h-3 text-gray-400" />
                 <select value={vertical} onChange={e => setVertical(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[120px]">
