@@ -178,15 +178,47 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
     setLoading(false);
   }, []);
 
-  const loadShopping = useCallback(() => {
+  const [shoppingIsLive, setShoppingIsLive] = useState(false);
+
+  const loadShopping = useCallback(async (loc: string, rb: string, vert: string, ag: string, gen: string) => {
     setLoading(true);
-    setTimeout(() => { setShopping(SAMPLE_SHOPPING); setLoading(false); }, 300);
+    const regionMap2: Record<string, string> = {
+      "United States": "US", "United Kingdom": "GB", "Canada": "CA",
+      "Australia": "AU", "Germany": "DE", "France": "FR", "Brazil": "BR", "India": "IN",
+    };
+    const region2 = regionMap2[loc] ?? "US";
+    try {
+      const params = new URLSearchParams({ region: region2, rankedBy: rb });
+      if (vert && vert !== "All Verticals") params.set("vertical", vert);
+      if (ag && ag !== "All Ages") params.set("age", ag);
+      if (gen && gen !== "All") params.set("gender", gen);
+      const res = await fetch(`/api/pinterest-shopping-trends?${params}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.live && Array.isArray(data.items) && data.items.length > 0) {
+          setShopping(data.items.map((it: { rank: number; category: string; growth: string; trend: "up"|"flat"|"down"; volume: number }, i: number) => ({
+            rank: it.rank ?? i + 1,
+            category: it.category,
+            outboundClicksGrowth: it.growth ?? "—",
+            trend: (it.trend ?? "flat") as "up" | "flat" | "down",
+            volume: it.volume ?? 50,
+            emoji: SAMPLE_SHOPPING[i % SAMPLE_SHOPPING.length]?.emoji ?? "📦",
+          })));
+          setShoppingIsLive(true);
+          setLoading(false);
+          return;
+        }
+      }
+    } catch { /* fallback */ }
+    setShopping(SAMPLE_SHOPPING);
+    setShoppingIsLive(false);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     if (trendKind === "search") loadTrends(trendTab, location, interest);
-    else loadShopping();
-  }, [trendKind, trendTab, location, interest, loadTrends, loadShopping]);
+    else loadShopping(location, rankedBy, vertical, age, gender);
+  }, [trendKind, trendTab, location, interest, rankedBy, vertical, age, gender, loadTrends, loadShopping]);
 
   return (
     <div className="border border-orange-100 rounded-2xl bg-gradient-to-br from-orange-50/60 to-red-50/30 overflow-hidden shadow-sm">
@@ -352,8 +384,8 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
               <span className="col-span-1">Rank</span>
               <span className="col-span-4">Product Category</span>
               <span className="col-span-2 text-center">Trend</span>
-              <span className="col-span-3 text-right">Clicks Growth</span>
-              <span className="col-span-2 text-right">Volume</span>
+              <span className="col-span-3 text-right">{rankedBy} Growth</span>
+              <span className="col-span-2 text-right">{rankedBy} Vol.</span>
             </div>
             <div className="divide-y divide-gray-50 max-h-56 overflow-y-auto">
               {shopping.map(s => (
@@ -387,7 +419,12 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
                 </div>
               ))}
             </div>
-            <p className="text-xs text-gray-400 py-2 text-center border-t border-gray-50">Shopping trends updated weekly · Sample data</p>
+            <p className="text-xs py-2 text-center border-t border-gray-50">
+              <span className={cn("font-semibold px-2 py-0.5 rounded-full text-xs", shoppingIsLive ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>
+                {shoppingIsLive ? "● Live" : "○ Sample data"}
+              </span>
+              {!shoppingIsLive && <span className="text-gray-400 ml-2">Connect Pinterest for live shopping trends</span>}
+            </p>
           </div>
         )}
       </div>
