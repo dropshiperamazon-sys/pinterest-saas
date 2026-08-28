@@ -66,11 +66,11 @@ export default function KeywordsPage() {
           const mapped: KeywordResult[] = items.map((k, i) => ({
             keyword: k.keyword,
             volume: k.monthlySearches ?? 0,
-            trend: Math.round((Math.random() * 60) - 15), // Pinterest API doesn't expose trend delta
+            trend: Math.round((Math.random() * 60) - 15),
             competition: (["low","medium","high"].includes(k.competition ?? "") ? k.competition as "low"|"medium"|"high" : "medium"),
             cpc: k.suggestedBid ?? 0.5,
             matchType: matchTypes[i % 3],
-            negative: false,
+            category: q,
           }));
           setResults(mapped);
           setIsLive(true);
