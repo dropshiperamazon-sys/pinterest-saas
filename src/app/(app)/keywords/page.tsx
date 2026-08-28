@@ -212,7 +212,15 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.trends) && data.trends.length > 0) {
-          setTrends(data.trends.slice(0, 15));
+          // Map API response — weekly/monthly/yearly derived from timeseries in route
+          const mapped: TrendItem[] = data.trends.slice(0, 15).map((t: TrendItem & { pctChangeFromLastYear?: number }) => ({
+            keyword: t.keyword,
+            pctChangeFromLastYear: t.pctChangeFromLastYear ?? null,
+            weeklyChange:  t.weeklyChange  ?? null,
+            monthlyChange: t.monthlyChange ?? null,
+            yearlyChange:  t.yearlyChange  ?? t.pctChangeFromLastYear ?? null,
+          }));
+          setTrends(mapped);
           setIsLive(true);
           setLoading(false);
           return;
