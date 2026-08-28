@@ -292,6 +292,8 @@ function getSynonyms(base: string): string[] {
 export function generateKeywords(query: string): KeywordResult[] {
   const base = query.toLowerCase().trim();
   const words = base.split(" ");
+  const thisYear = new Date().getFullYear();
+  const nextYear = thisYear + 1;
   const results: KeywordResult[] = [];
   const seen = new Set<string>();
 
@@ -339,7 +341,7 @@ export function generateKeywords(query: string): KeywordResult[] {
   // e.g. [running shoes] → "running shoes" / "running shoe" / "run shoes"
   const exactCloseSuffixes = [
     "ideas", "inspiration", "aesthetic", "design", "style", "styles",
-    "tutorial", "tips", "diy", "2024", "2025", "trends", "trend",
+    "tutorial", "tips", "diy", `${thisYear}`, `${nextYear}`, "trends", "trend",
     "pictures", "photos", "images", "wallpaper",
   ];
   exactCloseSuffixes.forEach((m) => add(`${base} ${m}`, "exact", 50000, 900000));
@@ -370,8 +372,8 @@ export function generateKeywords(query: string): KeywordResult[] {
     "for instagram", "that went viral", "you need to try",
     "for spring", "for summer", "for fall", "for winter",
     "for christmas", "for halloween", "for thanksgiving",
-    "under 50 dollars", "under 100 dollars", "ideas 2024", "ideas 2025",
-    "trends 2024", "trends 2025", "nobody talks about",
+    "under 50 dollars", "under 100 dollars", `ideas ${thisYear}`, `ideas ${nextYear}`,
+    `trends ${thisYear}`, `trends ${nextYear}`, "nobody talks about",
   ];
   phraseAfter.forEach((s) => add(`${base} ${s}`, "phrase", 8000, 450000));
 
@@ -385,8 +387,8 @@ export function generateKeywords(query: string): KeywordResult[] {
     `minimalist ${base} aesthetic`,
     `cozy ${base} vibes`,
     `aesthetic ${base} inspo`,
-    `trending ${base} ideas 2024`,
-    `trending ${base} ideas 2025`,
+    `trending ${base} ideas ${thisYear}`,
+    `trending ${base} ideas ${nextYear}`,
     `unique ${base} nobody has seen`,
     `diy ${base} step by step`,
     `luxury ${base} ideas`,
@@ -415,8 +417,8 @@ export function generateKeywords(query: string): KeywordResult[] {
     add(`best ${s}`, "broad", 5000, 250000);
     add(`${s} aesthetic`, "broad", 4000, 200000);
     add(`${s} tips`, "broad", 3000, 180000);
-    add(`${s} 2024`, "broad", 3000, 150000);
-    add(`${s} 2025`, "broad", 2000, 120000);
+    add(`${s} ${thisYear}`, "broad", 3000, 150000);
+    add(`${s} ${nextYear}`, "broad", 2000, 120000);
     add(`${s} for beginners`, "broad", 2000, 100000);
     add(`${s} on a budget`, "broad", 2000, 90000);
   });
