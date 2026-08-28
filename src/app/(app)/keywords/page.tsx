@@ -10,11 +10,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface TrendItem { keyword: string; pctChangeFromLastYear: number | null; trendType?: string; }
+interface TrendItem { keyword: string; pctChangeFromLastYear: number | null; weeklyChange?: number | null; monthlyChange?: number | null; yearlyChange?: number | null; searchVolume?: number | null; outboundClicksGrowth?: string | null; }
+interface ShoppingItem { rank: number; category: string; outboundClicksGrowth: string; trend: "up" | "flat" | "down"; }
 
 type SortKey = "volume" | "trend" | "competition" | "cpc";
 type MatchFilter = "all" | "broad" | "phrase" | "exact";
-type TrendTab = "growing" | "monthly" | "yearly" | "seasonal";
+type TrendTab = "growing" | "seasonal" | "monthly" | "yearly";
 type TrendKind = "search" | "shopping";
 
 const COMPETITION_COLOR: Record<string, string> = {
@@ -35,22 +36,95 @@ const MATCH_DESC: Record<string, string> = {
 };
 
 const LOCATIONS = ["United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "Brazil", "India"];
-const AGE_GROUPS = ["18–24", "25–34", "35–44", "45–54", "55+"];
+const AGE_GROUPS = ["All Ages", "18–24", "25–34", "35–44", "45–54", "55+"];
 const GENDERS = ["All", "Women", "Men"];
-const TIME_PERIODS = ["Last 7 days", "Last 30 days", "Last 90 days", "Last 12 months", "All time"];
-const TREND_CATEGORIES = ["All Categories", "Home Decor", "Fashion", "Beauty", "Food & Drink", "Travel", "Fitness", "DIY & Crafts", "Parenting", "Pets", "Technology", "Wedding"];
+const INTERESTS = ["All Interests", "Home Decor", "Fashion", "Beauty", "Food & Drink", "Travel", "Fitness", "DIY & Crafts", "Parenting", "Pets", "Technology", "Wedding", "Art", "Entertainment"];
+const MOMENTS = ["All Moments", "Back to School", "Halloween", "Thanksgiving", "Christmas", "New Year", "Valentine's Day", "Spring", "Summer", "Fall", "Winter"];
+const TOP_VERTICALS = ["All Verticals", "Home & Garden", "Apparel & Accessories", "Beauty", "Food & Beverages", "Sports & Fitness", "Electronics", "Toys & Games", "Health & Wellness"];
+const RANKED_BY = ["Outbound clicks", "Saves", "Impressions"];
+
+const SAMPLE_SHOPPING: ShoppingItem[] = [
+  { rank: 1, category: "Seasonal & Holiday Decorations", outboundClicksGrowth: "↑70% MoM", trend: "up" },
+  { rank: 2, category: "Women's Clothing & Dresses", outboundClicksGrowth: "↑45% MoM", trend: "up" },
+  { rank: 3, category: "Home Furniture & Decor", outboundClicksGrowth: "↑38% MoM", trend: "up" },
+  { rank: 4, category: "Skincare & Beauty Products", outboundClicksGrowth: "↑32% MoM", trend: "up" },
+  { rank: 5, category: "Kitchen & Dining", outboundClicksGrowth: "↑28% MoM", trend: "up" },
+  { rank: 6, category: "Activewear & Sportswear", outboundClicksGrowth: "↑24% MoM", trend: "up" },
+  { rank: 7, category: "Candles & Home Fragrance", outboundClicksGrowth: "↑21% MoM", trend: "up" },
+  { rank: 8, category: "Jewelry & Accessories", outboundClicksGrowth: "↑18% MoM", trend: "up" },
+  { rank: 9, category: "Bedding & Pillows", outboundClicksGrowth: "↑15% MoM", trend: "flat" },
+  { rank: 10, category: "Handbags & Purses", outboundClicksGrowth: "↑12% MoM", trend: "flat" },
+  { rank: 11, category: "Indoor Plants & Pots", outboundClicksGrowth: "↑10% MoM", trend: "flat" },
+  { rank: 12, category: "Art Prints & Wall Art", outboundClicksGrowth: "↑8% MoM", trend: "flat" },
+];
 
 // ── Trending Panel ───────────────────────────────────────────────────────────
+const SEARCH_SAMPLES: Record<TrendTab, TrendItem[]> = {
+  growing: [
+    { keyword: "Quiet Luxury Style", pctChangeFromLastYear: 312, weeklyChange: 28, monthlyChange: 89, yearlyChange: 312 },
+    { keyword: "Coastal Grandmother", pctChangeFromLastYear: 284, weeklyChange: 22, monthlyChange: 74, yearlyChange: 284 },
+    { keyword: "Mob Wife Aesthetic", pctChangeFromLastYear: 267, weeklyChange: 19, monthlyChange: 68, yearlyChange: 267 },
+    { keyword: "Mushroom Decor", pctChangeFromLastYear: 198, weeklyChange: 15, monthlyChange: 55, yearlyChange: 198 },
+    { keyword: "Coquette Style", pctChangeFromLastYear: 187, weeklyChange: 13, monthlyChange: 48, yearlyChange: 187 },
+    { keyword: "Dark Feminine Energy", pctChangeFromLastYear: 165, weeklyChange: 11, monthlyChange: 42, yearlyChange: 165 },
+    { keyword: "Linen Aesthetic", pctChangeFromLastYear: 152, weeklyChange: 9, monthlyChange: 38, yearlyChange: 152 },
+    { keyword: "Danish Pastel", pctChangeFromLastYear: 143, weeklyChange: 8, monthlyChange: 35, yearlyChange: 143 },
+    { keyword: "Cottagecore Outfits", pctChangeFromLastYear: 138, weeklyChange: 7, monthlyChange: 33, yearlyChange: 138 },
+    { keyword: "Soft Girl Aesthetic", pctChangeFromLastYear: 127, weeklyChange: 6, monthlyChange: 29, yearlyChange: 127 },
+    { keyword: "Demure Style", pctChangeFromLastYear: 119, weeklyChange: 5, monthlyChange: 26, yearlyChange: 119 },
+    { keyword: "Office Siren Outfit", pctChangeFromLastYear: 112, weeklyChange: 4, monthlyChange: 24, yearlyChange: 112 },
+  ],
+  seasonal: [
+    { keyword: "Fall Transition Outfits", pctChangeFromLastYear: 203, weeklyChange: 47, monthlyChange: 120, yearlyChange: 203 },
+    { keyword: "Hoco Response Ideas", pctChangeFromLastYear: 187, weeklyChange: 38, monthlyChange: 98, yearlyChange: 187 },
+    { keyword: "September Nail Colors", pctChangeFromLastYear: 171, weeklyChange: 31, monthlyChange: 85, yearlyChange: 171 },
+    { keyword: "Back to School Fits", pctChangeFromLastYear: 158, weeklyChange: 25, monthlyChange: 74, yearlyChange: 158 },
+    { keyword: "Autumn Aesthetic", pctChangeFromLastYear: 144, weeklyChange: 20, monthlyChange: 66, yearlyChange: 144 },
+    { keyword: "Simple September Nails", pctChangeFromLastYear: 132, weeklyChange: 17, monthlyChange: 59, yearlyChange: 132 },
+    { keyword: "Senior Sunrise Captions", pctChangeFromLastYear: 121, weeklyChange: 14, monthlyChange: 53, yearlyChange: 121 },
+    { keyword: "End of Summer Captions", pctChangeFromLastYear: 113, weeklyChange: 12, monthlyChange: 48, yearlyChange: 113 },
+    { keyword: "Fall Coffee Drinks", pctChangeFromLastYear: 105, weeklyChange: 10, monthlyChange: 44, yearlyChange: 105 },
+    { keyword: "Transition Season Looks", pctChangeFromLastYear: 98, weeklyChange: 9, monthlyChange: 40, yearlyChange: 98 },
+  ],
+  monthly: [
+    { keyword: "Fall Outfit Ideas", pctChangeFromLastYear: 89, weeklyChange: 18, monthlyChange: 89, yearlyChange: 45 },
+    { keyword: "Halloween Decor", pctChangeFromLastYear: 76, weeklyChange: 14, monthlyChange: 76, yearlyChange: 38 },
+    { keyword: "Pumpkin Recipes", pctChangeFromLastYear: 68, weeklyChange: 11, monthlyChange: 68, yearlyChange: 32 },
+    { keyword: "Back to School", pctChangeFromLastYear: 62, weeklyChange: 9, monthlyChange: 62, yearlyChange: 28 },
+    { keyword: "Autumn Tablescape", pctChangeFromLastYear: 55, weeklyChange: 7, monthlyChange: 55, yearlyChange: 24 },
+    { keyword: "Cozy Living Room", pctChangeFromLastYear: 48, weeklyChange: 6, monthlyChange: 48, yearlyChange: 21 },
+    { keyword: "Fall Nail Ideas", pctChangeFromLastYear: 44, weeklyChange: 5, monthlyChange: 44, yearlyChange: 19 },
+    { keyword: "Apple Picking Outfit", pctChangeFromLastYear: 41, weeklyChange: 5, monthlyChange: 41, yearlyChange: 18 },
+    { keyword: "Sweater Weather Looks", pctChangeFromLastYear: 38, weeklyChange: 4, monthlyChange: 38, yearlyChange: 16 },
+    { keyword: "Fall Wedding Ideas", pctChangeFromLastYear: 35, weeklyChange: 4, monthlyChange: 35, yearlyChange: 15 },
+  ],
+  yearly: [
+    { keyword: "Home Decor Ideas", pctChangeFromLastYear: 45, weeklyChange: 4, monthlyChange: 18, yearlyChange: 45 },
+    { keyword: "Healthy Meal Prep", pctChangeFromLastYear: 38, weeklyChange: 3, monthlyChange: 14, yearlyChange: 38 },
+    { keyword: "Workout Routine", pctChangeFromLastYear: 34, weeklyChange: 3, monthlyChange: 12, yearlyChange: 34 },
+    { keyword: "Budget Travel Tips", pctChangeFromLastYear: 31, weeklyChange: 2, monthlyChange: 11, yearlyChange: 31 },
+    { keyword: "DIY Home Projects", pctChangeFromLastYear: 28, weeklyChange: 2, monthlyChange: 10, yearlyChange: 28 },
+    { keyword: "Capsule Wardrobe", pctChangeFromLastYear: 25, weeklyChange: 2, monthlyChange: 9, yearlyChange: 25 },
+    { keyword: "Skincare Routine", pctChangeFromLastYear: 22, weeklyChange: 2, monthlyChange: 8, yearlyChange: 22 },
+    { keyword: "Indoor Plants", pctChangeFromLastYear: 19, weeklyChange: 1, monthlyChange: 7, yearlyChange: 19 },
+    { keyword: "Date Night Ideas", pctChangeFromLastYear: 17, weeklyChange: 1, monthlyChange: 6, yearlyChange: 17 },
+    { keyword: "Vision Board 2025", pctChangeFromLastYear: 15, weeklyChange: 1, monthlyChange: 5, yearlyChange: 15 },
+  ],
+};
+
 function TrendingPanel({ onSearch }: { onSearch: (q: string) => void }) {
   const [open, setOpen] = useState(false);
   const [trendTab, setTrendTab] = useState<TrendTab>("growing");
   const [trendKind, setTrendKind] = useState<TrendKind>("search");
   const [location, setLocation] = useState("United States");
-  const [age, setAge] = useState("All");
+  const [age, setAge] = useState("All Ages");
   const [gender, setGender] = useState("All");
-  const [timePeriod, setTimePeriod] = useState("Last 30 days");
-  const [category, setCategory] = useState("All Categories");
+  const [interest, setInterest] = useState("All Interests");
+  const [moment, setMoment] = useState("All Moments");
+  const [vertical, setVertical] = useState("All Verticals");
+  const [rankedBy, setRankedBy] = useState("Outbound clicks");
   const [trends, setTrends] = useState<TrendItem[]>([]);
+  const [shopping, setShopping] = useState<ShoppingItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [isLive, setIsLive] = useState(false);
 
@@ -59,96 +133,44 @@ function TrendingPanel({ onSearch }: { onSearch: (q: string) => void }) {
     "Australia": "AU", "Germany": "DE", "France": "FR", "Brazil": "BR", "India": "IN",
   };
 
-  const loadTrends = useCallback(async (tab: TrendTab, loc: string, cat: string) => {
+  const loadTrends = useCallback(async (tab: TrendTab, loc: string, intr: string) => {
     setLoading(true);
     const region = regionMap[loc] ?? "US";
-    const interest = cat !== "All Categories" ? cat : "";
+    const interestParam = intr !== "All Interests" ? intr : "";
     try {
-      const res = await fetch(`/api/pinterest-trends?type=${tab}&region=${region}${interest ? `&interest=${encodeURIComponent(interest)}` : ""}`);
+      const res = await fetch(`/api/pinterest-trends?type=${tab}&region=${region}${interestParam ? `&interest=${encodeURIComponent(interestParam)}` : ""}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.trends) && data.trends.length > 0) {
-          setTrends(data.trends.slice(0, 30));
+          setTrends(data.trends.slice(0, 15));
           setIsLive(true);
           setLoading(false);
           return;
         }
       }
     } catch { /* ignore */ }
-    // Fallback: sample trending data per tab
-    const samples: Record<TrendTab, TrendItem[]> = {
-      growing: [
-        { keyword: "Quiet Luxury Style", pctChangeFromLastYear: 312 },
-        { keyword: "Coastal Grandmother", pctChangeFromLastYear: 284 },
-        { keyword: "Mob Wife Aesthetic", pctChangeFromLastYear: 267 },
-        { keyword: "Mushroom Decor", pctChangeFromLastYear: 198 },
-        { keyword: "Coquette Style", pctChangeFromLastYear: 187 },
-        { keyword: "Dark Feminine Energy", pctChangeFromLastYear: 165 },
-        { keyword: "Linen Aesthetic", pctChangeFromLastYear: 152 },
-        { keyword: "Danish Pastel", pctChangeFromLastYear: 143 },
-        { keyword: "Cottagecore Outfits", pctChangeFromLastYear: 138 },
-        { keyword: "Soft Girl Aesthetic", pctChangeFromLastYear: 127 },
-        { keyword: "Demure Style", pctChangeFromLastYear: 119 },
-        { keyword: "Office Siren Outfit", pctChangeFromLastYear: 112 },
-        { keyword: "Pinterest Worthy Bedroom", pctChangeFromLastYear: 108 },
-        { keyword: "Terracotta Home Decor", pctChangeFromLastYear: 97 },
-        { keyword: "Whimsigoth Aesthetic", pctChangeFromLastYear: 91 },
-      ],
-      monthly: [
-        { keyword: "Fall Outfit Ideas", pctChangeFromLastYear: 89 },
-        { keyword: "Halloween Decor", pctChangeFromLastYear: 76 },
-        { keyword: "Pumpkin Recipes", pctChangeFromLastYear: 68 },
-        { keyword: "Back to School", pctChangeFromLastYear: 62 },
-        { keyword: "Autumn Tablescape", pctChangeFromLastYear: 55 },
-        { keyword: "Cozy Living Room", pctChangeFromLastYear: 48 },
-        { keyword: "Fall Nail Ideas", pctChangeFromLastYear: 44 },
-        { keyword: "Apple Picking Outfit", pctChangeFromLastYear: 41 },
-        { keyword: "Sweater Weather Looks", pctChangeFromLastYear: 38 },
-        { keyword: "Fall Wedding Ideas", pctChangeFromLastYear: 35 },
-        { keyword: "Thanksgiving Decor", pctChangeFromLastYear: 33 },
-        { keyword: "Hot Chocolate Recipes", pctChangeFromLastYear: 29 },
-      ],
-      yearly: [
-        { keyword: "Home Decor Ideas", pctChangeFromLastYear: 45 },
-        { keyword: "Healthy Meal Prep", pctChangeFromLastYear: 38 },
-        { keyword: "Workout Routine", pctChangeFromLastYear: 34 },
-        { keyword: "Budget Travel Tips", pctChangeFromLastYear: 31 },
-        { keyword: "DIY Home Projects", pctChangeFromLastYear: 28 },
-        { keyword: "Capsule Wardrobe", pctChangeFromLastYear: 25 },
-        { keyword: "Skincare Routine", pctChangeFromLastYear: 22 },
-        { keyword: "Indoor Plants", pctChangeFromLastYear: 19 },
-        { keyword: "Date Night Ideas", pctChangeFromLastYear: 17 },
-        { keyword: "Vision Board 2025", pctChangeFromLastYear: 15 },
-      ],
-      seasonal: [
-        { keyword: "Fall Transition Outfits", pctChangeFromLastYear: 203 },
-        { keyword: "Hoco Response Ideas", pctChangeFromLastYear: 187 },
-        { keyword: "September Nail Colors", pctChangeFromLastYear: 171 },
-        { keyword: "Back to School Fits", pctChangeFromLastYear: 158 },
-        { keyword: "Autumn Aesthetic", pctChangeFromLastYear: 144 },
-        { keyword: "Simple September Nails", pctChangeFromLastYear: 132 },
-        { keyword: "Senior Sunrise Captions", pctChangeFromLastYear: 121 },
-        { keyword: "End of Summer Captions", pctChangeFromLastYear: 113 },
-        { keyword: "Fall Coffee Drinks", pctChangeFromLastYear: 105 },
-        { keyword: "Transition Season Looks", pctChangeFromLastYear: 98 },
-      ],
-    };
-    setTrends(samples[tab]);
+    setTrends(SEARCH_SAMPLES[tab]);
     setIsLive(false);
     setLoading(false);
   }, []);
 
+  const loadShopping = useCallback(() => {
+    setLoading(true);
+    setTimeout(() => { setShopping(SAMPLE_SHOPPING); setLoading(false); }, 300);
+  }, []);
+
   useEffect(() => {
-    if (open) loadTrends(trendTab, location, category);
-  }, [open, trendTab, location, category, loadTrends]);
+    if (!open) return;
+    if (trendKind === "search") loadTrends(trendTab, location, interest);
+    else loadShopping();
+  }, [open, trendKind, trendTab, location, interest, loadTrends, loadShopping]);
 
   return (
     <div className="border-b border-gray-100">
       {/* Collapsed trigger */}
       <button
         onClick={() => setOpen(p => !p)}
-        className={cn(
-          "w-full flex items-center gap-3 px-4 py-3 transition-all",
+        className={cn("w-full flex items-center gap-3 px-4 py-3 transition-all",
           open ? "bg-gradient-to-r from-orange-50 to-red-50" : "hover:bg-orange-50/50"
         )}
       >
@@ -157,124 +179,183 @@ function TrendingPanel({ onSearch }: { onSearch: (q: string) => void }) {
         </div>
         <div className="flex-1 text-left">
           <div className="text-sm font-semibold text-gray-800">Pinterest Trending Now</div>
-          <div className="text-xs text-gray-500">Growing · Monthly · Yearly · Seasonal</div>
+          <div className="text-xs text-gray-500">Search Trends · Shopping Trends</div>
         </div>
         {isLive && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">● Live</span>}
         {open ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
       </button>
 
-      {/* Expanded panel */}
       {open && (
-        <div className="bg-gradient-to-br from-orange-50/50 to-red-50/30 border-t border-orange-100">
-          {/* Trend type + kind tabs */}
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex gap-1 bg-white rounded-xl p-1 border border-gray-100 shadow-sm">
-              <button
-                onClick={() => setTrendKind("search")}
-                className={cn("flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all",
-                  trendKind === "search" ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-50"
-                )}
-              >
-                <Search className="w-3 h-3" /> Search Trends
-              </button>
-              <button
-                onClick={() => setTrendKind("shopping")}
-                className={cn("flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-semibold transition-all",
-                  trendKind === "shopping" ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-50"
-                )}
-              >
-                <ShoppingBag className="w-3 h-3" /> Shopping Trends
-              </button>
-            </div>
-            <div className="flex gap-1">
-              {(["growing","monthly","yearly","seasonal"] as const).map(t => (
+        <div className="bg-gradient-to-br from-orange-50/40 to-red-50/20 border-t border-orange-100">
+          {/* Search / Shopping kind toggle */}
+          <div className="px-4 pt-3 pb-2 flex gap-1 bg-white/60">
+            <button onClick={() => setTrendKind("search")}
+              className={cn("flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-semibold transition-all flex-1 justify-center",
+                trendKind === "search" ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-100"
+              )}>
+              <Search className="w-3 h-3" /> Search Trends
+            </button>
+            <button onClick={() => setTrendKind("shopping")}
+              className={cn("flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg font-semibold transition-all flex-1 justify-center",
+                trendKind === "shopping" ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-100"
+              )}>
+              <ShoppingBag className="w-3 h-3" /> Shopping Trends <span className="text-[10px] opacity-70">Beta</span>
+            </button>
+          </div>
+
+          {/* Search Trends sub-tabs */}
+          {trendKind === "search" && (
+            <div className="px-4 py-2 flex gap-1 flex-wrap">
+              {(["growing","seasonal","monthly","yearly"] as const).map(t => (
                 <button key={t} onClick={() => setTrendTab(t)}
-                  className={cn("text-xs px-2.5 py-1.5 rounded-lg font-semibold capitalize transition-all border",
+                  className={cn("text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-all border",
                     trendTab === t ? "bg-[#e60023] text-white border-[#e60023]" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
                   )}>
-                  {t === "growing" ? "🚀 Growing" : t === "monthly" ? "📅 Monthly" : t === "yearly" ? "📊 Yearly" : "🌸 Seasonal"}
+                  {t === "growing" ? "↗ Growing trends" : t === "seasonal" ? "✦ Seasonal trends" : t === "monthly" ? "⊟ Top monthly" : "⊟ Top yearly"}
                 </button>
               ))}
             </div>
+          )}
+
+          {/* Shopping Trends sub-tabs */}
+          {trendKind === "shopping" && (
+            <div className="px-4 py-2 flex gap-1">
+              <button className="text-xs px-2.5 py-1.5 rounded-lg font-semibold bg-[#e60023] text-white border border-[#e60023]">↗ Trending categories</button>
+              <button className="text-xs px-2.5 py-1.5 rounded-lg font-semibold bg-white text-gray-600 border border-gray-200 hover:border-gray-300">◇ All categories</button>
+            </div>
+          )}
+
+          {/* Filters */}
+          <div className="px-4 pb-3 flex flex-wrap gap-2">
+            {/* Search Trends filters */}
+            {trendKind === "search" && (<>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <Globe className="w-3 h-3 text-gray-400" />
+                <select value={location} onChange={e => setLocation(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
+                  {LOCATIONS.map(l => <option key={l}>{l}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <Filter className="w-3 h-3 text-gray-400" />
+                <select value={interest} onChange={e => setInterest(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
+                  {INTERESTS.map(i => <option key={i}>{i}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <Calendar className="w-3 h-3 text-gray-400" />
+                <select value={moment} onChange={e => setMoment(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[100px]">
+                  {MOMENTS.map(m => <option key={m}>{m}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <Users className="w-3 h-3 text-gray-400" />
+                <select value={age} onChange={e => setAge(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[80px]">
+                  {AGE_GROUPS.map(a => <option key={a}>{a}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <Users className="w-3 h-3 text-gray-400" />
+                <select value={gender} onChange={e => setGender(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[70px]">
+                  {GENDERS.map(g => <option key={g}>{g}</option>)}
+                </select>
+              </div>
+            </>)}
+
+            {/* Shopping Trends filters */}
+            {trendKind === "shopping" && (<>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <Filter className="w-3 h-3 text-gray-400" />
+                <select value={vertical} onChange={e => setVertical(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[120px]">
+                  {TOP_VERTICALS.map(v => <option key={v}>{v}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <Users className="w-3 h-3 text-gray-400" />
+                <select value={age} onChange={e => setAge(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[80px]">
+                  {AGE_GROUPS.map(a => <option key={a}>{a}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <Users className="w-3 h-3 text-gray-400" />
+                <select value={gender} onChange={e => setGender(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[70px]">
+                  {GENDERS.map(g => <option key={g}>{g}</option>)}
+                </select>
+              </div>
+              <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
+                <BarChart2 className="w-3 h-3 text-gray-400" />
+                <select value={rankedBy} onChange={e => setRankedBy(e.target.value)}
+                  className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[110px]">
+                  {RANKED_BY.map(r => <option key={r}>Ranked by: {r}</option>)}
+                </select>
+              </div>
+            </>)}
           </div>
 
-          {/* Filters row */}
-          <div className="px-4 pb-3 flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-              <Globe className="w-3 h-3 text-gray-400" />
-              <select value={location} onChange={e => setLocation(e.target.value)}
-                className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium">
-                {LOCATIONS.map(l => <option key={l}>{l}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-              <Filter className="w-3 h-3 text-gray-400" />
-              <select value={category} onChange={e => setCategory(e.target.value)}
-                className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium">
-                {TREND_CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-              <Users className="w-3 h-3 text-gray-400" />
-              <select value={gender} onChange={e => setGender(e.target.value)}
-                className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium">
-                {GENDERS.map(g => <option key={g}>{g}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-              <Users className="w-3 h-3 text-gray-400" />
-              <select value={age} onChange={e => setAge(e.target.value)}
-                className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium">
-                <option value="All">All Ages</option>
-                {AGE_GROUPS.map(a => <option key={a}>{a}</option>)}
-              </select>
-            </div>
-            <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-              <Calendar className="w-3 h-3 text-gray-400" />
-              <select value={timePeriod} onChange={e => setTimePeriod(e.target.value)}
-                className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium">
-                {TIME_PERIODS.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-            {isLive && <span className="text-xs font-semibold px-2 py-1 rounded-full bg-green-100 text-green-700 ml-auto">● Live Pinterest Data</span>}
-          </div>
-
-          {/* Trending keywords grid */}
+          {/* Results */}
           {loading ? (
             <div className="flex items-center justify-center py-6">
               <div className="w-5 h-5 border-2 border-orange-200 border-t-orange-500 rounded-full animate-spin" />
             </div>
-          ) : (
+          ) : trendKind === "search" ? (
+            /* Search Trends table */
             <div className="px-4 pb-4">
               <div className="bg-white rounded-xl border border-orange-100 overflow-hidden">
-                <div className="divide-y divide-gray-50">
+                <div className="grid grid-cols-4 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                  <span className="col-span-2">Keyword</span>
+                  <span className="text-right">Weekly</span>
+                  <span className="text-right">Monthly</span>
+                </div>
+                <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
                   {trends.map((t, i) => (
-                    <button
-                      key={t.keyword}
-                      onClick={() => { onSearch(t.keyword); setOpen(false); }}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-orange-50 transition-colors group"
-                    >
-                      <span className="text-xs text-gray-400 w-6 flex-shrink-0 font-bold">#{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-semibold text-gray-800 capitalize group-hover:text-[#e60023] transition-colors">
-                          {t.keyword}
-                        </div>
-                        <div className="text-xs text-gray-400 capitalize">{trendTab} · {trendKind}</div>
+                    <button key={t.keyword} onClick={() => { onSearch(t.keyword); setOpen(false); }}
+                      className="w-full grid grid-cols-4 items-center px-3 py-2.5 text-left hover:bg-orange-50 transition-colors group">
+                      <div className="col-span-2 flex items-center gap-2">
+                        <span className="text-xs text-gray-400 w-5 font-bold flex-shrink-0">#{i + 1}</span>
+                        <span className="text-xs font-semibold text-gray-800 capitalize group-hover:text-[#e60023] transition-colors">{t.keyword}</span>
                       </div>
-                      {t.pctChangeFromLastYear !== null ? (
-                        <span className={cn("text-xs font-bold flex-shrink-0",
-                          t.pctChangeFromLastYear >= 0 ? "text-green-600" : "text-red-500"
-                        )}>
-                          {t.pctChangeFromLastYear >= 0 ? "+" : ""}{t.pctChangeFromLastYear}%
-                        </span>
-                      ) : (
-                        <TrendingUp className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                      )}
+                      <span className={cn("text-xs font-bold text-right", (t.weeklyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
+                        {(t.weeklyChange ?? 0) >= 0 ? "+" : ""}{t.weeklyChange ?? "—"}%
+                      </span>
+                      <span className={cn("text-xs font-bold text-right", (t.monthlyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
+                        {(t.monthlyChange ?? 0) >= 0 ? "+" : ""}{t.monthlyChange ?? "—"}%
+                      </span>
                     </button>
                   ))}
                 </div>
               </div>
-              <p className="text-xs text-gray-400 mt-2 text-center">Click any keyword to search → populates keyword table above</p>
+              {!isLive && <p className="text-xs text-gray-400 mt-1.5 text-center">Sample data · Connect Pinterest for live trends</p>}
+            </div>
+          ) : (
+            /* Shopping Trends table */
+            <div className="px-4 pb-4">
+              <div className="bg-white rounded-xl border border-orange-100 overflow-hidden">
+                <div className="grid grid-cols-12 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                  <span className="col-span-1">Rank</span>
+                  <span className="col-span-8">Product Category</span>
+                  <span className="col-span-3 text-right">Clicks Growth</span>
+                </div>
+                <div className="divide-y divide-gray-50 max-h-72 overflow-y-auto">
+                  {shopping.map(s => (
+                    <div key={s.category} className="grid grid-cols-12 items-center px-3 py-2.5">
+                      <span className="col-span-1 text-xs font-bold text-gray-400">{s.rank}</span>
+                      <div className="col-span-8 flex items-center gap-2">
+                        <div className="w-6 h-6 bg-gradient-to-br from-orange-100 to-red-100 rounded-md flex-shrink-0" />
+                        <span className="text-xs font-semibold text-gray-800">{s.category}</span>
+                      </div>
+                      <span className="col-span-3 text-xs font-bold text-green-600 text-right">{s.outboundClicksGrowth}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5 text-center">Shopping trends updated weekly · Sample data</p>
             </div>
           )}
         </div>
