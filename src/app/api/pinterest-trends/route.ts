@@ -21,20 +21,12 @@ async function pinterestGet(path: string, token: string) {
   try { return JSON.parse(text); } catch { return null; }
 }
 
-function pct(current: number, previous: number): number | null {
-  if (!previous || previous === 0) return null;
-  return Math.round(((current - previous) / previous) * 100);
-}
-
-function deriveFromTimeseries(ts: { date: string; value: number }[]) {
-  if (!ts || ts.length < 2) return { weekly: null, monthly: null };
-  const sorted = [...ts].sort((a, b) => a.date.localeCompare(b.date));
-  const last = sorted[sorted.length - 1].value;
-  // weekly: compare to ~1 week back (index -2 in weekly data, or -7 in daily)
-  const weekBase = sorted[Math.max(0, sorted.length - 2)].value;
-  // monthly: compare to ~4 weeks back
-  const monthBase = sorted[Math.max(0, sorted.length - 5)].value;
-  return { weekly: pct(last, weekBase), monthly: pct(last, monthBase) };
+// time_series comes as { "2026-08-23": 100, ... } — convert to sorted array
+function parseTimeSeries(ts: Record<string, number> | null): { date: string; value: number }[] {
+  if (!ts || typeof ts !== "object") return [];
+  return Object.entries(ts)
+    .map(([date, value]) => ({ date, value }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function GET(req: Request) {
@@ -52,14 +44,10 @@ export async function GET(req: Request) {
   const trendType = searchParams.get("type")     ?? "growing";
   const interest  = searchParams.get("interest") ?? "";
 
-  // Try with timeseries first, then without (some API versions don't support the param)
-  let data: Record<string, unknown> | null = null;
-  for (const tsParam of ["&include_timeseries=true", ""]) {
-    let path = `/trends/keywords/${region}/top/${trendType}?limit=25${tsParam}`;
-    if (interest) path += `&interests=${encodeURIComponent(interest)}`;
-    data = await pinterestGet(path, accessToken);
-    if (data) break;
-  }
+  let path = `/trends/keywords/${region}/top/${trendType}?limit=25`;
+  if (interest) path += `&interests=${encodeURIComponent(interest)}`;
+
+  const data = await pinterestGet(path, accessToken);
 
   if (!data) {
     return NextResponse.json({ error: "Trends API unavailable", trends: [] }, { status: 200 });
@@ -69,45 +57,13 @@ export async function GET(req: Request) {
     ? data
     : (data.trends ?? data.keywords ?? data.items ?? []) as Record<string, unknown>[];
 
-  // Log the first item so we can see ALL fields Pinterest returns
-  if (items.length > 0) {
-    console.log("Pinterest trends first item fields:", JSON.stringify(items[0], null, 2));
-  }
-
   const trends = items.map((item) => {
-    const ts = (item.timeseries ?? item.trend_data ?? []) as { date: string; value: number }[];
-    const derived = deriveFromTimeseries(ts);
+    // Pinterest API returns pct_growth_wow / pct_growth_mom / pct_growth_yoy
+    const weekly  = (item.pct_growth_wow ?? null) as number | null;
+    const monthly = (item.pct_growth_mom ?? null) as number | null;
+    const yearly  = (item.pct_growth_yoy ?? item.pct_change_from_last_year ?? null) as number | null;
 
-    // Try every field name variant Pinterest might use for each metric
-    const weekly = (
-      item.weekly_change ??
-      item.week_over_week ??
-      item.wow_change ??
-      item.weekly_trend ??
-      (item.trend_data as Record<string,unknown>)?.weekly_change ??
-      derived.weekly ??
-      null
-    ) as number | null;
-
-    const monthly = (
-      item.monthly_change ??
-      item.mom_change ??
-      item.month_over_month ??
-      item.monthly_trend ??
-      (item.trend_data as Record<string,unknown>)?.monthly_change ??
-      derived.monthly ??
-      null
-    ) as number | null;
-
-    const yearly = (
-      item.pct_change_from_last_year ??
-      item.yearly_change ??
-      item.yoy_change ??
-      item.year_over_year ??
-      item.trend ??
-      item.change ??
-      null
-    ) as number | null;
+    const timeseries = parseTimeSeries(item.time_series as Record<string, number> | null);
 
     return {
       keyword: (item.keyword ?? item.term ?? item.name ?? "") as string,
@@ -116,7 +72,7 @@ export async function GET(req: Request) {
       yearlyChange:  yearly,
       pctChangeFromLastYear: yearly,
       trendType: (item.trend_type ?? trendType) as string,
-      timeseries: ts,
+      timeseries,
     };
   }).filter(t => t.keyword);
 

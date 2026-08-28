@@ -395,13 +395,13 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
                     <span className="text-sm font-semibold text-gray-800 capitalize group-hover:text-[#e60023] transition-colors">{t.keyword}</span>
                   </div>
                   <span className={cn("col-span-2 text-xs font-bold text-right", (t.weeklyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
-                    {(t.weeklyChange ?? 0) >= 0 ? "+" : ""}{t.weeklyChange ?? "—"}%
+                    {t.weeklyChange == null ? "—" : `${t.weeklyChange >= 0 ? "+" : ""}${t.weeklyChange >= 10000 ? "10,000%+" : `${t.weeklyChange}%`}`}
                   </span>
                   <span className={cn("col-span-2 text-xs font-bold text-right", (t.monthlyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
-                    {(t.monthlyChange ?? 0) >= 0 ? "+" : ""}{t.monthlyChange ?? "—"}%
+                    {t.monthlyChange == null ? "—" : `${t.monthlyChange >= 0 ? "+" : ""}${t.monthlyChange >= 10000 ? "10,000%+" : `${t.monthlyChange}%`}`}
                   </span>
                   <span className={cn("col-span-2 text-xs font-bold text-right", (t.yearlyChange ?? 0) >= 0 ? "text-green-600" : "text-red-500")}>
-                    {(t.yearlyChange ?? 0) >= 0 ? "+" : ""}{t.yearlyChange ?? "—"}%
+                    {t.yearlyChange == null ? "—" : `${t.yearlyChange >= 0 ? "+" : ""}${t.yearlyChange >= 10000 ? "10,000%+" : `${t.yearlyChange}%`}`}
                   </span>
                 </button>
               ))}
