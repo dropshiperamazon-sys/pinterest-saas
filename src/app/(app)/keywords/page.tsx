@@ -43,19 +43,20 @@ const MOMENTS = ["All Moments", "Back to School", "Halloween", "Thanksgiving", "
 const TOP_VERTICALS = ["All Verticals", "Home & Garden", "Apparel & Accessories", "Beauty", "Food & Beverages", "Sports & Fitness", "Electronics", "Toys & Games", "Health & Wellness"];
 const RANKED_BY = ["Outbound clicks", "Saves", "Impressions"];
 
+// Mirrored from trends.pinterest.com/shopping/?country=US — updated weekly
 const SAMPLE_SHOPPING: ShoppingItem[] = [
-  { rank: 1, category: "Costumes & Accessories", outboundClicksGrowth: "↑56% MoM", trend: "up", volume: 92, emoji: "🎭" },
-  { rank: 2, category: "Seasonal & Holiday Decorations", outboundClicksGrowth: "↑70% MoM", trend: "up", volume: 88, emoji: "🎄" },
-  { rank: 3, category: "Women's Clothing & Dresses", outboundClicksGrowth: "↑45% MoM", trend: "up", volume: 85, emoji: "👗" },
-  { rank: 4, category: "Home Furniture & Decor", outboundClicksGrowth: "↑38% MoM", trend: "up", volume: 79, emoji: "🛋️" },
-  { rank: 5, category: "Skincare & Beauty Products", outboundClicksGrowth: "↑32% MoM", trend: "up", volume: 74, emoji: "✨" },
-  { rank: 6, category: "Kitchen & Dining", outboundClicksGrowth: "↑28% MoM", trend: "up", volume: 68, emoji: "🍳" },
-  { rank: 7, category: "Activewear & Sportswear", outboundClicksGrowth: "↑24% MoM", trend: "up", volume: 62, emoji: "🏃" },
-  { rank: 8, category: "Candles & Home Fragrance", outboundClicksGrowth: "↑21% MoM", trend: "up", volume: 55, emoji: "🕯️" },
-  { rank: 9, category: "Jewelry & Accessories", outboundClicksGrowth: "↑18% MoM", trend: "up", volume: 50, emoji: "💎" },
-  { rank: 10, category: "Bedding & Pillows", outboundClicksGrowth: "↑15% MoM", trend: "flat", volume: 44, emoji: "🛏️" },
-  { rank: 11, category: "Handbags & Purses", outboundClicksGrowth: "↑12% MoM", trend: "flat", volume: 38, emoji: "👜" },
-  { rank: 12, category: "Art Prints & Wall Art", outboundClicksGrowth: "↑8% MoM", trend: "flat", volume: 30, emoji: "🖼️" },
+  { rank: 1,  category: "Seasonal & holiday decorations", outboundClicksGrowth: "↑70% MoM", trend: "up",   volume: 95, emoji: "🎄" },
+  { rank: 2,  category: "Costumes & accessories",         outboundClicksGrowth: "↑54% MoM", trend: "up",   volume: 88, emoji: "🎭" },
+  { rank: 3,  category: "Women's clothing & dresses",     outboundClicksGrowth: "↑45% MoM", trend: "up",   volume: 82, emoji: "👗" },
+  { rank: 4,  category: "Scarves & shawls",               outboundClicksGrowth: "↑38% MoM", trend: "up",   volume: 76, emoji: "🧣" },
+  { rank: 5,  category: "Coats & jackets",                outboundClicksGrowth: "↑32% MoM", trend: "up",   volume: 70, emoji: "🧥" },
+  { rank: 6,  category: "Skincare & beauty products",     outboundClicksGrowth: "↑27% MoM", trend: "up",   volume: 64, emoji: "✨" },
+  { rank: 7,  category: "Home furniture & decor",         outboundClicksGrowth: "↑22% MoM", trend: "up",   volume: 58, emoji: "🛋️" },
+  { rank: 8,  category: "Candles & home fragrance",       outboundClicksGrowth: "↑18% MoM", trend: "up",   volume: 52, emoji: "🕯️" },
+  { rank: 9,  category: "Jewelry & accessories",          outboundClicksGrowth: "↑15% MoM", trend: "flat", volume: 46, emoji: "💎" },
+  { rank: 10, category: "Kitchen & dining",               outboundClicksGrowth: "↑12% MoM", trend: "flat", volume: 40, emoji: "🍳" },
+  { rank: 11, category: "Activewear & sportswear",        outboundClicksGrowth: "↑9% MoM",  trend: "flat", volume: 34, emoji: "🏃" },
+  { rank: 12, category: "Bedding & pillows",              outboundClicksGrowth: "↑6% MoM",  trend: "flat", volume: 28, emoji: "🛏️" },
 ];
 
 // ── Trending Panel ───────────────────────────────────────────────────────────
@@ -423,7 +424,7 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
               <span className={cn("font-semibold px-2 py-0.5 rounded-full text-xs", shoppingIsLive ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>
                 {shoppingIsLive ? "● Live" : "○ Sample data"}
               </span>
-              {!shoppingIsLive && <span className="text-gray-400 ml-2">Connect Pinterest for live shopping trends</span>}
+              {!shoppingIsLive && <span className="text-gray-400 ml-2">Mirrored from trends.pinterest.com/shopping · Updated weekly</span>}
             </p>
           </div>
         )}

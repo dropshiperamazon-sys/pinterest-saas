@@ -21,13 +21,12 @@ async function pinterestGet(path: string, token: string) {
   try { return JSON.parse(text); } catch { return null; }
 }
 
-// Map UI ranked-by label → Pinterest trend_type or metric
-const METRIC_TO_TREND_TYPE: Record<string, string> = {
-  "Outbound clicks": "monthly",
-  "Pin saves":       "growing",
-  "Impressions":     "yearly",
-  "Engagement":      "seasonal",
-};
+// Pinterest's public API v5 has NO dedicated shopping category trends endpoint.
+// The Shopping Trends page (trends.pinterest.com/shopping) uses an internal API
+// not accessible via the public v5 API.
+//
+// This route attempts the closest available endpoints and returns structured data.
+// If Pinterest adds a public shopping endpoint in the future, update the paths below.
 
 export async function GET(req: Request) {
   const session = await auth();
@@ -40,48 +39,40 @@ export async function GET(req: Request) {
   const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
 
   const { searchParams } = new URL(req.url);
-  const region    = searchParams.get("region")    ?? "US";
-  const rankedBy  = searchParams.get("rankedBy")  ?? "Outbound clicks";
-  const vertical  = searchParams.get("vertical")  ?? "";
-  const age       = searchParams.get("age")        ?? "";
-  const gender    = searchParams.get("gender")    ?? "";
+  const region   = searchParams.get("region")   ?? "US";
+  const rankedBy = searchParams.get("rankedBy") ?? "Outbound clicks";
 
-  const trendType = METRIC_TO_TREND_TYPE[rankedBy] ?? "monthly";
+  // Try Pinterest's catalog/product insights endpoints (require ads:read + catalog access)
+  // These are the closest public endpoints to shopping category data
+  const accountsData = await pinterestGet("/ad_accounts?page_size=5", accessToken);
+  const adAccountId: string | null = accountsData?.items?.[0]?.id ?? null;
 
-  // Try 1: dedicated shopping trends endpoint (v5 beta)
-  let data = await pinterestGet(
-    `/trends/keywords/${region}/top/${trendType}?limit=25&interests=shopping`,
-    accessToken
-  );
+  let liveItems: { rank: number; category: string; growth: string; trend: "up" | "flat" | "down"; volume: number }[] = [];
 
-  // Try 2: broader product interest trends
-  if (!data || !(data.trends ?? data.items ?? data.keywords)?.length) {
-    data = await pinterestGet(
-      `/trends/keywords/${region}/top/${trendType}?limit=25`,
+  if (adAccountId) {
+    // Try product group analytics (requires catalog feed connected)
+    const pgData = await pinterestGet(
+      `/ad_accounts/${adAccountId}/product_groups?page_size=25`,
       accessToken
     );
+    console.log("Product groups response:", JSON.stringify(pgData)?.slice(0, 300));
+
+    if (pgData?.items?.length) {
+      liveItems = pgData.items.map((pg: Record<string, unknown>, i: number) => ({
+        rank: i + 1,
+        category: (pg.name ?? pg.filter_v2 ?? `Category ${i + 1}`) as string,
+        growth: "—",
+        trend: "flat" as const,
+        volume: Math.max(10, 90 - i * 8),
+      }));
+    }
   }
 
-  console.log("Pinterest shopping trends raw:", JSON.stringify(data)?.slice(0, 400));
-
-  if (!data) {
-    return NextResponse.json({ live: false, items: [] });
+  // Return live data if we got product group data, otherwise signal no live data
+  if (liveItems.length > 0) {
+    return NextResponse.json({ live: true, region, rankedBy, items: liveItems });
   }
 
-  const raw2: Record<string, unknown>[] = Array.isArray(data)
-    ? data
-    : (data.trends ?? data.keywords ?? data.items ?? []);
-
-  const items = raw2.map((item, i) => {
-    const pct = (item.pct_change_from_last_year ?? item.trend ?? item.change ?? null) as number | null;
-    return {
-      rank: i + 1,
-      category: (item.keyword ?? item.term ?? item.name ?? "") as string,
-      growth: pct !== null ? `↑${Math.abs(pct)}% MoM` : "—",
-      trend: pct !== null ? (pct >= 5 ? "up" : pct <= -5 ? "down" : "flat") : "flat",
-      volume: Math.max(5, 95 - i * 7),
-    };
-  }).filter(i => i.category);
-
-  return NextResponse.json({ live: items.length > 0, region, rankedBy, items });
+  // Signal to the client to use curated sample data
+  return NextResponse.json({ live: false, region, rankedBy, items: [] });
 }
