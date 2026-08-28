@@ -344,7 +344,10 @@ export function generateKeywords(query: string): KeywordResult[] {
     "tutorial", "tips", "diy", `${thisYear}`, `${nextYear}`, "trends", "trend",
     "pictures", "photos", "images", "wallpaper",
   ];
-  exactCloseSuffixes.forEach((m) => add(`${base} ${m}`, "exact", 50000, 900000));
+  const baseWords = new Set(base.split(" "));
+  exactCloseSuffixes
+    .filter(m => !baseWords.has(m.split(" ")[0]))
+    .forEach((m) => add(`${base} ${m}`, "exact", 50000, 900000));
 
   // ── PHRASE MATCH ──────────────────────────────────────────────────────────
   // Ad shows when search CONTAINS the keyword meaning, with extra words before or after.
@@ -411,16 +414,17 @@ export function generateKeywords(query: string): KeywordResult[] {
 
   // Synonym keywords on their own (the core of true broad match)
   synonyms.forEach((s) => {
+    const sWords = new Set(s.split(" "));
     add(s, "broad", 15000, 700000);
-    add(`${s} ideas`, "broad", 8000, 400000);
-    add(`${s} inspiration`, "broad", 6000, 300000);
+    if (!sWords.has("ideas"))       add(`${s} ideas`, "broad", 8000, 400000);
+    if (!sWords.has("inspiration")) add(`${s} inspiration`, "broad", 6000, 300000);
     add(`best ${s}`, "broad", 5000, 250000);
-    add(`${s} aesthetic`, "broad", 4000, 200000);
-    add(`${s} tips`, "broad", 3000, 180000);
+    if (!sWords.has("aesthetic"))   add(`${s} aesthetic`, "broad", 4000, 200000);
+    if (!sWords.has("tips"))        add(`${s} tips`, "broad", 3000, 180000);
     add(`${s} ${thisYear}`, "broad", 3000, 150000);
     add(`${s} ${nextYear}`, "broad", 2000, 120000);
-    add(`${s} for beginners`, "broad", 2000, 100000);
-    add(`${s} on a budget`, "broad", 2000, 90000);
+    if (!sWords.has("for"))         add(`${s} for beginners`, "broad", 2000, 100000);
+    if (!sWords.has("on"))          add(`${s} on a budget`, "broad", 2000, 90000);
   });
 
   // Related intent / category-level concepts (broader audience discovery)

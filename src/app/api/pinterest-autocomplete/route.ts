@@ -60,14 +60,15 @@ function fallbackSuggestions(q: string): string[] {
   const match = CONTEXT_MODIFIERS.find(c => c.patterns.test(q));
   const suffixes = match?.suffixes ?? DEFAULT_SUFFIXES;
   const base = q.toLowerCase().trim();
-  // Avoid duplicating the last word of q in the suffix (e.g. "nails ideas" → "nails ideas ideas")
+  const baseWords = new Set(base.split(" "));
+
   return suffixes
-    .map(s => `${base} ${s}`)
     .filter(s => {
-      const words = base.split(" ");
-      const lastWord = words[words.length - 1];
-      return !s.trim().endsWith(lastWord) || s === `${base} ${suffixes[0]}`;
+      // Skip suffix if its first word is already in the query (avoids "ideas ideas", "aesthetic aesthetic")
+      const firstWord = s.split(" ")[0];
+      return !baseWords.has(firstWord);
     })
+    .map(s => `${base} ${s}`)
     .slice(0, 10);
 }
 
