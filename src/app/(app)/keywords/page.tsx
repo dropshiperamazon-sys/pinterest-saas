@@ -11,7 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 
 interface TrendItem { keyword: string; pctChangeFromLastYear: number | null; weeklyChange?: number | null; monthlyChange?: number | null; yearlyChange?: number | null; searchVolume?: number | null; outboundClicksGrowth?: string | null; }
-interface ShoppingItem { rank: number; category: string; outboundClicksGrowth: string; trend: "up" | "flat" | "down"; }
+interface ShoppingItem { rank: number; category: string; outboundClicksGrowth: string; trend: "up" | "flat" | "down"; volume: number; emoji: string; }
 
 type SortKey = "volume" | "trend" | "competition" | "cpc";
 type MatchFilter = "all" | "broad" | "phrase" | "exact";
@@ -44,18 +44,18 @@ const TOP_VERTICALS = ["All Verticals", "Home & Garden", "Apparel & Accessories"
 const RANKED_BY = ["Outbound clicks", "Saves", "Impressions"];
 
 const SAMPLE_SHOPPING: ShoppingItem[] = [
-  { rank: 1, category: "Seasonal & Holiday Decorations", outboundClicksGrowth: "↑70% MoM", trend: "up" },
-  { rank: 2, category: "Women's Clothing & Dresses", outboundClicksGrowth: "↑45% MoM", trend: "up" },
-  { rank: 3, category: "Home Furniture & Decor", outboundClicksGrowth: "↑38% MoM", trend: "up" },
-  { rank: 4, category: "Skincare & Beauty Products", outboundClicksGrowth: "↑32% MoM", trend: "up" },
-  { rank: 5, category: "Kitchen & Dining", outboundClicksGrowth: "↑28% MoM", trend: "up" },
-  { rank: 6, category: "Activewear & Sportswear", outboundClicksGrowth: "↑24% MoM", trend: "up" },
-  { rank: 7, category: "Candles & Home Fragrance", outboundClicksGrowth: "↑21% MoM", trend: "up" },
-  { rank: 8, category: "Jewelry & Accessories", outboundClicksGrowth: "↑18% MoM", trend: "up" },
-  { rank: 9, category: "Bedding & Pillows", outboundClicksGrowth: "↑15% MoM", trend: "flat" },
-  { rank: 10, category: "Handbags & Purses", outboundClicksGrowth: "↑12% MoM", trend: "flat" },
-  { rank: 11, category: "Indoor Plants & Pots", outboundClicksGrowth: "↑10% MoM", trend: "flat" },
-  { rank: 12, category: "Art Prints & Wall Art", outboundClicksGrowth: "↑8% MoM", trend: "flat" },
+  { rank: 1, category: "Costumes & Accessories", outboundClicksGrowth: "↑56% MoM", trend: "up", volume: 92, emoji: "🎭" },
+  { rank: 2, category: "Seasonal & Holiday Decorations", outboundClicksGrowth: "↑70% MoM", trend: "up", volume: 88, emoji: "🎄" },
+  { rank: 3, category: "Women's Clothing & Dresses", outboundClicksGrowth: "↑45% MoM", trend: "up", volume: 85, emoji: "👗" },
+  { rank: 4, category: "Home Furniture & Decor", outboundClicksGrowth: "↑38% MoM", trend: "up", volume: 79, emoji: "🛋️" },
+  { rank: 5, category: "Skincare & Beauty Products", outboundClicksGrowth: "↑32% MoM", trend: "up", volume: 74, emoji: "✨" },
+  { rank: 6, category: "Kitchen & Dining", outboundClicksGrowth: "↑28% MoM", trend: "up", volume: 68, emoji: "🍳" },
+  { rank: 7, category: "Activewear & Sportswear", outboundClicksGrowth: "↑24% MoM", trend: "up", volume: 62, emoji: "🏃" },
+  { rank: 8, category: "Candles & Home Fragrance", outboundClicksGrowth: "↑21% MoM", trend: "up", volume: 55, emoji: "🕯️" },
+  { rank: 9, category: "Jewelry & Accessories", outboundClicksGrowth: "↑18% MoM", trend: "up", volume: 50, emoji: "💎" },
+  { rank: 10, category: "Bedding & Pillows", outboundClicksGrowth: "↑15% MoM", trend: "flat", volume: 44, emoji: "🛏️" },
+  { rank: 11, category: "Handbags & Purses", outboundClicksGrowth: "↑12% MoM", trend: "flat", volume: 38, emoji: "👜" },
+  { rank: 12, category: "Art Prints & Wall Art", outboundClicksGrowth: "↑8% MoM", trend: "flat", volume: 30, emoji: "🖼️" },
 ];
 
 // ── Trending Panel ───────────────────────────────────────────────────────────
@@ -349,19 +349,41 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
         ) : (
           <div className="bg-white rounded-xl border border-orange-100 overflow-hidden">
             <div className="grid grid-cols-12 bg-gray-50 px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
-              <span className="col-span-1">#</span>
-              <span className="col-span-9">Product Category</span>
-              <span className="col-span-2 text-right">Clicks Growth</span>
+              <span className="col-span-1">Rank</span>
+              <span className="col-span-4">Product Category</span>
+              <span className="col-span-2 text-center">Trend</span>
+              <span className="col-span-3 text-right">Clicks Growth</span>
+              <span className="col-span-2 text-right">Volume</span>
             </div>
             <div className="divide-y divide-gray-50 max-h-56 overflow-y-auto">
               {shopping.map(s => (
-                <div key={s.category} className="grid grid-cols-12 items-center px-4 py-2.5">
-                  <span className="col-span-1 text-xs font-bold text-gray-400">{s.rank}</span>
-                  <div className="col-span-9 flex items-center gap-2">
-                    <div className="w-6 h-6 bg-gradient-to-br from-orange-100 to-red-100 rounded-md flex-shrink-0" />
-                    <span className="text-sm font-semibold text-gray-800">{s.category}</span>
+                <div key={s.category} className="grid grid-cols-12 items-center px-4 py-3 hover:bg-orange-50/40 transition-colors">
+                  <span className="col-span-1 text-sm font-bold text-blue-600">{s.rank}</span>
+                  <div className="col-span-4 flex items-center gap-2">
+                    <span className="text-xl flex-shrink-0">{s.emoji}</span>
+                    <span className="text-xs font-semibold text-gray-800 leading-tight">{s.category}</span>
                   </div>
-                  <span className="col-span-2 text-xs font-bold text-green-600 text-right">{s.outboundClicksGrowth}</span>
+                  {/* Mini sparkline using SVG */}
+                  <div className="col-span-2 flex justify-center">
+                    <svg width="48" height="24" viewBox="0 0 48 24">
+                      {s.trend === "up" ? (
+                        <polyline points="0,20 12,16 24,10 36,5 48,1" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      ) : s.trend === "down" ? (
+                        <polyline points="0,4 12,8 24,14 36,18 48,22" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      ) : (
+                        <polyline points="0,12 12,10 24,13 36,11 48,12" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      )}
+                    </svg>
+                  </div>
+                  <span className={cn("col-span-3 text-xs font-bold text-right", s.trend === "up" ? "text-green-600" : s.trend === "down" ? "text-red-500" : "text-gray-500")}>
+                    {s.outboundClicksGrowth}
+                  </span>
+                  {/* Volume bar */}
+                  <div className="col-span-2 flex items-center justify-end gap-1">
+                    <div className="flex-1 bg-gray-100 rounded-full h-1.5 max-w-[40px]">
+                      <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${s.volume}%` }} />
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
