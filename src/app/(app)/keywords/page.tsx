@@ -499,6 +499,8 @@ export default function KeywordsPage() {
   const [searchRemaining, setSearchRemaining] = useState<number | null>(null);
   const [searchLimit, setSearchLimit] = useState(10);
   const [showLimitGate, setShowLimitGate] = useState(false);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [sortAsc, setSortAsc] = useState(false);
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
@@ -532,6 +534,15 @@ export default function KeywordsPage() {
     setLoading(true);
     setMatchFilter("all");
     setIsLive(false);
+    setSuggestions([]);
+
+    // Fetch autocomplete suggestions in parallel (non-blocking)
+    setLoadingSuggestions(true);
+    fetch(`/api/pinterest-autocomplete?q=${encodeURIComponent(q.trim())}`)
+      .then(r => r.json())
+      .then(d => setSuggestions(d.suggestions ?? []))
+      .catch(() => {})
+      .finally(() => setLoadingSuggestions(false));
     try {
       const res = await fetch(`/api/pinterest-keywords?q=${encodeURIComponent(q.trim())}`);
       if (res.ok) {
@@ -713,6 +724,31 @@ export default function KeywordsPage() {
                     <button onClick={() => setSelectedSubcategory(null)}><X className="w-3 h-3" /></button>
                   </span>
                 )}
+              </div>
+            )}
+
+            {/* Pinterest "People also search for" suggestions */}
+            {(loadingSuggestions || suggestions.length > 0) && (
+              <div className="flex items-start gap-2 flex-wrap">
+                <span className="text-xs font-semibold text-[#E60023] flex items-center gap-1 mt-0.5 whitespace-nowrap">
+                  📌 People also search
+                </span>
+                {loadingSuggestions && suggestions.length === 0 && (
+                  <div className="flex gap-2">
+                    {[1,2,3,4].map(i => (
+                      <div key={i} className="h-6 w-20 bg-gray-100 rounded-full animate-pulse" />
+                    ))}
+                  </div>
+                )}
+                {suggestions.map(s => (
+                  <button
+                    key={s}
+                    onClick={() => handleSearch(s)}
+                    className="text-xs px-3 py-1.5 rounded-full bg-[#E60023]/8 text-[#E60023] border border-[#E60023]/20 hover:bg-[#E60023] hover:text-white transition-colors font-medium"
+                  >
+                    {s}
+                  </button>
+                ))}
               </div>
             )}
 
