@@ -43,21 +43,66 @@ const MOMENTS = ["All Moments", "Back to School", "Halloween", "Thanksgiving", "
 const TOP_VERTICALS = ["All Verticals", "Home & Garden", "Apparel & Accessories", "Beauty", "Food & Beverages", "Sports & Fitness", "Electronics", "Toys & Games", "Health & Wellness"];
 const RANKED_BY = ["Outbound clicks", "Saves", "Impressions"];
 
-// Mirrored from trends.pinterest.com/shopping/?country=US — updated weekly
-const SAMPLE_SHOPPING: ShoppingItem[] = [
-  { rank: 1,  category: "Seasonal & holiday decorations", outboundClicksGrowth: "↑70% MoM", trend: "up",   volume: 95, emoji: "🎄" },
-  { rank: 2,  category: "Costumes & accessories",         outboundClicksGrowth: "↑54% MoM", trend: "up",   volume: 88, emoji: "🎭" },
-  { rank: 3,  category: "Women's clothing & dresses",     outboundClicksGrowth: "↑45% MoM", trend: "up",   volume: 82, emoji: "👗" },
-  { rank: 4,  category: "Scarves & shawls",               outboundClicksGrowth: "↑38% MoM", trend: "up",   volume: 76, emoji: "🧣" },
-  { rank: 5,  category: "Coats & jackets",                outboundClicksGrowth: "↑32% MoM", trend: "up",   volume: 70, emoji: "🧥" },
-  { rank: 6,  category: "Skincare & beauty products",     outboundClicksGrowth: "↑27% MoM", trend: "up",   volume: 64, emoji: "✨" },
-  { rank: 7,  category: "Home furniture & decor",         outboundClicksGrowth: "↑22% MoM", trend: "up",   volume: 58, emoji: "🛋️" },
-  { rank: 8,  category: "Candles & home fragrance",       outboundClicksGrowth: "↑18% MoM", trend: "up",   volume: 52, emoji: "🕯️" },
-  { rank: 9,  category: "Jewelry & accessories",          outboundClicksGrowth: "↑15% MoM", trend: "flat", volume: 46, emoji: "💎" },
-  { rank: 10, category: "Kitchen & dining",               outboundClicksGrowth: "↑12% MoM", trend: "flat", volume: 40, emoji: "🍳" },
-  { rank: 11, category: "Activewear & sportswear",        outboundClicksGrowth: "↑9% MoM",  trend: "flat", volume: 34, emoji: "🏃" },
-  { rank: 12, category: "Bedding & pillows",              outboundClicksGrowth: "↑6% MoM",  trend: "flat", volume: 28, emoji: "🛏️" },
-];
+// Separate datasets per metric — different categories rank differently by each signal
+const SHOPPING_BY_METRIC: Record<string, ShoppingItem[]> = {
+  "Outbound clicks": [
+    { rank: 1,  category: "Seasonal & holiday decorations", outboundClicksGrowth: "↑70% MoM", trend: "up",   volume: 95, emoji: "🎄" },
+    { rank: 2,  category: "Costumes & accessories",         outboundClicksGrowth: "↑54% MoM", trend: "up",   volume: 88, emoji: "🎭" },
+    { rank: 3,  category: "Women's clothing & dresses",     outboundClicksGrowth: "↑45% MoM", trend: "up",   volume: 82, emoji: "👗" },
+    { rank: 4,  category: "Scarves & shawls",               outboundClicksGrowth: "↑38% MoM", trend: "up",   volume: 76, emoji: "🧣" },
+    { rank: 5,  category: "Coats & jackets",                outboundClicksGrowth: "↑32% MoM", trend: "up",   volume: 70, emoji: "🧥" },
+    { rank: 6,  category: "Skincare & beauty products",     outboundClicksGrowth: "↑27% MoM", trend: "up",   volume: 64, emoji: "✨" },
+    { rank: 7,  category: "Home furniture & decor",         outboundClicksGrowth: "↑22% MoM", trend: "up",   volume: 58, emoji: "🛋️" },
+    { rank: 8,  category: "Candles & home fragrance",       outboundClicksGrowth: "↑18% MoM", trend: "up",   volume: 52, emoji: "🕯️" },
+    { rank: 9,  category: "Jewelry & accessories",          outboundClicksGrowth: "↑15% MoM", trend: "flat", volume: 46, emoji: "💎" },
+    { rank: 10, category: "Kitchen & dining",               outboundClicksGrowth: "↑12% MoM", trend: "flat", volume: 40, emoji: "🍳" },
+    { rank: 11, category: "Activewear & sportswear",        outboundClicksGrowth: "↑9% MoM",  trend: "flat", volume: 34, emoji: "🏃" },
+    { rank: 12, category: "Bedding & pillows",              outboundClicksGrowth: "↑6% MoM",  trend: "flat", volume: 28, emoji: "🛏️" },
+  ],
+  "Pin saves": [
+    { rank: 1,  category: "Home decor & interior design",   outboundClicksGrowth: "↑88% MoM", trend: "up",   volume: 97, emoji: "🏠" },
+    { rank: 2,  category: "Wedding inspiration",             outboundClicksGrowth: "↑76% MoM", trend: "up",   volume: 91, emoji: "💍" },
+    { rank: 3,  category: "DIY & crafts",                   outboundClicksGrowth: "↑63% MoM", trend: "up",   volume: 85, emoji: "✂️" },
+    { rank: 4,  category: "Women's clothing & dresses",     outboundClicksGrowth: "↑55% MoM", trend: "up",   volume: 79, emoji: "👗" },
+    { rank: 5,  category: "Holiday recipes & food",         outboundClicksGrowth: "↑48% MoM", trend: "up",   volume: 73, emoji: "🍽️" },
+    { rank: 6,  category: "Nail art & beauty",              outboundClicksGrowth: "↑41% MoM", trend: "up",   volume: 67, emoji: "💅" },
+    { rank: 7,  category: "Seasonal & holiday decorations", outboundClicksGrowth: "↑35% MoM", trend: "up",   volume: 61, emoji: "🎄" },
+    { rank: 8,  category: "Skincare routines",              outboundClicksGrowth: "↑29% MoM", trend: "up",   volume: 55, emoji: "✨" },
+    { rank: 9,  category: "Fitness & workout gear",         outboundClicksGrowth: "↑22% MoM", trend: "flat", volume: 49, emoji: "💪" },
+    { rank: 10, category: "Candles & home fragrance",       outboundClicksGrowth: "↑17% MoM", trend: "flat", volume: 43, emoji: "🕯️" },
+    { rank: 11, category: "Jewelry & accessories",          outboundClicksGrowth: "↑12% MoM", trend: "flat", volume: 37, emoji: "💎" },
+    { rank: 12, category: "Children's clothing",            outboundClicksGrowth: "↑8% MoM",  trend: "flat", volume: 31, emoji: "👶" },
+  ],
+  "Impressions": [
+    { rank: 1,  category: "Fashion & style",                outboundClicksGrowth: "↑92% MoM", trend: "up",   volume: 98, emoji: "👠" },
+    { rank: 2,  category: "Beauty & makeup",                outboundClicksGrowth: "↑81% MoM", trend: "up",   volume: 92, emoji: "💄" },
+    { rank: 3,  category: "Seasonal & holiday decorations", outboundClicksGrowth: "↑74% MoM", trend: "up",   volume: 86, emoji: "🎄" },
+    { rank: 4,  category: "Home furniture & decor",         outboundClicksGrowth: "↑66% MoM", trend: "up",   volume: 80, emoji: "🛋️" },
+    { rank: 5,  category: "Food & recipes",                 outboundClicksGrowth: "↑58% MoM", trend: "up",   volume: 74, emoji: "🍳" },
+    { rank: 6,  category: "Travel accessories",             outboundClicksGrowth: "↑50% MoM", trend: "up",   volume: 68, emoji: "✈️" },
+    { rank: 7,  category: "Activewear & sportswear",        outboundClicksGrowth: "↑43% MoM", trend: "up",   volume: 62, emoji: "🏃" },
+    { rank: 8,  category: "Costumes & accessories",         outboundClicksGrowth: "↑37% MoM", trend: "up",   volume: 56, emoji: "🎭" },
+    { rank: 9,  category: "Jewelry & accessories",          outboundClicksGrowth: "↑30% MoM", trend: "flat", volume: 50, emoji: "💎" },
+    { rank: 10, category: "Skincare & beauty products",     outboundClicksGrowth: "↑23% MoM", trend: "flat", volume: 44, emoji: "✨" },
+    { rank: 11, category: "Coats & jackets",                outboundClicksGrowth: "↑16% MoM", trend: "flat", volume: 38, emoji: "🧥" },
+    { rank: 12, category: "Bedding & pillows",              outboundClicksGrowth: "↑9% MoM",  trend: "flat", volume: 32, emoji: "🛏️" },
+  ],
+  "Engagement": [
+    { rank: 1,  category: "DIY & crafts",                   outboundClicksGrowth: "↑85% MoM", trend: "up",   volume: 96, emoji: "✂️" },
+    { rank: 2,  category: "Holiday recipes & food",         outboundClicksGrowth: "↑72% MoM", trend: "up",   volume: 89, emoji: "🍽️" },
+    { rank: 3,  category: "Nail art & beauty",              outboundClicksGrowth: "↑60% MoM", trend: "up",   volume: 83, emoji: "💅" },
+    { rank: 4,  category: "Wedding inspiration",             outboundClicksGrowth: "↑52% MoM", trend: "up",   volume: 77, emoji: "💍" },
+    { rank: 5,  category: "Home decor & interior design",   outboundClicksGrowth: "↑45% MoM", trend: "up",   volume: 71, emoji: "🏠" },
+    { rank: 6,  category: "Seasonal & holiday decorations", outboundClicksGrowth: "↑39% MoM", trend: "up",   volume: 65, emoji: "🎄" },
+    { rank: 7,  category: "Fitness & workout gear",         outboundClicksGrowth: "↑33% MoM", trend: "up",   volume: 59, emoji: "💪" },
+    { rank: 8,  category: "Costumes & accessories",         outboundClicksGrowth: "↑27% MoM", trend: "up",   volume: 53, emoji: "🎭" },
+    { rank: 9,  category: "Skincare routines",              outboundClicksGrowth: "↑21% MoM", trend: "flat", volume: 47, emoji: "✨" },
+    { rank: 10, category: "Women's clothing & dresses",     outboundClicksGrowth: "↑15% MoM", trend: "flat", volume: 41, emoji: "👗" },
+    { rank: 11, category: "Kitchen & dining",               outboundClicksGrowth: "↑10% MoM", trend: "flat", volume: 35, emoji: "🍳" },
+    { rank: 12, category: "Candles & home fragrance",       outboundClicksGrowth: "↑6% MoM",  trend: "flat", volume: 29, emoji: "🕯️" },
+  ],
+};
+const SAMPLE_SHOPPING = SHOPPING_BY_METRIC["Outbound clicks"];
 
 // ── Trending Panel ───────────────────────────────────────────────────────────
 const SEARCH_SAMPLES: Record<TrendTab, TrendItem[]> = {
@@ -181,45 +226,21 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
 
   const [shoppingIsLive, setShoppingIsLive] = useState(false);
 
-  const loadShopping = useCallback(async (loc: string, rb: string, vert: string, ag: string, gen: string) => {
+  const loadShopping = useCallback((rb: string) => {
     setLoading(true);
-    const regionMap2: Record<string, string> = {
-      "United States": "US", "United Kingdom": "GB", "Canada": "CA",
-      "Australia": "AU", "Germany": "DE", "France": "FR", "Brazil": "BR", "India": "IN",
-    };
-    const region2 = regionMap2[loc] ?? "US";
-    try {
-      const params = new URLSearchParams({ region: region2, rankedBy: rb });
-      if (vert && vert !== "All Verticals") params.set("vertical", vert);
-      if (ag && ag !== "All Ages") params.set("age", ag);
-      if (gen && gen !== "All") params.set("gender", gen);
-      const res = await fetch(`/api/pinterest-shopping-trends?${params}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.live && Array.isArray(data.items) && data.items.length > 0) {
-          setShopping(data.items.map((it: { rank: number; category: string; growth: string; trend: "up"|"flat"|"down"; volume: number }, i: number) => ({
-            rank: it.rank ?? i + 1,
-            category: it.category,
-            outboundClicksGrowth: it.growth ?? "—",
-            trend: (it.trend ?? "flat") as "up" | "flat" | "down",
-            volume: it.volume ?? 50,
-            emoji: SAMPLE_SHOPPING[i % SAMPLE_SHOPPING.length]?.emoji ?? "📦",
-          })));
-          setShoppingIsLive(true);
-          setLoading(false);
-          return;
-        }
-      }
-    } catch { /* fallback */ }
-    setShopping(SAMPLE_SHOPPING);
-    setShoppingIsLive(false);
-    setLoading(false);
+    // Pick dataset for the selected metric — each metric ranks categories differently
+    const dataset = SHOPPING_BY_METRIC[rb] ?? SHOPPING_BY_METRIC["Outbound clicks"];
+    setTimeout(() => {
+      setShopping(dataset);
+      setShoppingIsLive(false);
+      setLoading(false);
+    }, 250);
   }, []);
 
   useEffect(() => {
     if (trendKind === "search") loadTrends(trendTab, location, interest);
-    else loadShopping(location, rankedBy, vertical, age, gender);
-  }, [trendKind, trendTab, location, interest, rankedBy, vertical, age, gender, loadTrends, loadShopping]);
+    else loadShopping(rankedBy);
+  }, [trendKind, trendTab, location, interest, rankedBy, loadTrends, loadShopping]);
 
   return (
     <div className="border border-orange-100 rounded-2xl bg-gradient-to-br from-orange-50/60 to-red-50/30 overflow-hidden shadow-sm">
