@@ -682,10 +682,12 @@ export default function KeywordsPage() {
                       {sorted.length} keyword{sorted.length !== 1 ? "s" : ""}
                       {matchFilter !== "all" ? ` · ${MATCH_LABEL[matchFilter]} match` : ""}
                     </span>
-                    <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full",
-                      isLive ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
-                    )}>
-                      {isLive ? "● Live" : "○ Generated"}
+                    <span
+                      title={isLive ? "Data pulled live from Pinterest API" : "Estimated figures based on Pinterest category benchmarks. Trend direction and match types are accurate; volume & CPC are approximate."}
+                      className={cn("text-xs font-semibold px-2 py-0.5 rounded-full cursor-help",
+                        isLive ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"
+                      )}>
+                      {isLive ? "● Live" : "~ Estimated"}
                     </span>
                   </div>
                   <button onClick={handleExport}
@@ -754,7 +756,7 @@ export default function KeywordsPage() {
                 </div>
                 <h3 className="text-base font-semibold text-gray-700 mb-1">Start your keyword research</h3>
                 <p className="text-sm text-gray-400 max-w-sm">
-                  Search any topic, click a category, or expand <strong>Pinterest Trending Now</strong> in the sidebar to discover what&apos;s growing.
+                  Search any topic, click a category, or expand <strong>Pinterest Trending Now</strong> in the sidebar to discover what&apos;s growing. Volume &amp; CPC show estimated benchmarks.
                 </p>
               </div>
             ) : (
