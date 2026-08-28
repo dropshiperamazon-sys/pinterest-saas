@@ -878,28 +878,105 @@ function CreativePlanning() {
   );
 }
 
+interface TrendItem { keyword: string; pctChangeFromLastYear: number | null; trendType: string; }
+
 function MarketResearch() {
-  const today = new Date();
+  const [trendType, setTrendType] = useState<"growing"|"monthly"|"yearly"|"seasonal">("growing");
+  const [trends, setTrends] = useState<TrendItem[]>([]);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendLive, setTrendLive] = useState(false);
+
+  const loadTrends = async (type: "growing"|"monthly"|"yearly"|"seasonal") => {
+    setTrendType(type);
+    setTrendLoading(true);
+    try {
+      const res = await fetch(`/api/pinterest-trends?type=${type}&region=US`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.trends) && data.trends.length > 0) {
+          setTrends(data.trends);
+          setTrendLive(true);
+          setTrendLoading(false);
+          return;
+        }
+      }
+    } catch { /* fall through */ }
+    setTrends([]);
+    setTrendLive(false);
+    setTrendLoading(false);
+  };
+
+  // Load on mount
+  useState(() => { loadTrends("growing"); });
 
   return (
     <div className="space-y-5">
       {/* Trending Searches */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-900 mb-4">Trending Pinterest Searches</h3>
-        <div className="space-y-2">
-          {TREND_DATA.map((t) => (
-            <div key={t.keyword} className="flex items-center gap-3 py-2 border-b border-gray-50">
-              <div className="flex-1">
-                <div className="text-sm font-medium text-gray-800">{t.keyword}</div>
-                <div className="text-xs text-gray-400">{t.category} · Peak: {t.peak}</div>
-              </div>
-              <div className="flex items-center gap-1 text-green-600 bg-green-50 text-xs font-bold px-2.5 py-1 rounded-full">
-                <TrendingUp className="w-3 h-3" />
-                +{t.change}%
-              </div>
-            </div>
-          ))}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <h3 className="font-semibold text-gray-900">Trending Pinterest Searches</h3>
+            <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full",
+              trendLive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+            )}>
+              {trendLive ? "● Live" : "○ Sample"}
+            </span>
+          </div>
+          <div className="flex gap-1">
+            {(["growing","monthly","yearly","seasonal"] as const).map(t => (
+              <button key={t} onClick={() => loadTrends(t)}
+                className={cn("text-xs px-2.5 py-1 rounded-lg font-medium capitalize transition-colors",
+                  trendType === t ? "bg-[#e60023] text-white" : "text-gray-500 hover:bg-gray-100"
+                )}>
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
+        {trendLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-6 h-6 border-2 border-[#e60023]/20 border-t-[#e60023] rounded-full animate-spin" />
+          </div>
+        ) : trendLive && trends.length > 0 ? (
+          <div className="space-y-2">
+            {trends.slice(0, 20).map((t, i) => (
+              <div key={t.keyword} className="flex items-center gap-3 py-2 border-b border-gray-50">
+                <span className="text-xs text-gray-400 w-5">{i + 1}</span>
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-800 capitalize">{t.keyword}</div>
+                  <div className="text-xs text-gray-400 capitalize">{t.trendType} trend · US</div>
+                </div>
+                {t.pctChangeFromLastYear !== null ? (
+                  <div className={cn("flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full",
+                    t.pctChangeFromLastYear >= 0 ? "text-green-600 bg-green-50" : "text-red-500 bg-red-50"
+                  )}>
+                    <TrendingUp className="w-3 h-3" />
+                    {t.pctChangeFromLastYear >= 0 ? "+" : ""}{t.pctChangeFromLastYear}%
+                  </div>
+                ) : (
+                  <div className="text-xs text-green-600 bg-green-50 font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                    <TrendingUp className="w-3 h-3" /> Trending
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {TREND_DATA.map((t) => (
+              <div key={t.keyword} className="flex items-center gap-3 py-2 border-b border-gray-50">
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-800">{t.keyword}</div>
+                  <div className="text-xs text-gray-400">{t.category} · Peak: {t.peak}</div>
+                </div>
+                <div className="flex items-center gap-1 text-green-600 bg-green-50 text-xs font-bold px-2.5 py-1 rounded-full">
+                  <TrendingUp className="w-3 h-3" />
+                  +{t.change}%
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Seasonal Calendar */}

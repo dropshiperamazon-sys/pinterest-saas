@@ -1,13 +1,15 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Header from "@/components/Header";
 import { formatNumber } from "@/lib/utils";
 import { PINTEREST_CATEGORIES, generateKeywords, type KeywordResult } from "@/lib/pinterest-data";
 import {
   Search, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
-  Download, Bookmark, Filter, BarChart2, X,
+  Download, Bookmark, Filter, BarChart2, X, Flame,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+interface TrendItem { keyword: string; pctChangeFromLastYear: number | null; }
 
 type SortKey = "volume" | "trend" | "competition" | "cpc";
 type MatchFilter = "all" | "broad" | "phrase" | "exact";
@@ -47,8 +49,29 @@ export default function KeywordsPage() {
   const [sortAsc, setSortAsc] = useState(false);
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
-
   const [isLive, setIsLive] = useState(false);
+  const [trendingKeywords, setTrendingKeywords] = useState<TrendItem[]>([]);
+  const [trendType, setTrendType] = useState<"growing"|"monthly"|"yearly"|"seasonal">("growing");
+  const [trendLoading, setTrendLoading] = useState(false);
+
+  const loadTrending = useCallback(async (type: string) => {
+    setTrendLoading(true);
+    try {
+      const res = await fetch(`/api/pinterest-trends?type=${type}&region=US`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.trends) && data.trends.length > 0) {
+          setTrendingKeywords(data.trends.slice(0, 25));
+          setTrendLoading(false);
+          return;
+        }
+      }
+    } catch { /* ignore */ }
+    setTrendingKeywords([]);
+    setTrendLoading(false);
+  }, []);
+
+  useEffect(() => { loadTrending(trendType); }, [loadTrending, trendType]);
 
   const handleSearch = useCallback(async (q: string) => {
     if (!q.trim()) return;
@@ -397,6 +420,64 @@ export default function KeywordsPage() {
                 <button onClick={() => setMatchFilter("all")} className="text-xs text-[#e60023] mt-2 hover:underline">Show all match types</button>
               </div>
             )}
+
+            {/* Trending Now — real Pinterest trends */}
+            <div className="mt-6 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="flex items-center justify-between p-4 border-b border-gray-100">
+                <div className="flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-orange-500" />
+                  <span className="text-sm font-semibold text-gray-700">Trending on Pinterest Now</span>
+                  {trendingKeywords.length > 0 && (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">● Live</span>
+                  )}
+                  <span className="text-xs text-gray-400">Use these for organic content</span>
+                </div>
+                <div className="flex gap-1">
+                  {(["growing","monthly","yearly","seasonal"] as const).map(t => (
+                    <button key={t} onClick={() => setTrendType(t)}
+                      className={cn("text-xs px-2.5 py-1 rounded-lg font-medium capitalize transition-colors",
+                        trendType === t ? "bg-[#e60023] text-white" : "text-gray-500 hover:bg-gray-100"
+                      )}>
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {trendLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-6 h-6 border-2 border-orange-200 border-t-orange-500 rounded-full animate-spin" />
+                </div>
+              ) : trendingKeywords.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-0 divide-x divide-y divide-gray-50">
+                  {trendingKeywords.map((t, i) => (
+                    <button
+                      key={t.keyword}
+                      onClick={() => { setQuery(t.keyword); handleSearch(t.keyword); }}
+                      className="p-3 text-left hover:bg-orange-50/50 transition-colors group"
+                    >
+                      <div className="flex items-start justify-between gap-1 mb-1">
+                        <span className="text-xs text-gray-400">#{i + 1}</span>
+                        {t.pctChangeFromLastYear !== null && (
+                          <span className={cn("text-xs font-bold",
+                            t.pctChangeFromLastYear >= 0 ? "text-green-600" : "text-red-500"
+                          )}>
+                            {t.pctChangeFromLastYear >= 0 ? "+" : ""}{t.pctChangeFromLastYear}%
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm font-medium text-gray-800 capitalize group-hover:text-[#e60023] transition-colors leading-tight">
+                        {t.keyword}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">Click to search →</div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-6 text-center text-sm text-gray-400">
+                  Connect your Pinterest account to see live trending keywords.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
