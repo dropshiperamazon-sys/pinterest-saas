@@ -29,9 +29,18 @@ interface CampaignInputs {
   targetRoas: string;
 }
 
+interface LiveEstimate {
+  live: boolean;
+  reachEstimate: string | null;
+  weeklyImpressions: string | null;
+  monthlyClicks: string | null;
+  estimatedCpa: string | null;
+}
+
 interface GeneratedPlan {
   niche: NicheDef;
   inputs: CampaignInputs;
+  liveEstimate?: LiveEstimate;
   readinessScore: number;
   readinessBreakdown: { label: string; score: number; max: number }[];
   summary: {
@@ -1255,8 +1264,56 @@ function ReadinessScore({ plan }: { plan: GeneratedPlan }) {
 function PlanView({ plan, onBack }: { plan: GeneratedPlan; onBack: () => void }) {
   const [section, setSection] = useState<PlanSection>("audience");
   const [mode, setMode] = useState<Mode>("beginner");
+  const [liveEst, setLiveEst] = useState<LiveEstimate | null>(plan.liveEstimate ?? null);
+  const [fetchingEst, setFetchingEst] = useState(!plan.liveEstimate);
+
+  // Fetch live Pinterest estimates if not already fetched
+  useState(() => {
+    if (plan.liveEstimate) return;
+    (async () => {
+      try {
+        const res = await fetch("/api/pinterest-campaign-estimate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            goal: plan.inputs.goal,
+            market: plan.inputs.market,
+            monthlyBudget: plan.inputs.monthlyBudget,
+            niche: plan.niche.label,
+            gender: plan.inputs.gender,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.live) setLiveEst(data as LiveEstimate);
+        }
+      } catch { /* keep estimated */ }
+      setFetchingEst(false);
+    })();
+  });
 
   const goalLabel = GOALS.find(g => g.key === plan.inputs.goal)?.label ?? plan.inputs.goal;
+  const isLive = liveEst?.live === true;
+
+  // Prefer live data over estimates; fall back gracefully
+  const stats = [
+    {
+      label: "Reach Estimate",
+      value: (isLive && liveEst.reachEstimate) ? liveEst.reachEstimate : plan.summary.reachEstimate,
+    },
+    {
+      label: "Weekly Impressions",
+      value: (isLive && liveEst.weeklyImpressions) ? liveEst.weeklyImpressions : plan.summary.weeklyImpressions,
+    },
+    {
+      label: "Monthly Clicks",
+      value: (isLive && liveEst.monthlyClicks) ? liveEst.monthlyClicks : plan.summary.projectedMonthlyClicks,
+    },
+    {
+      label: "Est. CPC",
+      value: (isLive && liveEst.estimatedCpa) ? liveEst.estimatedCpa : plan.summary.estimatedCpa,
+    },
+  ];
 
   return (
     <div className="space-y-5">
@@ -1268,6 +1325,16 @@ function PlanView({ plan, onBack }: { plan: GeneratedPlan; onBack: () => void })
               <button onClick={onBack} className="flex items-center gap-1 text-white/70 hover:text-white text-xs font-medium transition-colors">
                 <ArrowLeft className="w-3.5 h-3.5" /> New Plan
               </button>
+              {fetchingEst ? (
+                <span className="flex items-center gap-1 text-white/60 text-xs">
+                  <div className="w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                  Fetching live estimates...
+                </span>
+              ) : isLive ? (
+                <span className="bg-white/20 text-white text-xs px-2 py-0.5 rounded-full font-semibold">● Live from Pinterest</span>
+              ) : (
+                <span className="bg-white/10 text-white/60 text-xs px-2 py-0.5 rounded-full">~ Estimated</span>
+              )}
             </div>
             <h2 className="text-xl font-bold">{plan.inputs.product}</h2>
             <p className="text-white/80 text-sm mt-0.5">{goalLabel} · {plan.inputs.market} · ${plan.inputs.monthlyBudget.toLocaleString()}/mo</p>
@@ -1282,12 +1349,7 @@ function PlanView({ plan, onBack }: { plan: GeneratedPlan; onBack: () => void })
           </div>
         </div>
         <div className="grid grid-cols-4 gap-3 mt-4">
-          {[
-            { label: "Reach Estimate", value: plan.summary.reachEstimate },
-            { label: "Weekly Impressions", value: plan.summary.weeklyImpressions },
-            { label: "Monthly Clicks", value: plan.summary.projectedMonthlyClicks },
-            { label: "Est. CPA", value: plan.summary.estimatedCpa },
-          ].map(({ label, value }) => (
+          {stats.map(({ label, value }) => (
             <div key={label} className="bg-white/10 rounded-xl p-3 text-center">
               <div className="text-lg font-bold">{value}</div>
               <div className="text-xs text-white/70 mt-0.5">{label}</div>
