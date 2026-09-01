@@ -1530,20 +1530,132 @@ function PlanView({ plan, onBack }: { plan: GeneratedPlan; onBack: () => void })
       </div>
 
       {/* Final Actions */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-gray-900">Ready to Launch?</h3>
-            <p className="text-sm text-gray-500 mt-0.5">Your campaign plan is complete. Campaign Readiness: <strong className={plan.readinessScore >= 80 ? "text-green-600" : "text-amber-600"}>{plan.readinessScore}/100</strong></p>
-          </div>
-          <div className="flex gap-3">
-            <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-              <Info className="w-4 h-4" /> Save Plan
-            </button>
-            <button className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#e60023] to-pink-500 text-white rounded-xl text-sm font-bold hover:from-[#ad081b] hover:to-[#e60023] transition-all shadow-md shadow-[#e60023]/20">
-              <Zap className="w-4 h-4" /> Launch This Campaign
-            </button>
-          </div>
+      <SaveDownloadBar plan={plan} />
+    </div>
+  );
+}
+
+interface SavedPlanMeta { id: string; product: string; goal: string; market: string; budget: number; savedAt: string; plan: GeneratedPlan }
+
+function savePlanToStorage(plan: GeneratedPlan): string {
+  const id = `plan_${Date.now()}`;
+  const goalLabel = GOALS.find(g => g.key === plan.inputs.goal)?.label ?? plan.inputs.goal;
+  const meta: SavedPlanMeta = {
+    id, product: plan.inputs.product, goal: goalLabel,
+    market: plan.inputs.market, budget: plan.inputs.monthlyBudget,
+    savedAt: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+    plan,
+  };
+  try {
+    const existing = JSON.parse(localStorage.getItem("mpp_saved_plans") ?? "[]") as SavedPlanMeta[];
+    // Replace if same product+goal already saved
+    const filtered = existing.filter(p => !(p.product === meta.product && p.goal === meta.goal));
+    localStorage.setItem("mpp_saved_plans", JSON.stringify([meta, ...filtered].slice(0, 20)));
+  } catch { /* storage unavailable */ }
+  return id;
+}
+
+function downloadPlan(plan: GeneratedPlan) {
+  const goalLabel = GOALS.find(g => g.key === plan.inputs.goal)?.label ?? plan.inputs.goal;
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Campaign Plan — ${plan.inputs.product}</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:800px;margin:40px auto;padding:0 24px;color:#111;line-height:1.6}
+  h1{color:#e60023;font-size:1.8rem;margin-bottom:4px}
+  h2{color:#e60023;font-size:1.1rem;margin:28px 0 8px;border-bottom:2px solid #fce4e8;padding-bottom:4px}
+  .meta{color:#666;font-size:.95rem;margin-bottom:24px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:20px 0}
+  .stat{background:#fce4e8;border-radius:8px;padding:12px;text-align:center}
+  .stat strong{display:block;font-size:1.4rem;color:#e60023}
+  .stat span{font-size:.8rem;color:#666}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:.9rem}
+  th{background:#fce4e8;padding:8px 10px;text-align:left;font-size:.75rem;text-transform:uppercase;color:#e60023}
+  td{padding:8px 10px;border-bottom:1px solid #f3f4f6}
+  .kw{display:inline-block;background:#f3f4f6;border-radius:4px;padding:3px 8px;margin:2px;font-size:.85rem}
+  .neg{background:#fee2e2;color:#b91c1c}
+  @media print{body{margin:20px}}
+</style></head><body>
+<h1>📌 ${plan.inputs.product}</h1>
+<p class="meta">${goalLabel} &middot; ${plan.inputs.market} &middot; $${plan.inputs.monthlyBudget.toLocaleString()}/month &middot; Readiness: ${plan.readinessScore}/100</p>
+
+<div class="stats">
+  <div class="stat"><strong>${plan.summary.reachEstimate}</strong><span>Reach Estimate</span></div>
+  <div class="stat"><strong>${plan.summary.weeklyImpressions}</strong><span>Weekly Impressions</span></div>
+  <div class="stat"><strong>${plan.summary.projectedMonthlyClicks}</strong><span>Monthly Clicks</span></div>
+  <div class="stat"><strong>${plan.summary.estimatedCpa}</strong><span>Est. CPC</span></div>
+</div>
+
+<h2>Audience</h2>
+<p><strong>Primary:</strong> ${plan.audience.primary}</p>
+<p><strong>Secondary:</strong> ${plan.audience.secondary}</p>
+
+<h2>High-Intent Keywords</h2>
+${plan.keywords.highIntent.map(k => `<span class="kw">${k.keyword}</span>`).join("")}
+
+<h2>Discovery Keywords</h2>
+${plan.keywords.discovery.map(k => `<span class="kw">${k.keyword}</span>`).join("")}
+
+<h2>Negative Keywords</h2>
+${plan.keywords.negative.map(k => `<span class="kw neg">${k}</span>`).join("")}
+
+<h2>Budget Recommendation</h2>
+<table><tr><th>Tier</th><th>Daily</th><th>Monthly</th><th>Est. Impressions/day</th><th>Est. Clicks/day</th></tr>
+<tr><td>Conservative</td><td>$${plan.budget.conservative.daily}</td><td>$${plan.budget.conservative.monthly}</td><td>${plan.budget.conservative.impressions}</td><td>${plan.budget.conservative.clicks}</td></tr>
+<tr><td>Recommended</td><td>$${plan.budget.recommended.daily}</td><td>$${plan.budget.recommended.monthly}</td><td>${plan.budget.recommended.impressions}</td><td>${plan.budget.recommended.clicks}</td></tr>
+<tr><td>Aggressive</td><td>$${plan.budget.aggressive.daily}</td><td>$${plan.budget.aggressive.monthly}</td><td>${plan.budget.aggressive.impressions}</td><td>${plan.budget.aggressive.clicks}</td></tr>
+</table>
+
+<h2>Creative Concepts</h2>
+${plan.creative.map((c,i) => `<p><strong>${i+1}. ${c.title}</strong> (${c.format})<br>
+<em>Headline:</em> ${c.headline}<br>
+<em>CTA:</em> ${c.cta}<br>
+<em>Description:</em> ${c.description}<br>
+<em>Visual:</em> ${c.visualDirection}</p>`).join("")}
+
+<h2>Market</h2>
+<p><strong>Opportunity Score:</strong> ${plan.market.opportunityScore}/100</p>
+<p><strong>Timing:</strong> ${plan.market.timing}</p>
+${plan.market.competitorInsights.map(ci => `<p>• ${ci}</p>`).join("")}
+
+<p style="margin-top:40px;color:#999;font-size:.8rem">Generated by My Pin Pro · ${new Date().toLocaleDateString()}</p>
+</body></html>`;
+
+  const blob = new Blob([html], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `campaign-plan-${plan.inputs.product.toLowerCase().replace(/\s+/g, "-")}.html`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function SaveDownloadBar({ plan }: { plan: GeneratedPlan }) {
+  const [saved, setSaved] = useState(false);
+
+  function handleSave() {
+    savePlanToStorage(plan);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-gray-900">Ready to Launch?</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Campaign Readiness: <strong className={plan.readinessScore >= 80 ? "text-green-600" : "text-amber-600"}>{plan.readinessScore}/100</strong></p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={handleSave}
+            className={cn("flex items-center gap-2 px-4 py-2.5 border rounded-xl text-sm font-semibold transition-colors",
+              saved ? "border-green-300 bg-green-50 text-green-700" : "border-gray-200 text-gray-700 hover:bg-gray-50"
+            )}>
+            <CheckCircle className="w-4 h-4" /> {saved ? "Saved!" : "Save Plan"}
+          </button>
+          <button onClick={() => downloadPlan(plan)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#e60023] to-pink-500 text-white rounded-xl text-sm font-bold hover:from-[#ad081b] hover:to-[#e60023] transition-all shadow-md shadow-[#e60023]/20">
+            <Zap className="w-4 h-4" /> Download Plan
+          </button>
         </div>
       </div>
     </div>
@@ -1554,10 +1666,70 @@ function PlanView({ plan, onBack }: { plan: GeneratedPlan; onBack: () => void })
 
 export default function PlanTab() {
   const [plan, setPlan] = useState<GeneratedPlan | null>(null);
+  const [savedPlans, setSavedPlans] = useState<SavedPlanMeta[]>([]);
 
-  if (!plan) {
-    return <CampaignPlanner onGenerate={setPlan} />;
+  // Load saved plans from localStorage on mount
+  useState(() => {
+    try {
+      const raw = localStorage.getItem("mpp_saved_plans");
+      if (raw) setSavedPlans(JSON.parse(raw) as SavedPlanMeta[]);
+    } catch { /* unavailable */ }
+  });
+
+  function handleSaveAndRefresh(p: GeneratedPlan) {
+    savePlanToStorage(p);
+    try {
+      const raw = localStorage.getItem("mpp_saved_plans");
+      if (raw) setSavedPlans(JSON.parse(raw) as SavedPlanMeta[]);
+    } catch { /* unavailable */ }
   }
 
-  return <PlanView plan={plan} onBack={() => setPlan(null)} />;
+  if (plan) {
+    return <PlanView plan={plan} onBack={() => setPlan(null)} />;
+  }
+
+  return (
+    <div className="space-y-6">
+      <CampaignPlanner onGenerate={setPlan} />
+
+      {savedPlans.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-green-500" /> Saved Plans
+          </h3>
+          <div className="space-y-2">
+            {savedPlans.map(meta => (
+              <div key={meta.id}
+                className="flex items-center justify-between p-3.5 rounded-xl border border-gray-100 hover:border-[#e60023]/30 hover:bg-[#e60023]/3 transition-all group">
+                <div>
+                  <div className="font-semibold text-gray-800 text-sm">{meta.product}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">{meta.goal} · {meta.market} · ${meta.budget.toLocaleString()}/mo · Saved {meta.savedAt}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => downloadPlan(meta.plan)}
+                    className="text-xs text-gray-400 hover:text-[#e60023] font-medium flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                  ><Zap className="w-3 h-3" /> Download</button>
+                  <button
+                    onClick={() => setPlan(meta.plan)}
+                    className="text-xs font-semibold text-[#e60023] bg-[#e60023]/8 hover:bg-[#e60023]/15 px-3 py-1.5 rounded-full transition-colors"
+                  >View Plan</button>
+                  <button
+                    onClick={() => {
+                      try {
+                        const updated = savedPlans.filter(p => p.id !== meta.id);
+                        localStorage.setItem("mpp_saved_plans", JSON.stringify(updated));
+                        setSavedPlans(updated);
+                      } catch { /* unavailable */ }
+                    }}
+                    className="text-xs text-gray-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                  >✕</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
