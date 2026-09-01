@@ -406,7 +406,7 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
                 </button>
               ))}
             </div>
-            {!isLive && <p className="text-xs text-gray-400 py-2 text-center border-t border-gray-50">Sample data · Connect Pinterest for live trends</p>}
+            {!isLive && <p className="text-xs text-gray-400 py-2 text-center border-t border-gray-50">~ Sample data · Live Pinterest trends may vary by region or access level</p>}
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-orange-100 overflow-hidden">

@@ -44,7 +44,10 @@ export async function GET(req: Request) {
   const trendType = searchParams.get("type")     ?? "growing";
   const interest  = searchParams.get("interest") ?? "";
 
-  let path = `/trends/keywords/${region}/top/${trendType}?limit=25`;
+  // Pinterest API only accepts "growing" and "seasonal" as valid trend types.
+  // "monthly" and "yearly" are UI labels — map them to the closest valid API value.
+  const apiTrendType = trendType === "seasonal" ? "seasonal" : "growing";
+  let path = `/trends/keywords/${region}/top/${apiTrendType}?limit=25`;
   if (interest) path += `&interests=${encodeURIComponent(interest)}`;
 
   const data = await pinterestGet(path, accessToken);
