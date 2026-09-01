@@ -17,11 +17,6 @@ import { format, parseISO, formatDistanceToNow } from "date-fns";
 
 type SearchMode = "url" | "keyword";
 
-const MATCH_COLOR: Record<string, string> = {
-  exact: "bg-orange-100 text-orange-700 border-orange-200",
-  phrase: "bg-purple-100 text-purple-700 border-purple-200",
-  broad: "bg-blue-100 text-blue-700 border-blue-200",
-};
 
 const FORMAT_ICON: Record<string, React.ElementType> = {
   standard: ImageIcon,
@@ -115,9 +110,6 @@ function PinCard({ pin, onClick, compact = false }: { pin: PinData; onClick?: ()
 
 function PinDetail({ pin, onClose }: { pin: PinData; onClose: () => void }) {
   const FormatIcon = FORMAT_ICON[pin.format];
-  const exactKw = pin.keywords.filter((k) => k.matchType === "exact");
-  const phraseKw = pin.keywords.filter((k) => k.matchType === "phrase");
-  const broadKw = pin.keywords.filter((k) => k.matchType === "broad");
 
   return (
     <div className="space-y-5">
@@ -192,57 +184,12 @@ function PinDetail({ pin, onClose }: { pin: PinData; onClose: () => void }) {
           <span className="ml-auto text-xs text-gray-400">{pin.keywords.length} keywords</span>
         </div>
 
-        {/* Legend */}
-        <div className="flex flex-wrap gap-2 mb-4 pb-3 border-b border-gray-50">
-          {[
-            { type: "exact", label: "Exact [kw]", desc: "Same meaning/intent" },
-            { type: "phrase", label: 'Phrase "kw"', desc: "Keyword in longer query" },
-            { type: "broad", label: "Broad kw", desc: "Related concepts" },
-          ].map(({ type, label, desc }) => (
-            <div key={type} className={cn("flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border font-medium", MATCH_COLOR[type])}>
-              <span>{label}</span>
-              <span className="opacity-60">— {desc}</span>
-            </div>
+        <div className="flex flex-wrap gap-1.5">
+          {pin.keywords.map((k) => (
+            <span key={k.keyword} className="text-xs px-2.5 py-1.5 rounded-lg border font-medium bg-gray-100 text-gray-700 border-gray-200">
+              {k.keyword}
+            </span>
           ))}
-        </div>
-
-        <div className="space-y-3">
-          {exactKw.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Exact Match</div>
-              <div className="flex flex-wrap gap-1.5">
-                {exactKw.map((k) => (
-                  <span key={k.keyword} className={cn("text-xs px-2.5 py-1.5 rounded-lg border font-medium", MATCH_COLOR.exact)}>
-                    [{k.keyword}]
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {phraseKw.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Phrase Match</div>
-              <div className="flex flex-wrap gap-1.5">
-                {phraseKw.map((k) => (
-                  <span key={k.keyword} className={cn("text-xs px-2.5 py-1.5 rounded-lg border font-medium", MATCH_COLOR.phrase)}>
-                    &quot;{k.keyword}&quot;
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-          {broadKw.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Broad Match</div>
-              <div className="flex flex-wrap gap-1.5">
-                {broadKw.map((k) => (
-                  <span key={k.keyword} className={cn("text-xs px-2.5 py-1.5 rounded-lg border font-medium", MATCH_COLOR.broad)}>
-                    {k.keyword}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>

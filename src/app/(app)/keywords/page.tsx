@@ -14,7 +14,6 @@ interface TrendItem { keyword: string; pctChangeFromLastYear: number | null; wee
 interface ShoppingItem { rank: number; category: string; outboundClicksGrowth: string; trend: "up" | "flat" | "down"; volume: number; emoji: string; }
 
 type SortKey = "volume" | "trend" | "competition" | "cpc";
-type MatchFilter = "all" | "broad" | "phrase" | "exact";
 type TrendTab = "growing" | "seasonal" | "monthly" | "yearly";
 type TrendKind = "search" | "shopping";
 
@@ -22,17 +21,6 @@ const COMPETITION_COLOR: Record<string, string> = {
   low: "bg-green-100 text-green-700",
   medium: "bg-yellow-100 text-yellow-700",
   high: "bg-red-100 text-red-700",
-};
-const MATCH_COLOR: Record<string, string> = {
-  broad: "bg-blue-100 text-blue-700",
-  phrase: "bg-purple-100 text-purple-700",
-  exact: "bg-orange-100 text-orange-700",
-};
-const MATCH_LABEL: Record<string, string> = { broad: "Broad", phrase: "Phrase", exact: "Exact" };
-const MATCH_DESC: Record<string, string> = {
-  exact: "Exact [keyword] — same meaning or intent, highest targeting precision",
-  phrase: '"keyword" — keyword meaning contained in search, words added before or after',
-  broad: "keyword — related concepts, synonyms & similar topics, widest reach",
 };
 
 const LOCATIONS = ["United States", "United Kingdom", "Canada", "Australia", "Germany", "France", "Brazil", "India"];
@@ -491,7 +479,6 @@ export default function KeywordsPage() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [sortAsc, setSortAsc] = useState(false);
   const [saved, setSaved] = useState<Set<string>>(new Set());
-  const [matchFilter, setMatchFilter] = useState<MatchFilter>("all");
   const [isLive, setIsLive] = useState(false);
   const [trendingOpen, setTrendingOpen] = useState(false);
 
@@ -520,7 +507,6 @@ export default function KeywordsPage() {
 
     setQuery(q.trim());
     setLoading(true);
-    setMatchFilter("all");
     setIsLive(false);
     setSuggestions([]);
 
@@ -573,8 +559,7 @@ export default function KeywordsPage() {
     handleSearch(sub);
   };
 
-  const filtered = matchFilter === "all" ? results : results.filter(r => r.matchType === matchFilter);
-  const sorted = [...filtered].sort((a, b) => {
+  const sorted = [...results].sort((a, b) => {
     let diff = 0;
     if (sortKey === "volume") diff = a.volume - b.volume;
     else if (sortKey === "trend") diff = a.trend - b.trend;
@@ -585,11 +570,10 @@ export default function KeywordsPage() {
 
   const toggleSort = (key: SortKey) => { if (sortKey === key) setSortAsc(p => !p); else { setSortKey(key); setSortAsc(false); } };
   const toggleSave = (kw: string) => setSaved(prev => { const n = new Set(prev); n.has(kw) ? n.delete(kw) : n.add(kw); return n; });
-  const countByMatch = (t: MatchFilter) => t === "all" ? results.length : results.filter(r => r.matchType === t).length;
 
   const handleExport = () => {
-    const header = "Keyword,Match Type,Monthly Volume,Trend %,Competition,Avg CPC\n";
-    const rows = sorted.map(r => `"${r.keyword}",${r.matchType},${r.volume},${r.trend}%,${r.competition},$${r.cpc}`).join("\n");
+    const header = "Keyword,Monthly Volume,Trend %,Competition,Avg CPC\n";
+    const rows = sorted.map(r => `"${r.keyword}",${r.volume},${r.trend}%,${r.competition},$${r.cpc}`).join("\n");
     const blob = new Blob([header + rows], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url;
@@ -606,7 +590,7 @@ export default function KeywordsPage() {
           onClose={() => setShowLimitGate(false)}
         />
       )}
-      <Header title="Keyword Research" subtitle="Discover 100+ closely relevant Pinterest keywords by match type" />
+      <Header title="Keyword Research" subtitle="Discover 100+ closely relevant Pinterest keywords" />
       <div className="flex h-[calc(100vh-73px)]">
         {/* Sidebar */}
         <aside className="w-72 bg-white border-r border-gray-100 overflow-y-auto flex-shrink-0 flex flex-col">
@@ -740,27 +724,6 @@ export default function KeywordsPage() {
               </div>
             )}
 
-            {results.length > 0 && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-medium text-gray-500">Match type:</span>
-                {(["all", "exact", "phrase", "broad"] as MatchFilter[]).map(type => (
-                  <button key={type} onClick={() => setMatchFilter(type)}
-                    className={cn("text-xs px-3 py-1.5 rounded-lg font-semibold border transition-all",
-                      matchFilter === type
-                        ? type === "all" ? "bg-gray-800 text-white border-gray-800"
-                          : type === "exact" ? "bg-orange-500 text-white border-orange-500"
-                          : type === "phrase" ? "bg-purple-600 text-white border-purple-600"
-                          : "bg-blue-600 text-white border-blue-600"
-                        : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
-                    )}>
-                    {type === "all" ? `All (${countByMatch("all")})` : `${MATCH_LABEL[type]} (${countByMatch(type)})`}
-                  </button>
-                ))}
-                <span className="text-xs text-gray-400 ml-1 hidden lg:inline italic">
-                  {matchFilter !== "all" ? MATCH_DESC[matchFilter] : "All match types · Exact [kw] · Phrase \"kw\" · Broad kw"}
-                </span>
-              </div>
-            )}
           </div>
 
           {/* Results */}
@@ -777,7 +740,6 @@ export default function KeywordsPage() {
                     <BarChart2 className="w-4 h-4 text-gray-400" />
                     <span className="text-sm font-semibold text-gray-700">
                       {sorted.length} keyword{sorted.length !== 1 ? "s" : ""}
-                      {matchFilter !== "all" ? ` · ${MATCH_LABEL[matchFilter]} match` : ""}
                     </span>
                     <span
                       title={isLive ? "Data pulled live from Pinterest API" : "Estimated figures based on Pinterest category benchmarks. Trend direction and match types are accurate; volume & CPC are approximate."}
@@ -797,7 +759,6 @@ export default function KeywordsPage() {
                     <thead>
                       <tr className="bg-gray-50 text-left">
                         <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Keyword</th>
-                        <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Match Type</th>
                         {(["volume", "trend", "competition", "cpc"] as SortKey[]).map(key => (
                           <th key={key} onClick={() => toggleSort(key)}
                             className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 select-none">
@@ -814,11 +775,6 @@ export default function KeywordsPage() {
                       {sorted.map(kw => (
                         <tr key={kw.keyword} className="hover:bg-gray-50/50 transition-colors">
                           <td className="px-4 py-3"><span className="text-sm font-medium text-gray-800">{kw.keyword}</span></td>
-                          <td className="px-4 py-3">
-                            <span className={cn("text-xs px-2.5 py-1 rounded-full font-semibold capitalize", MATCH_COLOR[kw.matchType])}>
-                              {MATCH_LABEL[kw.matchType]}
-                            </span>
-                          </td>
                           <td className="px-4 py-3"><span className="text-sm font-semibold text-gray-900">{formatNumber(kw.volume)}</span></td>
                           <td className="px-4 py-3">
                             <div className={cn("flex items-center gap-1 text-xs font-semibold", kw.trend >= 0 ? "text-green-600" : "text-red-500")}>
@@ -861,8 +817,7 @@ export default function KeywordsPage() {
                 <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mb-3">
                   <Filter className="w-5 h-5 text-gray-400" />
                 </div>
-                <p className="text-sm text-gray-500">No keywords for this match type.</p>
-                <button onClick={() => setMatchFilter("all")} className="text-xs text-[#e60023] mt-2 hover:underline">Show all</button>
+                <p className="text-sm text-gray-500">No keywords found.</p>
               </div>
             )}
           </div>
