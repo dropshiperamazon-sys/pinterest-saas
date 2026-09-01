@@ -96,16 +96,16 @@ export default function PricingPage() {
       <PublicNav />
 
       {/* Hero */}
-      <section className="max-w-6xl mx-auto px-6 pt-16 pb-12 text-center">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">Simple, transparent pricing</h1>
-        <p className="text-lg text-gray-500 max-w-xl mx-auto">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-8 sm:pb-12 text-center">
+        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">Simple, transparent pricing</h1>
+        <p className="text-base sm:text-lg text-gray-500 max-w-xl mx-auto">
           Start free, upgrade when you need more. No hidden fees, no surprises.
         </p>
       </section>
 
       {/* Plans */}
-      <section className="max-w-6xl mx-auto px-6 pb-20">
-        <div className="grid grid-cols-3 gap-6 items-start">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 sm:pb-20">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 items-start">
           {PLANS.map(({ name, price, period, desc, cta, href, highlight, badge, features }) => (
             <div
               key={name}
@@ -156,9 +156,9 @@ export default function PricingPage() {
       </section>
 
       {/* FAQ */}
-      <section className="bg-gray-50 py-20">
-        <div className="max-w-3xl mx-auto px-6">
-          <h2 className="text-2xl font-bold text-gray-900 text-center mb-10">Frequently asked questions</h2>
+      <section className="bg-gray-50 py-12 sm:py-20">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6">
+          <h2 className="text-2xl font-bold text-gray-900 text-center mb-8 sm:mb-10">Frequently asked questions</h2>
           <div className="space-y-4">
             {FAQS.map(({ q, a }) => (
               <div key={q} className="bg-white rounded-xl border border-gray-100 p-5">
@@ -171,8 +171,8 @@ export default function PricingPage() {
       </section>
 
       {/* CTA */}
-      <section className="py-16 text-center">
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">Ready to grow your Pinterest?</h2>
+      <section className="py-12 sm:py-16 text-center px-4">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4">Ready to grow your Pinterest?</h2>
         <Link href="/signup" className="bg-[#e60023] text-white px-8 py-3 rounded-xl font-semibold hover:bg-[#ad081b] transition-colors inline-block">
           Get started free
         </Link>

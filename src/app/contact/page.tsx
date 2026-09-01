@@ -25,13 +25,13 @@ export default function ContactPage() {
     <div className="min-h-screen bg-white">
       <PublicNav />
 
-      <section className="max-w-5xl mx-auto px-6 pt-16 pb-20">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Contact Us</h1>
-          <p className="text-lg text-gray-500">Have a question or need help? We'd love to hear from you.</p>
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-16 sm:pb-20">
+        <div className="text-center mb-8 sm:mb-12">
+          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">Contact Us</h1>
+          <p className="text-base sm:text-lg text-gray-500">Have a question or need help? We&apos;d love to hear from you.</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 sm:gap-12">
           {/* Left: Info */}
           <div className="space-y-8">
             <div>
@@ -98,7 +98,7 @@ export default function ContactPage() {
               </div>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1.5">Your name</label>
                     <input
