@@ -1159,11 +1159,22 @@ function MarketSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendLive, setTrendLive] = useState(false);
 
+  const region = plan.inputs.market === "United Kingdom" ? "GB"
+    : plan.inputs.market === "Canada" ? "CA"
+    : plan.inputs.market === "Australia" ? "AU"
+    : plan.inputs.market === "Germany" ? "DE"
+    : plan.inputs.market === "France" ? "FR"
+    : plan.inputs.market === "Brazil" ? "BR"
+    : plan.inputs.market === "India" ? "IN"
+    : plan.inputs.market === "Mexico" ? "MX"
+    : "US";
+
   const loadTrends = useCallback(async (type: "growing"|"seasonal") => {
     setTrendType(type);
     setTrendLoading(true);
     try {
-      const res = await fetch(`/api/pinterest-trends?type=${type}&region=US`);
+      const interest = encodeURIComponent(plan.niche.label);
+      const res = await fetch(`/api/pinterest-trends?type=${type}&region=${region}&interest=${interest}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data.trends) && data.trends.length > 0) {
@@ -1173,7 +1184,7 @@ function MarketSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
       }
     } catch { /* fall through */ }
     setTrendLoading(false);
-  }, []);
+  }, [plan.niche.label, region]);
 
   useState(() => { loadTrends("growing"); });
 

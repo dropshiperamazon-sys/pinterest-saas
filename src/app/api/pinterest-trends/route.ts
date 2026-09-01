@@ -53,6 +53,7 @@ export async function GET(req: Request) {
 
   // Pinterest requires specific snake_case interest values — map UI labels to API values
   const INTEREST_MAP: Record<string, string> = {
+    // Short labels (keyword research page)
     "Home Decor": "home_decor",
     "Fashion": "womens_fashion",
     "Beauty": "beauty",
@@ -66,6 +67,19 @@ export async function GET(req: Request) {
     "Wedding": "wedding",
     "Art": "art",
     "Entertainment": "entertainment",
+    // Full niche labels (campaign planner)
+    "Fashion & Clothing": "womens_fashion",
+    "Home Decor & Interior": "home_decor",
+    "Beauty & Makeup": "beauty",
+    "Food & Recipes": "food_and_drinks",
+    "Fitness & Wellness": "sport",
+    "Travel & Adventure": "travel",
+    "Wedding & Events": "wedding",
+    "Parenting & Kids": "parenting",
+    "Pets & Animals": "animals",
+    "Technology & Gadgets": "electronics",
+    "Business & Finance": "business_strategy",
+    "Education & Learning": "education",
   };
   const apiInterest = interest ? (INTEREST_MAP[interest] ?? interest.toLowerCase().replace(/\s+&\s+/g, "_and_").replace(/\s+/g, "_")) : "";
 
