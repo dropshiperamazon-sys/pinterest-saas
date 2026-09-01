@@ -27,7 +27,7 @@ async function pinterestGet(path: string, token: string) {
   return res.json();
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
@@ -36,6 +36,9 @@ export async function GET() {
   if (!raw) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
 
   const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
+
+  const { searchParams } = new URL(req.url);
+  const days = Math.min(90, Math.max(1, Number(searchParams.get("days") ?? "30")));
 
   // 1. Get ad accounts
   const accountsData = await pinterestGet("/ad_accounts?page_size=10", accessToken);
@@ -46,7 +49,7 @@ export async function GET() {
   const adAccountId: string = accountsData.items[0].id;
   const adAccountName: string = accountsData.items[0].name;
 
-  const startDate = dateStr(30);
+  const startDate = dateStr(days);
   const endDate = dateStr(1);
 
   // 2. Fetch campaigns + account analytics in parallel

@@ -204,19 +204,27 @@ const SECTIONS = [
 
 // ─── Data hook ────────────────────────────────────────────────────────────────
 
-function useAdsData() {
+function presetDays(preset: DatePreset): number {
+  if (preset === "7d")    return 7;
+  if (preset === "14d")   return 14;
+  if (preset === "month") return new Date().getDate(); // days into current month
+  return 30;
+}
+
+function useAdsData(datePreset: DatePreset) {
   const [real, setReal] = useState<AdsApiData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     setLoading(true);
-    fetch("/api/pinterest-ads")
+    const days = presetDays(datePreset);
+    fetch(`/api/pinterest-ads?days=${days}`)
       .then(r => r.json())
       .then(d => { if (d.error) setError(d.error); else { setReal(d); setError(null); } })
       .catch(() => setError("Failed to load"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [datePreset]);
 
   useEffect(() => { refresh(); }, [refresh]);
   return { real, loading, error, refresh };
@@ -1010,9 +1018,49 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
 export default function AnalyzeTab() {
   const [section, setSection] = useState<AnalyzeSection>("performance");
   const [ctx, setCtx] = useState<AnalyzeContext>({ selectedCampaign: "all", datePreset: "30d" });
-  const { real, loading, error, refresh } = useAdsData();
+  const { real, loading, error, refresh } = useAdsData(ctx.datePreset);
 
   const campaigns = real?.campaigns ?? [];
+
+  // Show connect prompt when Pinterest is not linked
+  if (!loading && error === "Pinterest not connected") {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 space-y-6">
+        <div className="w-16 h-16 bg-[#e60023] rounded-2xl flex items-center justify-center shadow-lg">
+          <span className="text-white font-bold text-3xl">P</span>
+        </div>
+        <div className="text-center max-w-sm space-y-2">
+          <h2 className="text-xl font-bold text-gray-900">Connect Pinterest to Analyze</h2>
+          <p className="text-gray-500 text-sm">
+            Link your Pinterest Business account so the Analyze tab can pull live campaign metrics and generate AI-powered diagnoses and suggestions.
+          </p>
+        </div>
+        <div className="bg-gray-50 rounded-xl p-4 w-full max-w-sm space-y-2 text-sm text-gray-600">
+          {[
+            "Live campaign performance metrics",
+            "AI diagnosis with actionable fixes",
+            "Per-campaign CTR, CPC, and save-rate analysis",
+            "Send optimizations directly to the Optimize tab",
+          ].map(item => (
+            <div key={item} className="flex items-start gap-2">
+              <span className="text-green-500 font-bold mt-0.5">✓</span>
+              {item}
+            </div>
+          ))}
+        </div>
+        <a
+          href="/api/pinterest-oauth/start"
+          className="bg-[#e60023] text-white px-6 py-3 rounded-xl text-sm font-semibold hover:bg-[#c8001e] transition-colors flex items-center gap-2 shadow-md"
+        >
+          <span className="text-lg">📌</span>
+          Connect with Pinterest
+        </a>
+        <p className="text-xs text-gray-400">
+          You&apos;ll be redirected to Pinterest to authorize access. Requires a Business account.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
