@@ -86,11 +86,18 @@ export async function GET(req: Request) {
 
   console.log(`[Trends] items count=${items.length} first=${JSON.stringify(items[0])?.slice(0, 200)}`);
 
+  // Cap percentage values — Pinterest API can return absurdly large numbers (e.g. 10001%)
+  // for brand-new trends that had zero searches last year. Cap at 999 so UI stays readable.
+  function capPct(v: number | null): number | null {
+    if (v === null) return null;
+    return Math.min(Math.abs(v), 999) * (v < 0 ? -1 : 1);
+  }
+
   const trends = items.map((item) => {
     // Pinterest API returns pct_growth_wow / pct_growth_mom / pct_growth_yoy
-    const weekly  = (item.pct_growth_wow ?? null) as number | null;
-    const monthly = (item.pct_growth_mom ?? null) as number | null;
-    const yearly  = (item.pct_growth_yoy ?? item.pct_change_from_last_year ?? null) as number | null;
+    const weekly  = capPct((item.pct_growth_wow ?? null) as number | null);
+    const monthly = capPct((item.pct_growth_mom ?? null) as number | null);
+    const yearly  = capPct((item.pct_growth_yoy ?? item.pct_change_from_last_year ?? null) as number | null);
 
     const timeseries = parseTimeSeries(item.time_series as Record<string, number> | null);
 

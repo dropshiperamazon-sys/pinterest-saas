@@ -1232,7 +1232,11 @@ function MarketSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
                   (t.pctChangeFromLastYear ?? 0) >= 0 ? "text-green-600 bg-green-50" : "text-red-500 bg-red-50"
                 )}>
                   <TrendingUp className="w-3 h-3" />
-                  {t.pctChangeFromLastYear !== null ? `${t.pctChangeFromLastYear >= 0 ? "+" : ""}${t.pctChangeFromLastYear}%` : "Trending"}
+                  {t.pctChangeFromLastYear !== null
+                    ? t.pctChangeFromLastYear > 999
+                      ? "New ↑"
+                      : `${t.pctChangeFromLastYear >= 0 ? "+" : ""}${t.pctChangeFromLastYear}%`
+                    : "Trending"}
                 </div>
               </div>
             ))}
