@@ -106,29 +106,29 @@ export default function LandingPage() {
       <PublicNav />
 
       {/* Hero */}
-      <section className="max-w-6xl mx-auto px-6 pt-20 pb-16 text-center">
-        <div className="inline-flex items-center gap-2 bg-[#e60023]/10 text-[#e60023] px-3 py-1.5 rounded-full text-xs font-semibold mb-6">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-12 sm:pt-20 pb-12 sm:pb-16 text-center">
+        <div className="inline-flex items-center gap-2 bg-[#e60023]/10 text-[#e60023] px-3 py-1.5 rounded-full text-xs font-semibold mb-5">
           <Zap className="w-3 h-3" />
           AI-Powered Pinterest Marketing
         </div>
-        <h1 className="text-5xl font-bold text-gray-900 leading-tight mb-6">
+        <h1 className="text-3xl sm:text-5xl font-bold text-gray-900 leading-tight mb-4 sm:mb-6">
           Grow your Pinterest<br />
           <span className="text-[#e60023]">10x faster</span> with My Pin Pro
         </h1>
-        <p className="text-xl text-gray-500 mb-8 max-w-2xl mx-auto">
+        <p className="text-base sm:text-xl text-gray-500 mb-7 sm:mb-8 max-w-2xl mx-auto px-2">
           The all-in-one Pinterest marketing suite. Research keywords, schedule pins, manage ads,
           and analyze performance — all in one place.
         </p>
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
           <Link
             href="/signup"
-            className="bg-[#e60023] text-white px-8 py-3.5 rounded-xl font-semibold text-base hover:bg-[#ad081b] transition-colors flex items-center gap-2"
+            className="w-full sm:w-auto bg-[#e60023] text-white px-8 py-3.5 rounded-xl font-semibold text-base hover:bg-[#ad081b] transition-colors flex items-center justify-center gap-2"
           >
             Start for free <ArrowRight className="w-4 h-4" />
           </Link>
           <Link
             href="/login"
-            className="border border-gray-200 text-gray-700 px-8 py-3.5 rounded-xl font-semibold text-base hover:bg-gray-50 transition-colors"
+            className="w-full sm:w-auto border border-gray-200 text-gray-700 px-8 py-3.5 rounded-xl font-semibold text-base hover:bg-gray-50 transition-colors text-center"
           >
             Sign in
           </Link>
@@ -139,15 +139,15 @@ export default function LandingPage() {
         </p>
 
         {/* App preview */}
-        <div className="mt-14 bg-gray-900 rounded-2xl p-1 shadow-2xl max-w-4xl mx-auto">
-          <div className="bg-gray-800 rounded-xl p-6">
-            <div className="flex items-center gap-2 mb-4">
+        <div className="mt-10 sm:mt-14 bg-gray-900 rounded-2xl p-1 shadow-2xl max-w-4xl mx-auto overflow-hidden">
+          <div className="bg-gray-800 rounded-xl p-4 sm:p-6">
+            <div className="hidden sm:flex items-center gap-2 mb-4">
               <div className="w-3 h-3 rounded-full bg-red-500" />
               <div className="w-3 h-3 rounded-full bg-yellow-500" />
               <div className="w-3 h-3 rounded-full bg-green-500" />
-              <div className="ml-4 bg-gray-700 rounded px-3 py-1 text-xs text-gray-400">pin-saas-5eb4.vercel.app/dashboard</div>
+              <div className="ml-4 bg-gray-700 rounded px-3 py-1 text-xs text-gray-400">mypinpro.app/dashboard</div>
             </div>
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
               {[
                 { label: "Total Impressions", value: "4.8M", change: "+12%" },
                 { label: "Pin Clicks", value: "142K", change: "+8%" },
@@ -156,7 +156,7 @@ export default function LandingPage() {
               ].map((stat) => (
                 <div key={stat.label} className="bg-gray-700 rounded-lg p-3">
                   <div className="text-xs text-gray-400 mb-1">{stat.label}</div>
-                  <div className="text-xl font-bold text-white">{stat.value}</div>
+                  <div className="text-lg sm:text-xl font-bold text-white">{stat.value}</div>
                   <div className="text-xs text-green-400 font-medium">{stat.change}</div>
                 </div>
               ))}
@@ -166,20 +166,22 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="bg-gray-50 py-20">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Everything you need to dominate Pinterest</h2>
-            <p className="text-gray-500 max-w-xl mx-auto">From keyword research to ad optimization, My Pin Pro has every tool you need to grow your Pinterest presence.</p>
+      <section className="bg-gray-50 py-14 sm:py-20">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-10 sm:mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3 sm:mb-4">Everything you need to dominate Pinterest</h2>
+            <p className="text-gray-500 max-w-xl mx-auto text-sm sm:text-base px-2">From keyword research to ad optimization, My Pin Pro has every tool you need to grow your Pinterest presence.</p>
           </div>
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {FEATURES.map(({ icon: Icon, title, desc, color }) => (
-              <div key={title} className="bg-white rounded-2xl p-6 border border-gray-100 hover:shadow-md transition-shadow">
-                <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${color}`}>
+              <div key={title} className="bg-white rounded-2xl p-5 sm:p-6 border border-gray-100 hover:shadow-md transition-shadow flex gap-4 sm:block">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 sm:mb-4 ${color}`}>
                   <Icon className="w-5 h-5" />
                 </div>
-                <h3 className="font-semibold text-gray-900 mb-2">{title}</h3>
-                <p className="text-sm text-gray-500 leading-relaxed">{desc}</p>
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2">{title}</h3>
+                  <p className="text-sm text-gray-500 leading-relaxed">{desc}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -187,12 +189,12 @@ export default function LandingPage() {
       </section>
 
       {/* Social proof */}
-      <section className="py-20">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Loved by Pinterest marketers</h2>
+      <section className="py-14 sm:py-20">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-10 sm:mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3 sm:mb-4">Loved by Pinterest marketers</h2>
           </div>
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
             {TESTIMONIALS.map(({ name, role, text, stars }) => (
               <div key={name} className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm">
                 <div className="flex gap-0.5 mb-3">
@@ -212,18 +214,18 @@ export default function LandingPage() {
       </section>
 
       {/* Pricing */}
-      <section className="bg-gray-50 py-20">
-        <div className="max-w-6xl mx-auto px-6">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Simple, transparent pricing</h2>
-            <p className="text-gray-500">Start free, upgrade when you're ready.</p>
+      <section className="bg-gray-50 py-14 sm:py-20">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-10 sm:mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3 sm:mb-4">Simple, transparent pricing</h2>
+            <p className="text-gray-500">Start free, upgrade when you&apos;re ready.</p>
           </div>
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 items-start">
             {PLANS.map(({ name, price, period, desc, features, cta, href, highlight }) => (
               <div
                 key={name}
                 className={`rounded-2xl p-6 border ${highlight
-                  ? "bg-[#e60023] border-[#e60023] text-white shadow-xl scale-105"
+                  ? "bg-[#e60023] border-[#e60023] text-white shadow-xl sm:scale-105"
                   : "bg-white border-gray-100"
                 }`}
               >
@@ -259,8 +261,8 @@ export default function LandingPage() {
       </section>
 
       {/* CTA */}
-      <section className="py-20">
-        <div className="max-w-2xl mx-auto px-6 text-center">
+      <section className="py-14 sm:py-20">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 text-center">
           <h2 className="text-3xl font-bold text-gray-900 mb-4">Ready to grow your Pinterest?</h2>
           <p className="text-gray-500 mb-8">Join thousands of marketers using My Pin Pro to get more traffic from Pinterest.</p>
           <Link
