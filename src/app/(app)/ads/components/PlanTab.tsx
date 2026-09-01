@@ -904,20 +904,27 @@ function AudienceSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
               ))}</tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {audiences.map(aud => (
-                <tr key={aud.id} className="hover:bg-gray-50/50">
-                  <td className="px-3 py-3 text-sm font-medium text-gray-800">{aud.name}</td>
-                  <td className="px-3 py-3">
-                    <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium capitalize",
-                      aud.type==="retargeting"?"bg-orange-100 text-orange-700":aud.type==="lookalike"?"bg-purple-100 text-purple-700":aud.type==="demographic"?"bg-blue-100 text-blue-700":"bg-green-100 text-green-700"
-                    )}>{aud.type}</span>
-                  </td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(aud.size)}</td>
-                  <td className="px-3 py-3 text-sm font-semibold text-gray-800">{aud.ctr}%</td>
-                  <td className="px-3 py-3 text-sm text-gray-700">{aud.convRate}%</td>
-                  <td className="px-3 py-3 text-sm font-semibold text-gray-800">${aud.spend}</td>
-                </tr>
-              ))}
+              {(() => {
+                const totalWeight = audiences.reduce((s, a) => s + a.spend, 0);
+                const budget = plan.inputs.monthlyBudget;
+                return audiences.map(aud => {
+                  const scaledSpend = Math.round((aud.spend / totalWeight) * budget);
+                  return (
+                    <tr key={aud.id} className="hover:bg-gray-50/50">
+                      <td className="px-3 py-3 text-sm font-medium text-gray-800">{aud.name}</td>
+                      <td className="px-3 py-3">
+                        <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium capitalize",
+                          aud.type==="retargeting"?"bg-orange-100 text-orange-700":aud.type==="lookalike"?"bg-purple-100 text-purple-700":aud.type==="demographic"?"bg-blue-100 text-blue-700":"bg-green-100 text-green-700"
+                        )}>{aud.type}</span>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(aud.size)}</td>
+                      <td className="px-3 py-3 text-sm font-semibold text-gray-800">{aud.ctr}%</td>
+                      <td className="px-3 py-3 text-sm text-gray-700">{aud.convRate}%</td>
+                      <td className="px-3 py-3 text-sm font-semibold text-gray-800">${scaledSpend}</td>
+                    </tr>
+                  );
+                });
+              })()}
             </tbody>
           </table>
         </div>
