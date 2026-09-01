@@ -52,6 +52,8 @@ export async function GET(req: Request) {
 
   const data = await pinterestGet(path, accessToken);
 
+  console.log(`[Trends] path=${path} data keys=${data ? Object.keys(data).join(",") : "null"} raw=${JSON.stringify(data)?.slice(0, 400)}`);
+
   if (!data) {
     return NextResponse.json({ error: "Trends API unavailable", trends: [] }, { status: 200 });
   }
@@ -59,6 +61,8 @@ export async function GET(req: Request) {
   const items: Record<string, unknown>[] = Array.isArray(data)
     ? data
     : (data.trends ?? data.keywords ?? data.items ?? []) as Record<string, unknown>[];
+
+  console.log(`[Trends] items count=${items.length} first=${JSON.stringify(items[0])?.slice(0, 200)}`);
 
   const trends = items.map((item) => {
     // Pinterest API returns pct_growth_wow / pct_growth_mom / pct_growth_yoy
