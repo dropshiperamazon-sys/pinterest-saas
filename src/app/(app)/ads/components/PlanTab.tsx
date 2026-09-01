@@ -356,7 +356,17 @@ function generatePlan(inputs: CampaignInputs): GeneratedPlan {
       { label: "Market Selection", score: 15, max: 15 },
     ],
     summary: {
-      reachEstimate: niche.broad,
+      reachEstimate: (() => {
+        // Scale global niche reach to selected market share
+        const locEntry = niche.demographics.locations.find(l => l.name === inputs.market);
+        const share = (locEntry?.pct ?? 100) / 100;
+        const raw = niche.broad;
+        const num = parseFloat(raw.replace(/[^0-9.]/g, ""));
+        const isM = raw.includes("M");
+        const inM = isM ? num : num / 1000;
+        const scaled = inM * share;
+        return scaled >= 1 ? `${scaled.toFixed(1)}M` : `${Math.round(scaled * 1000)}K`;
+      })(),
       weeklyImpressions: formatNumber(daily * 7 * 2400),
       suggestedDailyBudget: daily,
       projectedMonthlyClicks: formatNumber(daily * 30 * 58),
@@ -747,6 +757,18 @@ function AudienceSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
   const audiences = niche.audiences;
   const demo = niche.demographics;
 
+  // Scale global niche audience numbers to the selected market's share
+  const marketEntry = demo.locations.find(l => l.name === plan.inputs.market);
+  const marketShare = (marketEntry?.pct ?? 100) / 100;
+  function scaleAudience(raw: string): string {
+    const num = parseFloat(raw.replace(/[^0-9.]/g, ""));
+    const isM = raw.includes("M");
+    const inMillions = isM ? num : num / 1000;
+    const scaled = inMillions * marketShare;
+    if (scaled >= 1) return `${scaled.toFixed(1)}M`;
+    return `${Math.round(scaled * 1000)}K`;
+  }
+
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -758,14 +780,14 @@ function AudienceSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
         <WhyTooltip text={plan.audience.why} />
         <div className="mt-4 grid grid-cols-3 gap-3">
           {[
-            { label: "Broad Reach", size: niche.broad, desc: "Interest targeting", color: "bg-blue-50 border-blue-100" },
-            { label: "Targeted", size: niche.targeted, desc: "Keyword + interest", color: "bg-purple-50 border-purple-100" },
-            { label: "High Intent", size: niche.highIntent, desc: "Retargeting + lookalike", color: "bg-green-50 border-green-100" },
+            { label: "Broad Reach", size: scaleAudience(niche.broad), desc: "Interest targeting", color: "bg-blue-50 border-blue-100" },
+            { label: "Targeted", size: scaleAudience(niche.targeted), desc: "Keyword + interest", color: "bg-purple-50 border-purple-100" },
+            { label: "High Intent", size: scaleAudience(niche.highIntent), desc: "Retargeting + lookalike", color: "bg-green-50 border-green-100" },
           ].map(({ label, size, desc, color }) => (
             <div key={label} className={`rounded-xl border p-4 text-center ${color}`}>
               <div className="text-2xl font-bold text-gray-900">{size}</div>
               <div className="text-sm font-semibold text-gray-700 mt-1">{label}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{desc}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{desc} · {plan.inputs.market}</div>
             </div>
           ))}
         </div>
@@ -779,7 +801,12 @@ function AudienceSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-900">Demographic Insights</h3>
-          <span className="text-xs text-gray-400">{niche.label}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-400">{niche.label}</span>
+            <span className="text-xs bg-blue-100 text-blue-700 font-semibold px-2 py-0.5 rounded-full">
+              📍 {plan.inputs.market}
+            </span>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-5">
           <div>
@@ -805,16 +832,40 @@ function AudienceSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
                 <span className="text-xs font-semibold text-gray-700 w-8">{pct}%</span>
               </div>
             ))}
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 mt-5">Top Locations</div>
-            {demo.locations.map(({ name, pct }, i) => (
-              <div key={name} className="flex items-center justify-between py-1.5 border-b border-gray-50">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-4">{i + 1}</span>
-                  <span className="text-sm text-gray-700">{name}</span>
-                </div>
-                <span className="text-xs font-semibold text-gray-600">{pct}%</span>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 mt-5">Target Location</div>
+            {/* Show selected market as 100% target, then niche global breakdown below */}
+            <div className="flex items-center justify-between py-1.5 border-b border-[#e60023]/20 bg-[#e60023]/5 rounded-lg px-2 mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-[#e60023] font-bold">✓</span>
+                <span className="text-sm font-semibold text-gray-800">{plan.inputs.market}</span>
+                <span className="text-xs text-[#e60023] font-semibold">Targeted</span>
               </div>
-            ))}
+              <span className="text-xs font-bold text-[#e60023]">100%</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-2 mb-3">
+              Your ads will only run in <strong>{plan.inputs.market}</strong>. Niche audience distribution within this market:
+            </p>
+            {(() => {
+              // Find this market's share from niche data, use it to scale
+              const marketEntry = demo.locations.find(l => l.name === plan.inputs.market);
+              const marketPct = marketEntry?.pct ?? 100;
+              // Show age distribution scaled to selected market proportion (just informational)
+              return demo.locations
+                .filter(l => l.name === plan.inputs.market)
+                .concat(demo.locations.filter(l => l.name !== plan.inputs.market).slice(0, 3))
+                .map(({ name, pct }, i) => (
+                  <div key={name} className={cn(
+                    "flex items-center justify-between py-1 border-b border-gray-50",
+                    name === plan.inputs.market ? "opacity-100" : "opacity-40"
+                  )}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 w-4">{i + 1}</span>
+                      <span className={cn("text-xs", name === plan.inputs.market ? "text-gray-700 font-medium" : "text-gray-400")}>{name}</span>
+                    </div>
+                    <span className="text-xs font-semibold text-gray-400">{pct}% of niche</span>
+                  </div>
+                ));
+            })()}
           </div>
         </div>
       </div>
