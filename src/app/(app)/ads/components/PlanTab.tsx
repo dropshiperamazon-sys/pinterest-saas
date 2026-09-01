@@ -329,7 +329,7 @@ function generatePlan(inputs: CampaignInputs): GeneratedPlan {
       monthly: Math.round(inputs.monthlyBudget * 0.6),
       impressions: formatNumber(Math.round(budgetDaily * 0.6 * impPerDollar)),
       clicks: formatNumber(Math.round(budgetDaily * 0.6 * clkPerDollar)),
-      conversions: String(Math.round(budgetDaily * 0.6 * clkPerDollar * 30 * convRate)),
+      conversions: String(Math.max(1, Math.round(budgetDaily * 0.6 * clkPerDollar * convRate))),
       roas: "3.2×",
     },
     recommended: {
@@ -338,7 +338,7 @@ function generatePlan(inputs: CampaignInputs): GeneratedPlan {
       monthly: inputs.monthlyBudget,
       impressions: formatNumber(Math.round(budgetDaily * impPerDollar)),
       clicks: formatNumber(Math.round(budgetDaily * clkPerDollar)),
-      conversions: String(Math.round(budgetDaily * clkPerDollar * 30 * convRate)),
+      conversions: String(Math.max(1, Math.round(budgetDaily * clkPerDollar * convRate))),
       roas: "4.1×",
     },
     aggressive: {
@@ -347,7 +347,7 @@ function generatePlan(inputs: CampaignInputs): GeneratedPlan {
       monthly: Math.round(inputs.monthlyBudget * 1.6),
       impressions: formatNumber(Math.round(budgetDaily * 1.6 * impPerDollar * 1.05)),
       clicks: formatNumber(Math.round(budgetDaily * 1.6 * clkPerDollar * 1.05)),
-      conversions: String(Math.round(budgetDaily * 1.6 * clkPerDollar * 30 * convRate * 1.05)),
+      conversions: String(Math.max(1, Math.round(budgetDaily * 1.6 * clkPerDollar * convRate * 1.05))),
       roas: "5.4×",
     },
   };
