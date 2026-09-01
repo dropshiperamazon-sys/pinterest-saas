@@ -47,6 +47,10 @@ export async function GET(req: Request) {
   // Pinterest API only accepts "growing" and "seasonal" as valid trend types.
   const apiTrendType = trendType === "seasonal" ? "seasonal" : "growing";
 
+  // Pinterest Trends API only supports these regions — fall back to US for unsupported ones
+  const SUPPORTED_REGIONS = new Set(["US", "CA", "GB", "IE", "AU", "NZ", "AT", "BE", "CH", "DE", "FR", "IT", "ES", "NL", "SE", "NO", "DK", "FI", "PT", "PL", "RO", "HU", "CZ", "SK", "GR", "IN", "JP", "KR", "MX", "BR", "AR", "CL", "CO", "PE"]);
+  const safeRegion = SUPPORTED_REGIONS.has(region) ? region : "US";
+
   // Pinterest requires specific snake_case interest values — map UI labels to API values
   const INTEREST_MAP: Record<string, string> = {
     "Home Decor": "home_decor",
@@ -65,7 +69,7 @@ export async function GET(req: Request) {
   };
   const apiInterest = interest ? (INTEREST_MAP[interest] ?? interest.toLowerCase().replace(/\s+&\s+/g, "_and_").replace(/\s+/g, "_")) : "";
 
-  let path = `/trends/keywords/${region}/top/${apiTrendType}?limit=25`;
+  let path = `/trends/keywords/${safeRegion}/top/${apiTrendType}?limit=25`;
   if (apiInterest) path += `&interests=${encodeURIComponent(apiInterest)}`;
 
   const data = await pinterestGet(path, accessToken);
@@ -101,5 +105,5 @@ export async function GET(req: Request) {
     };
   }).filter(t => t.keyword);
 
-  return NextResponse.json({ region, trendType, trends, live: true });
+  return NextResponse.json({ region: safeRegion, trendType, trends, live: true });
 }

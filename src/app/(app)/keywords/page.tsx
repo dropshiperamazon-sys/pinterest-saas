@@ -200,7 +200,9 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
 
   const regionMap: Record<string, string> = {
     "United States": "US", "United Kingdom": "GB", "Canada": "CA",
-    "Australia": "AU", "Germany": "DE", "France": "FR", "Brazil": "BR", "India": "IN",
+    "Australia": "AU", "Germany": "DE", "France": "FR", "Brazil": "BR",
+    "India": "IN", "Mexico": "MX", "Argentina": "AR", "Italy": "IT",
+    "Spain": "ES", "Netherlands": "NL", "Japan": "JP", "South Korea": "KR",
   };
 
   const loadTrends = useCallback(async (tab: TrendTab, loc: string, intr: string) => {
