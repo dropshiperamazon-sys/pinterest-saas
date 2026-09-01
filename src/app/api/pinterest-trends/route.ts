@@ -45,10 +45,28 @@ export async function GET(req: Request) {
   const interest  = searchParams.get("interest") ?? "";
 
   // Pinterest API only accepts "growing" and "seasonal" as valid trend types.
-  // "monthly" and "yearly" are UI labels — map them to the closest valid API value.
   const apiTrendType = trendType === "seasonal" ? "seasonal" : "growing";
+
+  // Pinterest requires specific snake_case interest values — map UI labels to API values
+  const INTEREST_MAP: Record<string, string> = {
+    "Home Decor": "home_decor",
+    "Fashion": "womens_fashion",
+    "Beauty": "beauty",
+    "Food & Drink": "food_and_drinks",
+    "Travel": "travel",
+    "Fitness": "sport",
+    "DIY & Crafts": "diy_and_crafts",
+    "Parenting": "parenting",
+    "Pets": "animals",
+    "Technology": "electronics",
+    "Wedding": "wedding",
+    "Art": "art",
+    "Entertainment": "entertainment",
+  };
+  const apiInterest = interest ? (INTEREST_MAP[interest] ?? interest.toLowerCase().replace(/\s+&\s+/g, "_and_").replace(/\s+/g, "_")) : "";
+
   let path = `/trends/keywords/${region}/top/${apiTrendType}?limit=25`;
-  if (interest) path += `&interests=${encodeURIComponent(interest)}`;
+  if (apiInterest) path += `&interests=${encodeURIComponent(apiInterest)}`;
 
   const data = await pinterestGet(path, accessToken);
 
