@@ -2,20 +2,18 @@
 import { useState } from "react";
 import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
-import { Map, Rocket, BarChart2, Zap, BookOpen } from "lucide-react";
+import { Map, Rocket, BarChart2, Zap } from "lucide-react";
 import PlanTab from "./components/PlanTab";
 import AnalyzeTab from "./components/AnalyzeTab";
 import OptimizeTab from "./components/OptimizeTab";
-import AdResearchTab from "./components/AdResearchTab";
 
-type Tab = "plan" | "launch" | "analyze" | "optimize" | "research";
+type Tab = "plan" | "launch" | "analyze" | "optimize";
 
 const TABS: { key: Tab; label: string; icon: React.ElementType; description: string; externalUrl?: string }[] = [
-  { key: "plan",     label: "Plan",        icon: Map,      description: "Research & strategy" },
-  { key: "launch",   label: "Launch",      icon: Rocket,   description: "Create campaigns", externalUrl: "https://ads.pinterest.com" },
-  { key: "analyze",  label: "Analyze",     icon: BarChart2, description: "Performance & insights" },
-  { key: "optimize", label: "Optimize",    icon: Zap,       description: "Scale & automate" },
-  { key: "research", label: "Ad Research", icon: BookOpen,  description: "Spy on competitor ads" },
+  { key: "plan",     label: "Plan",     icon: Map,       description: "Research & strategy" },
+  { key: "launch",   label: "Launch",   icon: Rocket,    description: "Create campaigns", externalUrl: "https://ads.pinterest.com" },
+  { key: "analyze",  label: "Analyze",  icon: BarChart2, description: "Performance & insights" },
+  { key: "optimize", label: "Optimize", icon: Zap,       description: "Scale & automate" },
 ];
 
 export default function AdsPage() {
@@ -71,7 +69,6 @@ export default function AdsPage() {
         {activeTab === "plan" && <PlanTab />}
         {activeTab === "analyze" && <AnalyzeTab />}
         {activeTab === "optimize" && <OptimizeTab />}
-        {activeTab === "research" && <AdResearchTab />}
       </div>
     </div>
   );
