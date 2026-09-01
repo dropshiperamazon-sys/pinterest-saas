@@ -1414,7 +1414,7 @@ function ReadinessScore({ plan }: { plan: GeneratedPlan }) {
 
 function PlanView({ plan, onBack }: { plan: GeneratedPlan; onBack: () => void }) {
   const [section, setSection] = useState<PlanSection>("audience");
-  const [mode, setMode] = useState<Mode>("beginner");
+  const mode: Mode = "advanced";
   const [liveEst, setLiveEst] = useState<LiveEstimate | null>(plan.liveEstimate ?? null);
   const [fetchingEst, setFetchingEst] = useState(!plan.liveEstimate);
 
@@ -1489,14 +1489,6 @@ function PlanView({ plan, onBack }: { plan: GeneratedPlan; onBack: () => void })
             </div>
             <h2 className="text-xl font-bold">{plan.inputs.product}</h2>
             <p className="text-white/80 text-sm mt-0.5">{goalLabel} · {plan.inputs.market} · ${plan.inputs.monthlyBudget.toLocaleString()}/mo</p>
-          </div>
-          <div className="flex items-center gap-2 bg-white/20 rounded-xl p-1">
-            {(["beginner","advanced"] as const).map(m => (
-              <button key={m} onClick={() => setMode(m)}
-                className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all",
-                  mode === m ? "bg-white text-[#e60023]" : "text-white/80 hover:text-white"
-                )}>{m}</button>
-            ))}
           </div>
         </div>
         <div className="grid grid-cols-4 gap-3 mt-4">
