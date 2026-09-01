@@ -1086,12 +1086,46 @@ function BudgetSection({ plan, mode }: { plan: GeneratedPlan; mode: Mode }) {
   );
 }
 
+// Generate alternative copy variations for a creative concept
+function generateVariations(concept: CreativeConcept, product: string, varIndex: number) {
+  const headlineTemplates = [
+    [`The ${product} Everyone's Talking About`, `Why ${product} Lovers Can't Stop Raving`, `Meet the ${product} That Changes Everything`, `Your New Favourite ${product} Is Here`],
+    [`Transform Your Life With ${product}`, `The ${product} Secret You Need to Know`, `${product} That Actually Works`, `Finally — A ${product} Worth Loving`],
+    [`Discover the Best ${product} of the Year`, `${product} Built for People Who Care`, `The ${product} That Delivers Results`, `Upgrade to the ${product} You Deserve`],
+    [`Why Everyone Is Switching to This ${product}`, `The ${product} Review You've Been Waiting For`, `Real Results From Real ${product} Users`, `Join 10,000+ Happy ${product} Customers`],
+  ];
+  const descTemplates = [
+    [`Discover why thousands chose our ${product}. Premium quality, fast shipping. Shop now.`, `Join the community that's obsessed with our ${product}. Limited stock — order today.`, `Our ${product} is crafted for people who expect the best. See why reviewers love it.`, `Finally a ${product} that lives up to the hype. Free returns. Shop risk-free.`],
+    [`Don't settle for less. Our ${product} sets the standard. Fast delivery included.`, `Real quality, real results. See what our ${product} can do for you. Shop today.`, `Trusted by thousands. Our ${product} is the one everyone keeps coming back to.`, `Give yourself the ${product} you actually deserve. Ships in 24 hours.`],
+    [`Premium ${product} at a price that makes sense. Order now & get free shipping.`, `Your search for the perfect ${product} ends here. Shop with confidence.`, `Every detail matters. That's why our ${product} is different. Explore the collection.`, `See why our ${product} has 4.9 stars. Shop now and feel the difference.`],
+    [`New in: the ${product} everyone is pinning. Grab yours before it sells out.`, `People are obsessed with this ${product} for a reason. Discover it today.`, `The ${product} that started a movement. Join thousands of happy customers.`, `Limited time: get our bestselling ${product} with free express shipping.`],
+  ];
+  const ctaOptions = ["Shop Now", "Learn More", "Get Yours", "Explore", "Buy Now", "Discover", "See More", "Try It"];
+
+  const hIdx = varIndex % headlineTemplates[0].length;
+  const tIdx = Math.min(varIndex, headlineTemplates.length - 1);
+  return {
+    headline: headlineTemplates[tIdx][hIdx],
+    description: descTemplates[tIdx][hIdx],
+    cta: ctaOptions[(varIndex + concept.cta.length) % ctaOptions.length],
+  };
+}
+
 function CreativeSection({ plan }: { plan: GeneratedPlan; mode: Mode }) {
   const [expanded, setExpanded] = useState<number | null>(0);
+  // varIndex per concept: 0 = original, 1+ = alternatives
+  const [varIndex, setVarIndex] = useState<Record<number, number>>({});
 
   return (
     <div className="space-y-4">
-      {plan.creative.map((concept, i) => (
+      {plan.creative.map((concept, i) => {
+        const vi = varIndex[i] ?? 0;
+        const vars = vi === 0 ? null : generateVariations(concept, plan.inputs.product || "product", vi - 1);
+        const headline = vars?.headline ?? concept.headline;
+        const description = vars?.description ?? concept.description;
+        const cta = vars?.cta ?? concept.cta;
+
+        return (
         <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <button
             onClick={() => setExpanded(expanded === i ? null : i)}
@@ -1115,22 +1149,42 @@ function CreativeSection({ plan }: { plan: GeneratedPlan; mode: Mode }) {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Headline</div>
-                  <p className="text-sm font-medium text-gray-800">{concept.headline}</p>
+                  <p className="text-sm font-medium text-gray-800">{headline}</p>
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">CTA Button</div>
-                  <span className="bg-[#e60023]/10 text-[#e60023] text-xs px-3 py-1.5 rounded-full font-semibold">{concept.cta}</span>
+                  <span className="bg-[#e60023]/10 text-[#e60023] text-xs px-3 py-1.5 rounded-full font-semibold">{cta}</span>
                 </div>
               </div>
               <div>
                 <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description Copy</div>
-                <p className="text-sm text-gray-700">{concept.description}</p>
+                <p className="text-sm text-gray-700">{description}</p>
               </div>
-              <WhyTooltip text={concept.why} />
+              <div className="flex items-center justify-between">
+                <WhyTooltip text={concept.why} />
+                <div className="flex items-center gap-2">
+                  {vi > 0 && (
+                    <button
+                      onClick={() => setVarIndex(v => ({ ...v, [i]: 0 }))}
+                      className="text-xs text-gray-400 hover:text-gray-600 underline"
+                    >Reset</button>
+                  )}
+                  <button
+                    onClick={() => setVarIndex(v => ({ ...v, [i]: (v[i] ?? 0) + 1 }))}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-[#e60023] bg-[#e60023]/8 hover:bg-[#e60023]/15 px-3 py-1.5 rounded-full transition-colors"
+                  >
+                    <RefreshCw className="w-3 h-3" /> Generate More
+                  </button>
+                </div>
+              </div>
+              {vi > 0 && (
+                <p className="text-xs text-gray-400">Variation {vi} — click Generate More for another option.</p>
+              )}
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
         <h3 className="font-semibold text-gray-900 mb-3">Format Performance Guide</h3>
