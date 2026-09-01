@@ -298,32 +298,56 @@ function generatePlan(inputs: CampaignInputs): GeneratedPlan {
   };
 
   const budgetDaily = Math.round(inputs.monthlyBudget / 30);
+
+  // Realistic Pinterest benchmarks: CPM $4-7 (use $5.50), CPC $0.80-1.40 (use $1.10), CTR ~0.3%
+  // Higher-competition niches (fashion, beauty, wedding) have higher CPMs
+  const nicheCpmMap: Record<string, number> = {
+    "Fashion & Clothing": 6.50, "Beauty & Makeup": 6.20, "Wedding & Events": 7.00,
+    "Home Decor & Interior": 5.80, "Food & Recipes": 5.00, "Fitness & Wellness": 5.50,
+    "Travel & Adventure": 5.20, "Parenting & Kids": 4.80, "DIY & Crafts": 4.20,
+    "Pets & Animals": 4.50, "Technology & Gadgets": 5.00, "Business & Finance": 5.80,
+    "Education & Learning": 4.00,
+  };
+  const nicheCpcMap: Record<string, number> = {
+    "Fashion & Clothing": 1.20, "Beauty & Makeup": 1.15, "Wedding & Events": 1.40,
+    "Home Decor & Interior": 1.10, "Food & Recipes": 0.90, "Fitness & Wellness": 1.05,
+    "Travel & Adventure": 1.00, "Parenting & Kids": 0.95, "DIY & Crafts": 0.80,
+    "Pets & Animals": 0.85, "Technology & Gadgets": 1.00, "Business & Finance": 1.10,
+    "Education & Learning": 0.80,
+  };
+  const baseCpm = nicheCpmMap[niche.label] ?? 5.50;
+  const baseCpc = nicheCpcMap[niche.label] ?? 1.10;
+  // impressions per dollar = 1000 / CPM; clicks per dollar = 1 / CPC
+  const impPerDollar = 1000 / baseCpm;
+  const clkPerDollar = 1 / baseCpc;
+  const convRate = 0.025; // 2.5% conversion rate on clicks
+
   const budgetOptions: Record<string, BudgetOption> = {
     conservative: {
       label: "Conservative",
       daily: Math.round(budgetDaily * 0.6),
       monthly: Math.round(inputs.monthlyBudget * 0.6),
-      impressions: formatNumber(Math.round(budgetDaily * 0.6 * 2000)),
-      clicks: formatNumber(Math.round(budgetDaily * 0.6 * 48)),
-      conversions: String(Math.round(budgetDaily * 0.6 * 2.5)),
+      impressions: formatNumber(Math.round(budgetDaily * 0.6 * impPerDollar)),
+      clicks: formatNumber(Math.round(budgetDaily * 0.6 * clkPerDollar)),
+      conversions: String(Math.round(budgetDaily * 0.6 * clkPerDollar * 30 * convRate)),
       roas: "3.2×",
     },
     recommended: {
       label: "Recommended",
       daily: budgetDaily,
       monthly: inputs.monthlyBudget,
-      impressions: formatNumber(Math.round(budgetDaily * 2400)),
-      clicks: formatNumber(Math.round(budgetDaily * 58)),
-      conversions: String(Math.round(budgetDaily * 3.2)),
+      impressions: formatNumber(Math.round(budgetDaily * impPerDollar)),
+      clicks: formatNumber(Math.round(budgetDaily * clkPerDollar)),
+      conversions: String(Math.round(budgetDaily * clkPerDollar * 30 * convRate)),
       roas: "4.1×",
     },
     aggressive: {
       label: "Aggressive",
       daily: Math.round(budgetDaily * 1.6),
       monthly: Math.round(inputs.monthlyBudget * 1.6),
-      impressions: formatNumber(Math.round(budgetDaily * 1.6 * 2800)),
-      clicks: formatNumber(Math.round(budgetDaily * 1.6 * 68)),
-      conversions: String(Math.round(budgetDaily * 1.6 * 4.0)),
+      impressions: formatNumber(Math.round(budgetDaily * 1.6 * impPerDollar * 1.05)),
+      clicks: formatNumber(Math.round(budgetDaily * 1.6 * clkPerDollar * 1.05)),
+      conversions: String(Math.round(budgetDaily * 1.6 * clkPerDollar * 30 * convRate * 1.05)),
       roas: "5.4×",
     },
   };
@@ -367,10 +391,10 @@ function generatePlan(inputs: CampaignInputs): GeneratedPlan {
         const scaled = inM * share;
         return scaled >= 1 ? `${scaled.toFixed(1)}M` : `${Math.round(scaled * 1000)}K`;
       })(),
-      weeklyImpressions: formatNumber(daily * 7 * 2400),
+      weeklyImpressions: formatNumber(Math.round(daily * 7 * impPerDollar)),
       suggestedDailyBudget: daily,
-      projectedMonthlyClicks: formatNumber(daily * 30 * 58),
-      estimatedCpa: `$${(inputs.monthlyBudget / Math.max(1, daily * 30 * 3.2)).toFixed(2)}`,
+      projectedMonthlyClicks: formatNumber(Math.round(inputs.monthlyBudget * clkPerDollar)),
+      estimatedCpa: `$${baseCpc.toFixed(2)}`,
       competitionLevel: daily < 20 ? "Low" : daily < 60 ? "Medium" : "High",
     },
     audience: {
