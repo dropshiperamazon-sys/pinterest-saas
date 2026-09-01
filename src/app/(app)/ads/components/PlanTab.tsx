@@ -1111,19 +1111,29 @@ function generateVariations(concept: CreativeConcept, product: string, varIndex:
   };
 }
 
+// Render a single copy card (original or variation)
+function CopyCard({ label, headline, description, cta }: { label: string; headline: string; description: string; cta: string }) {
+  return (
+    <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">{label}</span>
+        <span className="bg-[#e60023]/10 text-[#e60023] text-xs px-3 py-1 rounded-full font-semibold">{cta}</span>
+      </div>
+      <p className="text-sm font-semibold text-gray-800">{headline}</p>
+      <p className="text-sm text-gray-600">{description}</p>
+    </div>
+  );
+}
+
 function CreativeSection({ plan }: { plan: GeneratedPlan; mode: Mode }) {
   const [expanded, setExpanded] = useState<number | null>(0);
-  // varIndex per concept: 0 = original, 1+ = alternatives
-  const [varIndex, setVarIndex] = useState<Record<number, number>>({});
+  // extras[i] = number of extra variation cards added for concept i
+  const [extras, setExtras] = useState<Record<number, number>>({});
 
   return (
     <div className="space-y-4">
       {plan.creative.map((concept, i) => {
-        const vi = varIndex[i] ?? 0;
-        const vars = vi === 0 ? null : generateVariations(concept, plan.inputs.product || "product", vi - 1);
-        const headline = vars?.headline ?? concept.headline;
-        const description = vars?.description ?? concept.description;
-        const cta = vars?.cta ?? concept.cta;
+        const extraCount = extras[i] ?? 0;
 
         return (
         <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -1146,40 +1156,33 @@ function CreativeSection({ plan }: { plan: GeneratedPlan; mode: Mode }) {
                 <div className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-1">Visual Direction</div>
                 <p className="text-sm text-purple-900">{concept.visualDirection}</p>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Headline</div>
-                  <p className="text-sm font-medium text-gray-800">{headline}</p>
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">CTA Button</div>
-                  <span className="bg-[#e60023]/10 text-[#e60023] text-xs px-3 py-1.5 rounded-full font-semibold">{cta}</span>
-                </div>
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description Copy</div>
-                <p className="text-sm text-gray-700">{description}</p>
-              </div>
-              <div className="flex items-center justify-between">
+
+              {/* Original copy */}
+              <CopyCard label="Original" headline={concept.headline} description={concept.description} cta={concept.cta} />
+
+              {/* Extra variation cards */}
+              {Array.from({ length: extraCount }).map((_, vi) => {
+                const v = generateVariations(concept, plan.inputs.product || "product", vi);
+                return <CopyCard key={vi} label={`Variation ${vi + 1}`} headline={v.headline} description={v.description} cta={v.cta} />;
+              })}
+
+              <div className="flex items-center justify-between pt-1">
                 <WhyTooltip text={concept.why} />
                 <div className="flex items-center gap-2">
-                  {vi > 0 && (
+                  {extraCount > 0 && (
                     <button
-                      onClick={() => setVarIndex(v => ({ ...v, [i]: 0 }))}
+                      onClick={() => setExtras(e => ({ ...e, [i]: 0 }))}
                       className="text-xs text-gray-400 hover:text-gray-600 underline"
-                    >Reset</button>
+                    >Clear variations</button>
                   )}
                   <button
-                    onClick={() => setVarIndex(v => ({ ...v, [i]: (v[i] ?? 0) + 1 }))}
+                    onClick={() => setExtras(e => ({ ...e, [i]: (e[i] ?? 0) + 1 }))}
                     className="flex items-center gap-1.5 text-xs font-semibold text-[#e60023] bg-[#e60023]/8 hover:bg-[#e60023]/15 px-3 py-1.5 rounded-full transition-colors"
                   >
-                    <RefreshCw className="w-3 h-3" /> Generate More
+                    <RefreshCw className="w-3 h-3" /> Add More
                   </button>
                 </div>
               </div>
-              {vi > 0 && (
-                <p className="text-xs text-gray-400">Variation {vi} — click Generate More for another option.</p>
-              )}
             </div>
           )}
         </div>
