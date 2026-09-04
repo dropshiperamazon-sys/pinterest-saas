@@ -57,33 +57,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Title and scheduledAt are required" }, { status: 400 });
     }
 
-    // If the image is a base64 data URL, upload it to Vercel Blob for a public URL
+    // If the image is a base64 data URL, store it in Redis and serve via /api/pin-image
+    const pinId = `pin_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     let resolvedImageUrl: string = imageUrl || "";
     if (resolvedImageUrl.startsWith("data:")) {
-      try {
-        const { put } = await import("@vercel/blob");
-        const matches = resolvedImageUrl.match(/^data:([^;]+);base64,(.+)$/);
-        if (matches) {
-          const mimeType = matches[1];
-          const base64Data = matches[2];
-          const buffer = Buffer.from(base64Data, "base64");
-          const ext = mimeType.split("/")[1] ?? "jpg";
-          const filename = `pins/${email}/${Date.now()}.${ext}`;
-          const blob = await put(filename, buffer, {
-            access: "public",
-            contentType: mimeType,
-            token: process.env.BLOB_READ_WRITE_TOKEN,
-          });
-          resolvedImageUrl = blob.url;
-        }
-      } catch (e) {
-        console.error("Blob upload failed:", e);
-        const hasToken = !!process.env.BLOB_READ_WRITE_TOKEN;
-        return NextResponse.json({ error: `Image upload failed: ${String(e)}`, hasToken }, { status: 500 });
-      }
+      await redis.set(`pin_image:${pinId}`, resolvedImageUrl, { ex: 60 * 60 * 24 * 90 });
+      const appUrl = process.env.NEXTAUTH_URL || "https://pin-saas-5eb4.vercel.app";
+      resolvedImageUrl = `${appUrl}/api/pin-image/${pinId}`;
     }
-
-    const pinId = `pin_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const pinData = {
       title,
       description: description || "",
