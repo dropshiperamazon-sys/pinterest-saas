@@ -791,73 +791,11 @@ export default function SchedulerPage() {
           </div>
         )}
 
-        <div className="space-y-6">
-          {/* ── Scheduled Pins Panel ── */}
-          <div>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-gray-100 flex items-center gap-1">
-                {(["upcoming", "published"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={cn(
-                      "px-4 py-2 rounded-xl text-sm font-medium transition-colors capitalize flex-1",
-                      activeTab === tab ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-50"
-                    )}
-                  >
-                    {tab}
-                    <span className="ml-1.5 text-xs opacity-70">
-                      ({scheduled.filter((p) => tab === "upcoming" ? p.status === "scheduled" : p.status === "published").length})
-                    </span>
-                  </button>
-                ))}
-              </div>
+        {/* ── Main layout: queue left, sidebar right ── */}
+        <div className="flex gap-5 items-start">
 
-              <div className="grid grid-cols-3 gap-px bg-gray-100 max-h-[400px] overflow-y-auto">
-                {filtered.length === 0 ? (
-                  <div className="col-span-3 p-10 text-center bg-white">
-                    <Calendar className="w-7 h-7 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm text-gray-400">No {activeTab} pins yet</p>
-                  </div>
-                ) : filtered.map((pin) => (
-                  <div key={pin.id} className="p-4 bg-white hover:bg-gray-50/80 flex flex-col gap-2 group relative">
-                    {pin.imageUrl && pin.imageUrl.startsWith("data:") ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={pin.imageUrl} alt={pin.title} className="w-full h-28 object-cover rounded-lg" />
-                    ) : (
-                      <div className="w-full h-28 bg-gray-100 rounded-lg flex items-center justify-center text-3xl">
-                        {pin.imageUrl || "📌"}
-                      </div>
-                    )}
-                    <div className="font-medium text-sm text-gray-900 truncate">{pin.title}</div>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full truncate max-w-[90px]">{pin.board}</span>
-                      <span className="text-xs text-gray-400">{format(parseISO(pin.scheduledAt), "MMM d · h:mm a")}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      {pin.status === "scheduled" ? (
-                        <span className="flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium">
-                          <Clock className="w-3 h-3" />
-                          Scheduled
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full font-medium">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Published
-                        </span>
-                      )}
-                      <button onClick={() => deleteScheduled(pin.id)} className="p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* ── Pin Composer ── */}
-          <div className="space-y-4">
+          {/* ── Left: Pin Composer ── */}
+          <div className="flex-1 min-w-0 space-y-4">
             {/* Toolbar */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -908,24 +846,102 @@ export default function SchedulerPage() {
               ))}
             </div>
 
-          </div>
+            {/* Add more */}
+            <button
+              onClick={addDraft}
+              className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm text-gray-400 hover:border-[#e60023]/40 hover:text-[#e60023] transition-colors flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add Another Pin
+            </button>
 
-          {/* Add more */}
-          <button
-            onClick={addDraft}
-            className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm text-gray-400 hover:border-[#e60023]/40 hover:text-[#e60023] transition-colors flex items-center justify-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Add Another Pin
-          </button>
-
-          {/* Pro tip */}
-          <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-            <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-700">
-              <strong>Pro tip:</strong> Schedule 3–5 pins per day for consistent reach. Mix promotional and inspirational content at a 20/80 ratio for best engagement.
+            {/* Pro tip */}
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
+              <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-blue-700">
+                <strong>Pro tip:</strong> Schedule 3–5 pins per day for consistent reach. Mix promotional and inspirational content at a 20/80 ratio for best engagement.
+              </div>
             </div>
           </div>
+
+          {/* ── Right: Scheduled Pins Sidebar ── */}
+          <div className="w-64 flex-shrink-0">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-20">
+              {/* Tab toggle */}
+              <div className="p-3 border-b border-gray-100 flex items-center gap-1">
+                {(["upcoming", "published"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize flex-1",
+                      activeTab === tab ? "bg-[#e60023] text-white" : "text-gray-500 hover:bg-gray-50"
+                    )}
+                  >
+                    {tab}
+                    <span className="ml-1 opacity-70">
+                      ({scheduled.filter((p) => tab === "upcoming" ? p.status === "scheduled" : p.status === "published").length})
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Thumbnail list */}
+              <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
+                {filtered.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <Calendar className="w-6 h-6 text-gray-300 mx-auto mb-2" />
+                    <p className="text-xs text-gray-400">No {activeTab} pins yet</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {filtered.map((pin) => (
+                      <div key={pin.id} className="p-3 hover:bg-gray-50/80 flex gap-2.5 group relative">
+                        {/* Thumbnail */}
+                        <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
+                          {pin.imageUrl && pin.imageUrl.startsWith("data:") ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={pin.imageUrl} alt={pin.title} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xl">
+                              {pin.imageUrl || "📌"}
+                            </div>
+                          )}
+                        </div>
+                        {/* Info */}
+                        <div className="flex-1 min-w-0 flex flex-col justify-between">
+                          <div className="text-xs font-medium text-gray-900 truncate leading-tight">{pin.title}</div>
+                          <div>
+                            <div className="text-xs text-gray-400 truncate">{pin.board}</div>
+                            <div className="text-xs text-gray-400">{format(parseISO(pin.scheduledAt), "MMM d · h:mm a")}</div>
+                            {pin.status === "scheduled" ? (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full font-medium mt-0.5">
+                                <Clock className="w-2.5 h-2.5" />
+                                Scheduled
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full font-medium mt-0.5">
+                                <CheckCircle2 className="w-2.5 h-2.5" />
+                                Published
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {/* Delete on hover */}
+                        <button
+                          onClick={() => deleteScheduled(pin.id)}
+                          className="absolute top-2 right-2 p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
