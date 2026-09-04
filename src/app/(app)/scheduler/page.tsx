@@ -336,9 +336,15 @@ function DraftCard({
   const [customSlots, setCustomSlots] = useState<string[]>([]);
   const [addingSlot, setAddingSlot] = useState(false);
   const [newSlotTime, setNewSlotTime] = useState("");
-  const [topicInput, setTopicInput] = useState("");
-  const [productInput, setProductInput] = useState("");
+  const [interests, setInterests] = useState<{ id: string; name: string }[]>([]);
+  const [interestsLoading, setInterestsLoading] = useState(false);
+  const [interestsFetched, setInterestsFetched] = useState(false);
+  const [topicFilter, setTopicFilter] = useState("");
+  const [productQuery, setProductQuery] = useState("");
+  const [productResults, setProductResults] = useState<{ id: string; title: string; imageUrl: string; link: string }[]>([]);
+  const [productSearching, setProductSearching] = useState(false);
   const [productMode, setProductMode] = useState<"search" | "link">("search");
+  const [productLinkInput, setProductLinkInput] = useState("");
   const boardRef = useRef<HTMLDivElement>(null);
   const set = (field: keyof PinDraft, value: string) =>
     onChange({ ...draft, [field]: value });
@@ -573,58 +579,92 @@ function DraftCard({
             </div>
           </div>
 
-          {/* Topics */}
+          {/* Topics — from Pinterest interests via OAuth */}
           <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1.5">
-              Topics
-              <span className="ml-1.5 text-gray-300 font-normal">({draft.topics.length}/10) — hidden from viewers</span>
-            </label>
-            <div className="flex flex-wrap gap-1.5 mb-1.5">
-              {draft.topics.map((t) => (
-                <span key={t} className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
-                  {t}
-                  <button onClick={() => onChange({ ...draft, topics: draft.topics.filter((x) => x !== t) })} className="hover:text-blue-900">
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </span>
-              ))}
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-gray-500">
+                Topics <span className="text-gray-300 font-normal">({draft.topics.length}/10)</span>
+              </label>
+              <span className="text-[10px] text-gray-400">Hidden from viewers</span>
             </div>
-            <div className="flex gap-1.5">
-              <div className="relative flex-1">
-                <Tag className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
-                <input
-                  value={topicInput}
-                  onChange={(e) => setTopicInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if ((e.key === "Enter" || e.key === ",") && topicInput.trim() && draft.topics.length < 10) {
-                      e.preventDefault();
-                      const tag = topicInput.trim().replace(/^,+|,+$/g, "");
-                      if (tag && !draft.topics.includes(tag)) onChange({ ...draft, topics: [...draft.topics, tag] });
-                      setTopicInput("");
-                    }
-                  }}
-                  placeholder="Search for a tag…"
-                  className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                />
+            {/* Selected topic chips */}
+            {draft.topics.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {draft.topics.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                    {t}
+                    <button onClick={() => onChange({ ...draft, topics: draft.topics.filter((x) => x !== t) })} className="hover:text-blue-900">
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
               </div>
-              <button
-                onClick={() => {
-                  const tag = topicInput.trim();
-                  if (tag && !draft.topics.includes(tag) && draft.topics.length < 10) {
-                    onChange({ ...draft, topics: [...draft.topics, tag] });
+            )}
+            {/* Search + load interests */}
+            <div className="relative">
+              <Tag className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+              <input
+                value={topicFilter}
+                onChange={(e) => {
+                  setTopicFilter(e.target.value);
+                  if (!interestsFetched) {
+                    setInterestsLoading(true);
+                    setInterestsFetched(true);
+                    fetch("/api/pinterest-interests")
+                      .then(r => r.json())
+                      .then(d => setInterests(d.interests ?? []))
+                      .catch(() => {})
+                      .finally(() => setInterestsLoading(false));
                   }
-                  setTopicInput("");
                 }}
-                disabled={!topicInput.trim() || draft.topics.length >= 10}
-                className="px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-40 transition-colors"
-              >
-                Add
-              </button>
+                onFocus={() => {
+                  if (!interestsFetched) {
+                    setInterestsLoading(true);
+                    setInterestsFetched(true);
+                    fetch("/api/pinterest-interests")
+                      .then(r => r.json())
+                      .then(d => setInterests(d.interests ?? []))
+                      .catch(() => {})
+                      .finally(() => setInterestsLoading(false));
+                  }
+                }}
+                placeholder="Search for a topic…"
+                className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+              />
             </div>
-            <p className="text-[10px] text-gray-400 mt-1">Press Enter or comma to add. Don&apos;t worry, people won&apos;t see your tags.</p>
+            {/* Dropdown of Pinterest interests */}
+            {(interestsLoading || interests.length > 0) && (
+              <div className="mt-1 border border-gray-200 rounded-xl bg-white shadow-sm max-h-36 overflow-y-auto">
+                {interestsLoading ? (
+                  <div className="px-3 py-3 text-xs text-gray-400 flex items-center gap-2">
+                    <div className="w-3 h-3 border-2 border-gray-300 border-t-[#e60023] rounded-full animate-spin" />
+                    Loading from Pinterest…
+                  </div>
+                ) : (
+                  interests
+                    .filter(i => i.name.toLowerCase().includes(topicFilter.toLowerCase()) && !draft.topics.includes(i.name))
+                    .slice(0, 20)
+                    .map(i => (
+                      <button
+                        key={i.id}
+                        onClick={() => {
+                          if (draft.topics.length < 10) {
+                            onChange({ ...draft, topics: [...draft.topics, i.name] });
+                            setTopicFilter("");
+                          }
+                        }}
+                        disabled={draft.topics.length >= 10}
+                        className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors disabled:opacity-40"
+                      >
+                        {i.name}
+                      </button>
+                    ))
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Tag Products */}
+          {/* Tag Products — Pinterest product search */}
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1.5">Tag Products</label>
             {/* Mode toggle */}
@@ -632,7 +672,7 @@ function DraftCard({
               {(["search", "link"] as const).map((m) => (
                 <button
                   key={m}
-                  onClick={() => setProductMode(m)}
+                  onClick={() => { setProductMode(m); setProductResults([]); setProductQuery(""); }}
                   className={cn(
                     "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
                     productMode === m ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
@@ -642,11 +682,11 @@ function DraftCard({
                 </button>
               ))}
             </div>
-            {/* Tagged products list */}
+            {/* Tagged products chips */}
             {draft.taggedProducts.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-1.5">
+              <div className="flex flex-wrap gap-1.5 mb-2">
                 {draft.taggedProducts.map((p) => (
-                  <span key={p} className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium max-w-[180px]">
+                  <span key={p} className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium max-w-[200px]">
                     <ShoppingCart className="w-2.5 h-2.5 flex-shrink-0" />
                     <span className="truncate">{p}</span>
                     <button onClick={() => onChange({ ...draft, taggedProducts: draft.taggedProducts.filter((x) => x !== p) })} className="hover:text-orange-900 flex-shrink-0">
@@ -656,35 +696,98 @@ function DraftCard({
                 ))}
               </div>
             )}
-            <div className="flex gap-1.5">
-              <input
-                value={productInput}
-                onChange={(e) => setProductInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && productInput.trim()) {
-                    e.preventDefault();
-                    if (!draft.taggedProducts.includes(productInput.trim()))
-                      onChange({ ...draft, taggedProducts: [...draft.taggedProducts, productInput.trim()] });
-                    setProductInput("");
-                  }
-                }}
-                placeholder={productMode === "search" ? "Search by product name…" : "Paste product URL…"}
-                className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-              />
-              <button
-                onClick={() => {
-                  if (productInput.trim() && !draft.taggedProducts.includes(productInput.trim())) {
-                    onChange({ ...draft, taggedProducts: [...draft.taggedProducts, productInput.trim()] });
-                  }
-                  setProductInput("");
-                }}
-                disabled={!productInput.trim()}
-                className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1"
-              >
-                <Plus className="w-3 h-3" />
-                Add
-              </button>
-            </div>
+            {productMode === "search" ? (
+              <>
+                <div className="flex gap-1.5">
+                  <input
+                    value={productQuery}
+                    onChange={(e) => setProductQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (!productQuery.trim()) return;
+                        setProductSearching(true);
+                        fetch(`/api/pinterest-product-search?q=${encodeURIComponent(productQuery.trim())}`)
+                          .then(r => r.json())
+                          .then(d => setProductResults(d.products ?? []))
+                          .catch(() => setProductResults([]))
+                          .finally(() => setProductSearching(false));
+                      }
+                    }}
+                    placeholder="Search by product name…"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+                  />
+                  <button
+                    onClick={() => {
+                      if (!productQuery.trim()) return;
+                      setProductSearching(true);
+                      fetch(`/api/pinterest-product-search?q=${encodeURIComponent(productQuery.trim())}`)
+                        .then(r => r.json())
+                        .then(d => setProductResults(d.products ?? []))
+                        .catch(() => setProductResults([]))
+                        .finally(() => setProductSearching(false));
+                    }}
+                    disabled={!productQuery.trim() || productSearching}
+                    className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1"
+                  >
+                    {productSearching
+                      ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      : <Plus className="w-3 h-3" />}
+                    Search
+                  </button>
+                </div>
+                {/* Search results */}
+                {productResults.length > 0 && (
+                  <div className="mt-1 border border-gray-200 rounded-xl bg-white shadow-sm max-h-48 overflow-y-auto divide-y divide-gray-50">
+                    {productResults.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => {
+                          const label = p.title;
+                          if (!draft.taggedProducts.includes(label))
+                            onChange({ ...draft, taggedProducts: [...draft.taggedProducts, label] });
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-orange-50 transition-colors group"
+                      >
+                        {p.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.imageUrl} alt={p.title} className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-gray-100 flex-shrink-0 flex items-center justify-center">
+                            <ShoppingCart className="w-3.5 h-3.5 text-gray-400" />
+                          </div>
+                        )}
+                        <span className="flex-1 text-xs text-gray-700 truncate group-hover:text-orange-700">{p.title}</span>
+                        <Plus className="w-3 h-3 text-gray-300 group-hover:text-orange-500 flex-shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex gap-1.5">
+                <input
+                  value={productLinkInput}
+                  onChange={(e) => setProductLinkInput(e.target.value)}
+                  placeholder="Paste product URL…"
+                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+                />
+                <button
+                  onClick={() => {
+                    const url = productLinkInput.trim();
+                    if (url && !draft.taggedProducts.includes(url)) {
+                      onChange({ ...draft, taggedProducts: [...draft.taggedProducts, url] });
+                    }
+                    setProductLinkInput("");
+                  }}
+                  disabled={!productLinkInput.trim()}
+                  className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
