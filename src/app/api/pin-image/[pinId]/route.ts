@@ -10,7 +10,9 @@ export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ pinId: string }> }
 ) {
-  const { pinId } = await params;
+  const { pinId: rawPinId } = await params;
+  // Strip any file extension Pinterest might append or that we add for hint
+  const pinId = rawPinId.replace(/\.[a-z]+$/i, "");
   const raw = await redis.get(`pin_image:${pinId}`);
   if (!raw) return new NextResponse("Not found", { status: 404 });
 

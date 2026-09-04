@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     if (resolvedImageUrl.startsWith("data:")) {
       await redis.set(`pin_image:${pinId}`, resolvedImageUrl, { ex: 60 * 60 * 24 * 90 });
       const appUrl = process.env.NEXTAUTH_URL || "https://pin-saas-5eb4.vercel.app";
-      resolvedImageUrl = `${appUrl}/api/pin-image/${pinId}`;
+      resolvedImageUrl = `${appUrl}/api/pin-image/${pinId}.jpg`;
     }
     const pinData = {
       title,
