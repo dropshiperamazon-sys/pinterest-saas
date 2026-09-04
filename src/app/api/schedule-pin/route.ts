@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
         }
       } catch (e) {
         console.error("Blob upload failed:", e);
-        // Keep data URL — cron will report the issue clearly
+        return NextResponse.json({ error: `Image upload failed: ${String(e)}` }, { status: 500 });
       }
     }
 
