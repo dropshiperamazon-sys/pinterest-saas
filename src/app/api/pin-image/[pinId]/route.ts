@@ -24,7 +24,9 @@ export async function GET(
   return new NextResponse(buffer, {
     headers: {
       "Content-Type": mimeType,
-      "Cache-Control": "public, max-age=31536000",
+      "Content-Length": String(buffer.length),
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Access-Control-Allow-Origin": "*",
     },
   });
 }
