@@ -7,7 +7,7 @@ import {
   Plus, Calendar, Clock, Link2, Image as ImageIcon,
   CheckCircle2, Trash2, Edit2, X, ExternalLink,
   Sparkles, Zap, Tag, ChevronDown, ChevronUp,
-  Copy, AlertCircle, LayoutGrid,
+  Copy, AlertCircle, LayoutGrid, ShoppingCart,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 
@@ -23,6 +23,8 @@ interface PinDraft {
   status: "draft" | "scheduled" | "published";
   imageUrl: string;
   pinType: "promotional" | "inspirational" | "";
+  topics: string[];
+  taggedProducts: string[];
 }
 
 interface ScheduledPin {
@@ -121,6 +123,8 @@ function newDraft(): PinDraft {
     status: "draft",
     imageUrl: "📌",
     pinType: "",
+    topics: [],
+    taggedProducts: [],
   };
 }
 
@@ -332,6 +336,9 @@ function DraftCard({
   const [customSlots, setCustomSlots] = useState<string[]>([]);
   const [addingSlot, setAddingSlot] = useState(false);
   const [newSlotTime, setNewSlotTime] = useState("");
+  const [topicInput, setTopicInput] = useState("");
+  const [productInput, setProductInput] = useState("");
+  const [productMode, setProductMode] = useState<"search" | "link">("search");
   const boardRef = useRef<HTMLDivElement>(null);
   const set = (field: keyof PinDraft, value: string) =>
     onChange({ ...draft, [field]: value });
@@ -563,6 +570,120 @@ function DraftCard({
                   className="w-full pl-8 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Topics */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">
+              Topics
+              <span className="ml-1.5 text-gray-300 font-normal">({draft.topics.length}/10) — hidden from viewers</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5 mb-1.5">
+              {draft.topics.map((t) => (
+                <span key={t} className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full font-medium">
+                  {t}
+                  <button onClick={() => onChange({ ...draft, topics: draft.topics.filter((x) => x !== t) })} className="hover:text-blue-900">
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-1.5">
+              <div className="relative flex-1">
+                <Tag className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400" />
+                <input
+                  value={topicInput}
+                  onChange={(e) => setTopicInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === ",") && topicInput.trim() && draft.topics.length < 10) {
+                      e.preventDefault();
+                      const tag = topicInput.trim().replace(/^,+|,+$/g, "");
+                      if (tag && !draft.topics.includes(tag)) onChange({ ...draft, topics: [...draft.topics, tag] });
+                      setTopicInput("");
+                    }
+                  }}
+                  placeholder="Search for a tag…"
+                  className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+                />
+              </div>
+              <button
+                onClick={() => {
+                  const tag = topicInput.trim();
+                  if (tag && !draft.topics.includes(tag) && draft.topics.length < 10) {
+                    onChange({ ...draft, topics: [...draft.topics, tag] });
+                  }
+                  setTopicInput("");
+                }}
+                disabled={!topicInput.trim() || draft.topics.length >= 10}
+                className="px-3 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-40 transition-colors"
+              >
+                Add
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">Press Enter or comma to add. Don&apos;t worry, people won&apos;t see your tags.</p>
+          </div>
+
+          {/* Tag Products */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Tag Products</label>
+            {/* Mode toggle */}
+            <div className="flex gap-1 mb-2 bg-gray-100 p-0.5 rounded-xl w-fit">
+              {(["search", "link"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setProductMode(m)}
+                  className={cn(
+                    "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                    productMode === m ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  {m === "search" ? "Search Pins" : "Use a Link"}
+                </button>
+              ))}
+            </div>
+            {/* Tagged products list */}
+            {draft.taggedProducts.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-1.5">
+                {draft.taggedProducts.map((p) => (
+                  <span key={p} className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium max-w-[180px]">
+                    <ShoppingCart className="w-2.5 h-2.5 flex-shrink-0" />
+                    <span className="truncate">{p}</span>
+                    <button onClick={() => onChange({ ...draft, taggedProducts: draft.taggedProducts.filter((x) => x !== p) })} className="hover:text-orange-900 flex-shrink-0">
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-1.5">
+              <input
+                value={productInput}
+                onChange={(e) => setProductInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && productInput.trim()) {
+                    e.preventDefault();
+                    if (!draft.taggedProducts.includes(productInput.trim()))
+                      onChange({ ...draft, taggedProducts: [...draft.taggedProducts, productInput.trim()] });
+                    setProductInput("");
+                  }
+                }}
+                placeholder={productMode === "search" ? "Search by product name…" : "Paste product URL…"}
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+              />
+              <button
+                onClick={() => {
+                  if (productInput.trim() && !draft.taggedProducts.includes(productInput.trim())) {
+                    onChange({ ...draft, taggedProducts: [...draft.taggedProducts, productInput.trim()] });
+                  }
+                  setProductInput("");
+                }}
+                disabled={!productInput.trim()}
+                className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1"
+              >
+                <Plus className="w-3 h-3" />
+                Add
+              </button>
             </div>
           </div>
 
