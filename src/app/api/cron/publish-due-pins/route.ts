@@ -99,16 +99,27 @@ export async function GET(req: Request) {
       const body: Record<string, unknown> = {
         title: pin.title,
         description: pin.description || "",
-        link: pin.link || undefined,
       };
+
+      // Only include link if it's a real URL (not empty, not data:)
+      if (pin.link && pin.link.startsWith("http")) {
+        body.link = pin.link;
+      }
 
       if (boardId) body.board_id = boardId;
 
-      // Image: use stored URL if it's a real URL, else placeholder
-      const imageUrl = pin.imageUrl?.startsWith("http") ? pin.imageUrl : null;
-      body.media_source = imageUrl
-        ? { source_type: "image_url", url: imageUrl }
-        : { source_type: "image_url", url: "https://i.pinimg.com/736x/2e/12/4e/2e124e26b98ec4e72bbb52db65f8db84.jpg" };
+      // Image: handle https URL, pinterest-media: reference, or data: URI
+      if (pin.imageUrl?.startsWith("https://")) {
+        body.media_source = { source_type: "image_url", url: pin.imageUrl };
+      } else if (pin.imageUrl?.startsWith("pinterest-media:")) {
+        const mediaId = pin.imageUrl.replace("pinterest-media:", "");
+        body.media_source = { source_type: "video_id", cover_image_url: "", media_id: mediaId };
+      } else {
+        // data: URI or empty — Pinterest can't fetch it; skip with clear message
+        results.errors.push(`Skipped ${key}: image must be a public URL. Delete this pin and reschedule with a link to a hosted image.`);
+        results.failed++;
+        continue;
+      }
 
       const pinterestRes = await fetch("https://api.pinterest.com/v5/pins", {
         method: "POST",

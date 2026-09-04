@@ -57,11 +57,50 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Title and scheduledAt are required" }, { status: 400 });
     }
 
+    // If the image is a base64 data URL, upload it to Pinterest media API to get a public URL
+    let resolvedImageUrl: string = imageUrl || "";
+    if (resolvedImageUrl.startsWith("data:") && accessToken) {
+      try {
+        const matches = resolvedImageUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (matches) {
+          const mimeType = matches[1];
+          const base64Data = matches[2];
+          const buffer = Buffer.from(base64Data, "base64");
+
+          // Step 1: Register media upload with Pinterest
+          const registerRes = await fetch("https://api.pinterest.com/v5/media", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ media_type: "video" }), // Pinterest uses "video" for image uploads via this endpoint
+          });
+
+          if (registerRes.ok) {
+            const registerData = await registerRes.json();
+            const uploadUrl: string = registerData.upload_url;
+            const mediaId: string = registerData.media_id;
+
+            if (uploadUrl) {
+              // Step 2: Upload the image bytes
+              await fetch(uploadUrl, {
+                method: "PUT",
+                headers: { "Content-Type": mimeType },
+                body: buffer,
+              });
+              // Use the media_id reference — Pinterest will process it
+              resolvedImageUrl = `pinterest-media:${mediaId}`;
+            }
+          }
+        }
+      } catch {
+        // Non-fatal: keep data URL, cron will skip publishing with a clear error
+      }
+    }
+
     const pinId = `pin_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const pinData = {
       title,
       description: description || "",
-      imageUrl: imageUrl || "",
+      imageUrl: resolvedImageUrl,
       board: board || "",
       boardId: boardId || "",
       link: link || "",
