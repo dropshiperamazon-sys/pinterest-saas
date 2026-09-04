@@ -72,12 +72,14 @@ export async function POST(req: NextRequest) {
           const blob = await put(filename, buffer, {
             access: "public",
             contentType: mimeType,
+            token: process.env.BLOB_READ_WRITE_TOKEN,
           });
           resolvedImageUrl = blob.url;
         }
       } catch (e) {
         console.error("Blob upload failed:", e);
-        return NextResponse.json({ error: `Image upload failed: ${String(e)}` }, { status: 500 });
+        const hasToken = !!process.env.BLOB_READ_WRITE_TOKEN;
+        return NextResponse.json({ error: `Image upload failed: ${String(e)}`, hasToken }, { status: 500 });
       }
     }
 
