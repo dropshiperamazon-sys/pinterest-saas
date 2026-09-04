@@ -18,7 +18,15 @@ async function handler(req: NextRequest) {
 
     const pin = typeof raw === "string" ? JSON.parse(raw) : raw;
 
-    const accessToken = pin.accessToken || process.env.PINTEREST_ACCESS_TOKEN;
+    // Prefer token stored in pin, fall back to user's connection record
+    let accessToken: string = pin.accessToken || "";
+    if (!accessToken && pin.email) {
+      const connRaw = await redis.get<string>(`pinterest_connection:${pin.email}`);
+      const conn = connRaw ? (typeof connRaw === "string" ? JSON.parse(connRaw) : connRaw) as { accessToken?: string } : null;
+      accessToken = conn?.accessToken ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
+    }
+    if (!accessToken) accessToken = process.env.PINTEREST_ACCESS_TOKEN ?? "";
+
     if (!accessToken) {
       return NextResponse.json({ error: "No Pinterest access token available" }, { status: 401 });
     }

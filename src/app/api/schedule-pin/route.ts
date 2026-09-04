@@ -12,15 +12,22 @@ export async function GET() {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const keys = await redis.keys(`scheduled_pin:${email}:*`);
-  if (!keys.length) return NextResponse.json({ pins: [] });
+  const [scheduledKeys, publishedKeys] = await Promise.all([
+    redis.keys(`scheduled_pin:${email}:*`),
+    redis.keys(`published_pin:${email}:*`),
+  ]);
+  const allKeys = [...scheduledKeys, ...publishedKeys];
+  if (!allKeys.length) return NextResponse.json({ pins: [] });
 
   const pins = await Promise.all(
-    keys.map(async (key) => {
+    allKeys.map(async (key) => {
       const raw = await redis.get(key);
       const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-      const pinId = key.replace(`scheduled_pin:${email}:`, "");
-      return { id: pinId, ...(data as object) };
+      const pinId = key.replace(`scheduled_pin:${email}:`, "").replace(`published_pin:${email}:`, "");
+      // strip accessToken before sending to client
+      const { accessToken: _tok, ...safe } = (data as Record<string, unknown>);
+      void _tok;
+      return { id: pinId, ...safe };
     })
   );
 
@@ -36,6 +43,11 @@ export async function POST(req: NextRequest) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  // Fetch the stored Pinterest access token for this user
+  const connRaw = await redis.get(`pinterest_connection:${email}`);
+  const conn = connRaw ? (typeof connRaw === "string" ? JSON.parse(connRaw) : connRaw) as { accessToken?: string } : null;
+  const accessToken = conn?.accessToken ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
 
   try {
     const body = await req.json();
@@ -57,6 +69,8 @@ export async function POST(req: NextRequest) {
       scheduledAt,
       status: "scheduled",
       createdAt: new Date().toISOString(),
+      email,
+      accessToken, // stored so publish-pin can use it without re-fetching
     };
 
     await redis.set(`scheduled_pin:${email}:${pinId}`, JSON.stringify(pinData), {
