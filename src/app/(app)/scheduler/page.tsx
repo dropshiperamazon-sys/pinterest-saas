@@ -42,7 +42,26 @@ const FALLBACK_BOARDS = [
   "Gardening", "Lifestyle", "Business Tips",
 ];
 
-const BEST_TIMES = ["8:00 AM", "12:00 PM", "2:00 PM", "5:00 PM", "8:00 PM", "9:00 PM"];
+const BEST_TIMES: { label: string; level: "most" | "medium" | "low" }[] = [
+  { label: "8:00 AM",  level: "most"   },
+  { label: "12:00 PM", level: "most"   },
+  { label: "2:00 PM",  level: "medium" },
+  { label: "5:00 PM",  level: "most"   },
+  { label: "8:00 PM",  level: "medium" },
+  { label: "9:00 PM",  level: "low"    },
+];
+
+const TIME_LEVEL_STYLE: Record<"most" | "medium" | "low", string> = {
+  most:   "bg-green-100 text-green-700 hover:bg-green-200 border border-green-200",
+  medium: "bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200",
+  low:    "bg-gray-100  text-gray-500  hover:bg-gray-200  border border-gray-200",
+};
+
+const TIME_LEVEL_DOT: Record<"most" | "medium" | "low", string> = {
+  most:   "bg-green-500",
+  medium: "bg-amber-400",
+  low:    "bg-gray-400",
+};
 
 // ── AI Generation ──────────────────────────────────────────────────────────────
 
@@ -310,6 +329,9 @@ function DraftCard({
 }) {
   const [expanded, setExpanded] = useState(true);
   const [boardOpen, setBoardOpen] = useState(false);
+  const [customSlots, setCustomSlots] = useState<string[]>([]);
+  const [addingSlot, setAddingSlot] = useState(false);
+  const [newSlotTime, setNewSlotTime] = useState("");
   const boardRef = useRef<HTMLDivElement>(null);
   const set = (field: keyof PinDraft, value: string) =>
     onChange({ ...draft, [field]: value });
@@ -569,17 +591,88 @@ function DraftCard({
 
           {/* Best Times */}
           <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1.5">Best Times to Post</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-medium text-gray-500">Best Times to Post</label>
+              {/* Legend */}
+              <div className="flex items-center gap-2.5">
+                {(["most", "medium", "low"] as const).map((lvl) => (
+                  <span key={lvl} className="flex items-center gap-1 text-[10px] text-gray-400">
+                    <span className={cn("w-1.5 h-1.5 rounded-full inline-block", TIME_LEVEL_DOT[lvl])} />
+                    {lvl === "most" ? "High" : lvl === "medium" ? "Mid" : "Low"}
+                  </span>
+                ))}
+              </div>
+            </div>
             <div className="flex flex-wrap gap-1.5">
-              {BEST_TIMES.map((t) => (
+              {BEST_TIMES.map(({ label, level }) => (
                 <button
-                  key={t}
-                  onClick={() => set("time", timeToInput(t))}
-                  className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg hover:bg-[#e60023]/10 hover:text-[#e60023] transition-colors font-medium"
+                  key={label}
+                  onClick={() => set("time", timeToInput(label))}
+                  className={cn("text-xs px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1", TIME_LEVEL_STYLE[level])}
                 >
-                  {t}
+                  <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", TIME_LEVEL_DOT[level])} />
+                  {label}
                 </button>
               ))}
+              {/* Custom slots */}
+              {customSlots.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => set("time", t)}
+                  className="text-xs px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 bg-[#e60023]/10 text-[#e60023] border border-[#e60023]/20 hover:bg-[#e60023]/20 group"
+                >
+                  {/* format to 12h for display */}
+                  {(() => {
+                    const [h, m] = t.split(":").map(Number);
+                    const ampm = h >= 12 ? "PM" : "AM";
+                    const h12 = h % 12 || 12;
+                    return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                  })()}
+                  <X
+                    className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => { e.stopPropagation(); setCustomSlots((s) => s.filter((x) => x !== t)); }}
+                  />
+                </button>
+              ))}
+              {/* Add slot button / inline input */}
+              {addingSlot ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="time"
+                    autoFocus
+                    value={newSlotTime}
+                    onChange={(e) => setNewSlotTime(e.target.value)}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] w-28"
+                  />
+                  <button
+                    onClick={() => {
+                      if (newSlotTime && !customSlots.includes(newSlotTime)) {
+                        setCustomSlots((s) => [...s, newSlotTime]);
+                        set("time", newSlotTime);
+                      }
+                      setNewSlotTime("");
+                      setAddingSlot(false);
+                    }}
+                    className="text-xs bg-[#e60023] text-white px-2 py-1 rounded-lg hover:bg-[#ad081b] transition-colors font-medium"
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => { setNewSlotTime(""); setAddingSlot(false); }}
+                    className="text-xs text-gray-400 hover:text-gray-600 px-1"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAddingSlot(true)}
+                  title="Add custom time slot"
+                  className="text-xs px-2.5 py-1 rounded-lg font-medium border border-dashed border-gray-300 text-gray-400 hover:border-[#e60023]/50 hover:text-[#e60023] transition-colors flex items-center gap-0.5"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              )}
             </div>
           </div>
 
