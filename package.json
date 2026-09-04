@@ -17,6 +17,7 @@
     "@radix-ui/react-tabs": "^1.1.15",
     "@upstash/qstash": "^2.11.1",
     "@upstash/redis": "^1.38.0",
+    "@vercel/blob": "^2.8.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.21.0",
