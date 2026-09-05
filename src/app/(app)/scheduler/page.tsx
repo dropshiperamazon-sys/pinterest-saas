@@ -1076,7 +1076,7 @@ export default function SchedulerPage() {
   const removeDraft = (id: string) =>
     setDrafts((d) => d.filter((dr) => dr.id !== id));
 
-  const applyAi = (title: string, description: string, pinType: "promotional" | "inspirational") => {
+  const applyAi = (title: string, description: string, pinType: "promotional" | "inspirational" | "educational") => {
     if (!aiTarget) return;
     setDrafts((d) =>
       d.map((dr) => dr.id === aiTarget ? { ...dr, title, description, pinType } : dr)
