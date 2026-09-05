@@ -1161,6 +1161,7 @@ export default function SchedulerPage() {
   const [spacingLocked, setSpacingLocked] = useState(false);
   const [shuffleMsg, setShuffleMsg] = useState("");
   const [spacingOpen, setSpacingOpen] = useState(false);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [successPopup, setSuccessPopup] = useState(false);
@@ -1438,6 +1439,125 @@ export default function SchedulerPage() {
         />
       )}
 
+      {/* ── CSV Import Modal ── */}
+      {csvModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setCsvModalOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="bg-gradient-to-r from-green-600 to-green-500 px-6 py-5 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center">
+                  <Copy className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-white font-bold text-base">Import Pins via CSV</h2>
+                  <p className="text-green-100 text-xs">Upload your spreadsheet to bulk-schedule pins</p>
+                </div>
+              </div>
+              <button onClick={() => setCsvModalOpen(false)} className="text-white/70 hover:text-white transition-colors">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-5">
+              {/* Column guide */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Required CSV Columns</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { col: "media_url", desc: "Direct image URL (JPG/PNG/WEBP)" },
+                    { col: "title", desc: "Pin title (max 100 chars)" },
+                    { col: "description", desc: "Pin description / caption" },
+                    { col: "board_name", desc: "Name of your Pinterest board" },
+                    { col: "destination_link", desc: "URL viewers land on" },
+                    { col: "alt_text", desc: "Accessibility description" },
+                    { col: "scheduled_time", desc: "e.g. 2025-09-10T09:00" },
+                  ].map(({ col, desc }) => (
+                    <div key={col} className="flex items-start gap-2 bg-gray-50 rounded-lg px-3 py-2">
+                      <code className="text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded mt-0.5 shrink-0">{col}</code>
+                      <span className="text-[11px] text-gray-500 leading-tight">{desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tips */}
+              <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 space-y-1.5">
+                <p className="text-xs font-semibold text-blue-700">Tips</p>
+                <ul className="text-[11px] text-blue-600 space-y-1 list-disc list-inside">
+                  <li>First row must be the column headers exactly as shown above</li>
+                  <li>Wrap fields containing commas in double quotes</li>
+                  <li><code className="bg-blue-100 px-1 rounded">scheduled_time</code> format: <code className="bg-blue-100 px-1 rounded">YYYY-MM-DDTHH:MM</code></li>
+                  <li>Leave optional columns blank — don't remove them</li>
+                </ul>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    const headers = ["media_url", "title", "description", "board_name", "destination_link", "alt_text", "scheduled_time"];
+                    const example = ["https://example.com/image.jpg", "My Pin Title", "A great pin description", "My Board", "https://mywebsite.com", "A beautiful image", "2025-09-10T09:00"];
+                    const csv = [headers.join(","), example.join(",")].join("\n");
+                    const blob = new Blob([csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url; a.download = "mypinpro_template.csv"; a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-green-600 text-green-700 font-semibold text-sm hover:bg-green-50 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                  Download Template
+                </button>
+                <label className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-green-600 text-white font-semibold text-sm hover:bg-green-700 transition-colors cursor-pointer">
+                  <Copy className="w-4 h-4" />
+                  Upload CSV
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const text = ev.target?.result as string;
+                        const lines = text.split(/\r?\n/).filter(Boolean);
+                        if (lines.length < 2) return;
+                        const header = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z]/g, ""));
+                        const col = (row: string[], key: string) => {
+                          const idx = header.findIndex((h) => h.includes(key));
+                          return idx >= 0 ? (row[idx] ?? "").trim().replace(/^"|"$/g, "") : "";
+                        };
+                        const newDrafts = lines.slice(1).map((line) => {
+                          const row = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,))/g) ?? line.split(",");
+                          const sched = col(row, "scheduled");
+                          return {
+                            ...newDraft(),
+                            imageUrl: col(row, "media") || col(row, "image"),
+                            link: col(row, "destination") || col(row, "link") || col(row, "url"),
+                            title: col(row, "title"),
+                            description: col(row, "description") || col(row, "desc"),
+                            altText: col(row, "alt"),
+                            date: sched ? sched.split("T")[0] : "",
+                            time: sched?.includes("T") ? (sched.split("T")[1]?.slice(0, 5) ?? "") : "",
+                          };
+                        }).filter((d) => d.title || d.imageUrl || d.link);
+                        if (newDrafts.length) setDrafts((prev) => [...prev, ...newDrafts]);
+                        setCsvModalOpen(false);
+                      };
+                      reader.readAsText(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Header title="Pin Scheduler" subtitle="Create and schedule multiple pins at once with AI-powered content generation" />
 
       <div className="p-6 space-y-5">
@@ -1516,45 +1636,14 @@ export default function SchedulerPage() {
           <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
 
           {/* Import CSV */}
-          <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700 transition-colors cursor-pointer">
+          <button
+            onClick={() => setCsvModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700 transition-colors cursor-pointer"
+          >
             <Copy className="w-3.5 h-3.5" />
             Import CSV
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                  const text = ev.target?.result as string;
-                  const lines = text.split(/\r?\n/).filter(Boolean);
-                  if (lines.length < 2) return;
-                  const header = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z]/g, ""));
-                  const col = (row: string[], key: string) => {
-                    const idx = header.findIndex((h) => h.includes(key));
-                    return idx >= 0 ? (row[idx] ?? "").trim().replace(/^"|"$/g, "") : "";
-                  };
-                  const newDrafts = lines.slice(1).map((line) => {
-                    const row = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,))/g) ?? line.split(",");
-                    return {
-                      ...newDraft(),
-                      imageUrl: col(row, "image"),
-                      link: col(row, "link") || col(row, "destination") || col(row, "url"),
-                      title: col(row, "title"),
-                      description: col(row, "description") || col(row, "desc"),
-                    };
-                  }).filter((d) => d.title || d.imageUrl || d.link);
-                  if (newDrafts.length) setDrafts((prev) => [...prev, ...newDrafts]);
-                };
-                reader.readAsText(file);
-                e.target.value = "";
-              }}
-            />
-          </label>
+          </button>
 
-          <span className="text-[10px] text-gray-400 ml-1">CSV columns: <code className="bg-gray-100 px-1 rounded">image_url, destination_link, title, description</code></span>
         </div>
 
         {/* ── Main layout: queue left, sidebar right ── */}
