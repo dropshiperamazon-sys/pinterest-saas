@@ -371,6 +371,8 @@ function DraftCard({
   const [productSearching, setProductSearching] = useState(false);
   const [productMode, setProductMode] = useState<"search" | "link">("search");
   const [productLinkInput, setProductLinkInput] = useState("");
+  const [linkPreview, setLinkPreview] = useState<{ image: string | null; title: string } | null>(null);
+  const [linkPreviewLoading, setLinkPreviewLoading] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const set = (field: keyof PinDraft, value: string) =>
     onChange({ ...draft, [field]: value });
@@ -795,27 +797,63 @@ function DraftCard({
                 )}
               </>
             ) : (
-              <div className="flex gap-1.5">
-                <input
-                  value={productLinkInput}
-                  onChange={(e) => setProductLinkInput(e.target.value)}
-                  placeholder="Paste product URL…"
-                  className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                />
-                <button
-                  onClick={() => {
-                    const url = productLinkInput.trim();
-                    if (url && !draft.taggedProducts.includes(url)) {
-                      onChange({ ...draft, taggedProducts: [...draft.taggedProducts, url] });
-                    }
-                    setProductLinkInput("");
-                  }}
-                  disabled={!productLinkInput.trim()}
-                  className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1"
-                >
-                  <Plus className="w-3 h-3" />
-                  Add
-                </button>
+              <div className="space-y-2">
+                <div className="flex gap-1.5">
+                  <input
+                    value={productLinkInput}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      setProductLinkInput(val);
+                      setLinkPreview(null);
+                      const trimmed = val.trim();
+                      if (trimmed.startsWith("http")) {
+                        setLinkPreviewLoading(true);
+                        try {
+                          const res = await fetch(`/api/fetch-link-preview?url=${encodeURIComponent(trimmed)}`);
+                          const data = await res.json();
+                          if (data.image || data.title) setLinkPreview({ image: data.image, title: data.title });
+                        } catch { /* ignore */ } finally {
+                          setLinkPreviewLoading(false);
+                        }
+                      }
+                    }}
+                    placeholder="Paste product URL…"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+                  />
+                  <button
+                    onClick={() => {
+                      const url = productLinkInput.trim();
+                      if (url && !draft.taggedProducts.includes(url)) {
+                        onChange({ ...draft, taggedProducts: [...draft.taggedProducts, url] });
+                      }
+                      setProductLinkInput("");
+                      setLinkPreview(null);
+                    }}
+                    disabled={!productLinkInput.trim()}
+                    className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Add
+                  </button>
+                </div>
+                {linkPreviewLoading && (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 px-1">
+                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    Fetching product…
+                  </div>
+                )}
+                {linkPreview && !linkPreviewLoading && (
+                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2">
+                    {linkPreview.image && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={linkPreview.image} alt="product" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-gray-200" />
+                    )}
+                    <span className="text-xs text-gray-700 line-clamp-2 flex-1">{linkPreview.title}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
