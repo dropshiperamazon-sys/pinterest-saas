@@ -362,7 +362,7 @@ function DraftCard({
   const [customSlots, setCustomSlots] = useState<string[]>([]);
   const [addingSlot, setAddingSlot] = useState(false);
   const [newSlotTime, setNewSlotTime] = useState("");
-  const [interests, setInterests] = useState<{ id: string; name: string }[]>([]);
+  const [interests, setInterests] = useState<{ id: string; name: string; isCategory?: boolean; parent?: string }[]>([]);
   const [interestsLoading, setInterestsLoading] = useState(false);
   const [interestsFetched, setInterestsFetched] = useState(false);
   const [topicFilter, setTopicFilter] = useState("");
@@ -672,11 +672,13 @@ function DraftCard({
                     <div className="w-3 h-3 border-2 border-gray-300 border-t-[#e60023] rounded-full animate-spin" />
                     Loading from Pinterest…
                   </div>
-                ) : (
-                  interests
-                    .filter(i => i.name.toLowerCase().includes(topicFilter.toLowerCase()) && !draft.topics.includes(i.name))
-                    .slice(0, 20)
-                    .map(i => (
+                ) : (() => {
+                  const filtered = interests.filter(i =>
+                    i.name.toLowerCase().includes(topicFilter.toLowerCase()) && !draft.topics.includes(i.name)
+                  );
+                  // When searching, show flat list; when not, show grouped with category headers
+                  if (topicFilter.trim()) {
+                    return filtered.slice(0, 30).map(i => (
                       <button
                         key={i.id}
                         onClick={() => {
@@ -688,10 +690,32 @@ function DraftCard({
                         disabled={draft.topics.length >= 10}
                         className="w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors disabled:opacity-40"
                       >
+                        {i.isCategory ? <span className="font-semibold">{i.name}</span> : <span className="pl-1 text-gray-600">{i.name}</span>}
+                      </button>
+                    ));
+                  }
+                  return interests
+                    .filter(i => !draft.topics.includes(i.name))
+                    .map(i => i.isCategory ? (
+                      <div key={i.id} className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 bg-gray-50 sticky top-0">
+                        {i.name}
+                      </div>
+                    ) : (
+                      <button
+                        key={i.id}
+                        onClick={() => {
+                          if (draft.topics.length < 10) {
+                            onChange({ ...draft, topics: [...draft.topics, i.name] });
+                            setTopicFilter("");
+                          }
+                        }}
+                        disabled={draft.topics.length >= 10}
+                        className="w-full text-left pl-5 pr-3 py-1.5 text-xs text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors disabled:opacity-40"
+                      >
                         {i.name}
                       </button>
-                    ))
-                )}
+                    ));
+                })()}
               </div>
             )}
           </div>
