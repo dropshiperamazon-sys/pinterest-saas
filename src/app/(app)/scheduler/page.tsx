@@ -332,85 +332,6 @@ function AiModal({
   );
 }
 
-// ── SmartSchedule Panel ────────────────────────────────────────────────────────
-
-const SMART_SCHEDULE: { day: string; short: string; slots: string[] }[] = [
-  { day: "Monday",    short: "Mon", slots: ["2:00 AM", "10:00 AM", "5:00 PM", "8:00 PM"] },
-  { day: "Tuesday",   short: "Tue", slots: ["2:00 AM", "10:00 AM", "5:00 PM", "8:00 PM"] },
-  { day: "Wednesday", short: "Wed", slots: ["1:00 AM", "10:00 AM", "5:00 PM", "8:00 PM"] },
-  { day: "Thursday",  short: "Thu", slots: ["2:00 AM", "10:00 AM", "5:00 PM", "8:00 PM"] },
-  { day: "Friday",    short: "Fri", slots: ["2:00 AM", "10:00 AM", "5:00 PM", "8:00 PM"] },
-  { day: "Saturday",  short: "Sat", slots: ["2:00 AM",  "9:00 AM", "5:00 PM", "8:00 PM"] },
-  { day: "Sunday",    short: "Sun", slots: ["1:00 AM",  "9:00 AM", "4:00 PM", "8:00 PM"] },
-];
-
-function parseSlot(slot: string): string {
-  const [time, meridiem] = slot.split(" ");
-  const [h, m] = time.split(":").map(Number);
-  let hour24 = h % 12;
-  if (meridiem === "PM") hour24 += 12;
-  return `${String(hour24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function getNextDateForDay(dayName: string): string {
-  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  const target = days.indexOf(dayName);
-  const now = new Date();
-  const diff = (target - now.getDay() + 7) % 7 || 7;
-  const next = new Date(now);
-  next.setDate(now.getDate() + diff);
-  return next.toISOString().split("T")[0];
-}
-
-function SmartSchedulePanel({ onApply }: { onApply: (date: string, time: string) => void }) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-20">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <div>
-          <div className="text-xs font-semibold text-gray-800 flex items-center gap-1.5">
-            <span className="text-[#e60023]">⚡</span> SmartSchedule
-          </div>
-          <div className="text-[10px] text-gray-400 mt-0.5">Best times to post on Pinterest</div>
-        </div>
-      </div>
-
-      {/* Day columns header */}
-      <div className="px-4 pt-2">
-        <div className="grid grid-cols-[56px_1fr_1fr_1fr_1fr] gap-1 mb-1">
-          <div />
-          {(["AM", "AM", "PM", "PM"]).map((label, i) => (
-            <div key={i} className="text-[10px] font-medium text-gray-400 text-center">{label}</div>
-          ))}
-        </div>
-      </div>
-
-      {/* Rows per day */}
-      <div className="px-4 pb-3 space-y-0.5">
-        {SMART_SCHEDULE.map(({ day, short, slots }) => (
-          <div key={day} className="grid grid-cols-[56px_1fr_1fr_1fr_1fr] gap-1 items-center py-1 border-b border-gray-50 last:border-0">
-            <div className="text-[10px] font-medium text-gray-500">{short}</div>
-            {slots.map((slot) => (
-              <button
-                key={slot}
-                title={`Schedule for ${day} at ${slot}`}
-                onClick={() => onApply(getNextDateForDay(day), parseSlot(slot))}
-                className="text-[10px] bg-blue-50 hover:bg-[#e60023] text-blue-600 hover:text-white rounded-md py-1 px-0.5 font-medium transition-colors text-center leading-tight"
-              >
-                {slot}
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
-
-      <div className="px-4 pb-3">
-        <p className="text-[10px] text-gray-400 leading-relaxed">Click a time slot to apply it to your next empty draft.</p>
-      </div>
-    </div>
-  );
-}
-
 // ── Single Draft Card ──────────────────────────────────────────────────────────
 
 function DraftCard({
@@ -1310,8 +1231,8 @@ export default function SchedulerPage() {
             </div>
           </div>
 
-          {/* ── Right: Sidebar ── */}
-          <div className="w-72 flex-shrink-0 space-y-4">
+          {/* ── Right: Scheduled Pins Sidebar ── */}
+          <div className="w-64 flex-shrink-0">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-20">
               {/* Tab toggle */}
               <div className="p-3 border-b border-gray-100 flex items-center gap-1">
@@ -1385,12 +1306,6 @@ export default function SchedulerPage() {
               </div>
             </div>
           </div>
-
-          {/* SmartSchedule panel */}
-          <SmartSchedulePanel onApply={(date, time) => {
-            const emptyDraft = drafts.find(d => !d.date && !d.time);
-            if (emptyDraft) updateDraft(emptyDraft.id, { ...emptyDraft, date, time });
-          }} />
 
         </div>
       </div>
