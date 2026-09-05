@@ -341,6 +341,7 @@ function DraftCard({
   onRemove,
   onAiOpen,
   onSchedule,
+  isScheduling = false,
   isOnly,
   boards,
   boardsLoading,
@@ -351,6 +352,7 @@ function DraftCard({
   onRemove: () => void;
   onAiOpen: () => void;
   onSchedule: () => void;
+  isScheduling?: boolean;
   isOnly: boolean;
   boards: { id: string; name: string }[];
   boardsLoading: boolean;
@@ -933,11 +935,23 @@ function DraftCard({
           {/* Schedule button */}
           <button
             onClick={onSchedule}
-            disabled={!draft.title || !draft.date || !draft.time}
+            disabled={!draft.title || !draft.date || !draft.time || isScheduling}
             className="w-full flex items-center justify-center gap-2 bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <Calendar className="w-3.5 h-3.5" />
-            Schedule
+            {isScheduling ? (
+              <>
+                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+                Scheduling…
+              </>
+            ) : (
+              <>
+                <Calendar className="w-3.5 h-3.5" />
+                Schedule
+              </>
+            )}
           </button>
 
         </div>
@@ -963,6 +977,8 @@ export default function SchedulerPage() {
   });
   const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
+  const [schedulingId, setSchedulingId] = useState<string | null>(null);
+  const [successPopup, setSuccessPopup] = useState(false);
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
   const [boardsLoading, setBoardsLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -1046,6 +1062,7 @@ export default function SchedulerPage() {
   const scheduleSingle = async (draftId: string) => {
     const d = drafts.find((dr) => dr.id === draftId);
     if (!d || !d.title || !d.date || !d.time) return;
+    setSchedulingId(draftId);
     const boardList = d.boards?.length ? d.boards : [d.board || ""];
     const baseMs = new Date(`${d.date}T${d.time}:00`).getTime();
     const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
@@ -1055,9 +1072,12 @@ export default function SchedulerPage() {
       const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, scheduledAt });
       if (pin) saved.push(pin);
     }
+    setSchedulingId(null);
     if (saved.length) {
       setScheduled((s) => [...saved, ...s]);
       setDrafts((prev) => prev.map((dr) => dr.id === draftId ? newDraft() : dr));
+      setSuccessPopup(true);
+      setTimeout(() => setSuccessPopup(false), 3000);
     }
   };
 
@@ -1098,6 +1118,20 @@ export default function SchedulerPage() {
 
   return (
     <div>
+      {/* Success popup */}
+      {successPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+          <div className="bg-white rounded-2xl shadow-2xl border border-green-200 px-8 py-6 flex flex-col items-center gap-3 animate-in fade-in zoom-in duration-300">
+            <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
+              <svg className="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div className="text-lg font-bold text-gray-900">Scheduled!</div>
+            <div className="text-sm text-gray-500 text-center">Your pin has been scheduled successfully.</div>
+          </div>
+        </div>
+      )}
       {aiTarget && (
         <AiModal
           onApply={applyAi}
@@ -1186,6 +1220,7 @@ export default function SchedulerPage() {
                   onRemove={() => removeDraft(draft.id)}
                   onAiOpen={() => setAiTarget(draft.id)}
                   onSchedule={() => scheduleSingle(draft.id)}
+                  isScheduling={schedulingId === draft.id}
                   isOnly={drafts.length === 1}
                   boards={boards}
                   boardsLoading={boardsLoading}
