@@ -1680,13 +1680,22 @@ export default function SchedulerPage() {
     } catch { return null; }
   }
 
+  // Returns a default scheduledAt (next round hour) when the draft has no date/time
+  function defaultScheduledAt(date: string, time: string): number {
+    if (date && time) return new Date(`${date}T${time}:00`).getTime();
+    const now = new Date();
+    now.setMinutes(0, 0, 0);
+    now.setHours(now.getHours() + 1);
+    return now.getTime();
+  }
+
   // Schedule a single draft — one POST per selected board, each 2 weeks apart
   const scheduleSingle = async (draftId: string) => {
     const d = drafts.find((dr) => dr.id === draftId);
-    if (!d || !d.title || !d.date || !d.time) return;
+    if (!d || !d.title || !d.imageUrl) return;
     setSchedulingId(draftId);
     const boardList = d.boards?.length ? d.boards : [d.board || ""];
-    const baseMs = new Date(`${d.date}T${d.time}:00`).getTime();
+    const baseMs = defaultScheduledAt(d.date, d.time);
     const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
     const saved: ScheduledPin[] = [];
     for (let i = 0; i < boardList.length; i++) {
@@ -1705,13 +1714,13 @@ export default function SchedulerPage() {
 
   // Schedule all valid drafts, expanding multi-board selections with 2-week intervals
   const scheduleAll = async () => {
-    const valid = drafts.filter((d) => d.title && d.date && d.time);
+    const valid = drafts.filter((d) => d.title && d.imageUrl);
     if (valid.length === 0) return;
     const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
     const saved: ScheduledPin[] = [];
     for (const d of valid) {
       const boardList = d.boards?.length ? d.boards : [d.board || ""];
-      const baseMs = new Date(`${d.date}T${d.time}:00`).getTime();
+      const baseMs = defaultScheduledAt(d.date, d.time);
       for (let i = 0; i < boardList.length; i++) {
         const scheduledAt = new Date(baseMs + i * TWO_WEEKS_MS).toISOString();
         const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, scheduledAt });
