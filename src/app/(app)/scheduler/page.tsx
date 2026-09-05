@@ -1161,7 +1161,10 @@ export default function SchedulerPage() {
     } catch { /* ignore */ }
     return [newDraft(), newDraft(), newDraft()];
   });
-  const [activeTab, setActiveTab] = useState<"schedule" | "upcoming" | "published">("schedule");
+  const [activeTab, setActiveTab] = useState<"schedule" | "published">("schedule");
+  const [pubFilter, setPubFilter] = useState<"today" | "week" | "month" | "custom">("month");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [successPopup, setSuccessPopup] = useState(false);
@@ -1298,9 +1301,30 @@ export default function SchedulerPage() {
     } catch { /* non-fatal */ }
   };
 
-  const filtered = scheduled.filter((p) =>
-    activeTab === "published" ? p.status === "published" : p.status === "scheduled"
-  );
+  const filtered = (() => {
+    if (activeTab !== "published") return scheduled.filter(p => p.status === "scheduled");
+    const published = scheduled.filter(p => p.status === "published");
+    const now = new Date();
+    if (pubFilter === "today") {
+      const start = new Date(now); start.setHours(0,0,0,0);
+      return published.filter(p => new Date(p.scheduledAt) >= start);
+    }
+    if (pubFilter === "week") {
+      const start = new Date(now); start.setDate(now.getDate() - 7);
+      return published.filter(p => new Date(p.scheduledAt) >= start);
+    }
+    if (pubFilter === "month") {
+      const start = new Date(now); start.setDate(now.getDate() - 30);
+      return published.filter(p => new Date(p.scheduledAt) >= start);
+    }
+    if (pubFilter === "custom" && customFrom) {
+      const from = new Date(customFrom);
+      const to = customTo ? new Date(customTo) : now;
+      to.setHours(23,59,59,999);
+      return published.filter(p => { const d = new Date(p.scheduledAt); return d >= from && d <= to; });
+    }
+    return published;
+  })();
   const validDrafts = drafts.filter((d) => d.title && d.date && d.time).length;
 
   return (
@@ -1474,24 +1498,56 @@ export default function SchedulerPage() {
           <div className="w-72 flex-shrink-0">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-20">
               {/* Tab toggle */}
-              <div className="p-3 border-b border-gray-100 flex items-center gap-1">
-                {(["schedule", "upcoming", "published"] as const).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab as typeof activeTab)}
-                    className={cn(
-                      "px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex-1",
-                      activeTab === tab ? "bg-[#e60023] text-white" : "text-gray-500 hover:bg-gray-50"
+              <div className="p-3 border-b border-gray-100 flex flex-col gap-2">
+                <div className="flex items-center gap-1">
+                  {(["schedule", "published"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      className={cn(
+                        "px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex-1",
+                        activeTab === tab ? "bg-[#e60023] text-white" : "text-gray-500 hover:bg-gray-50"
+                      )}
+                    >
+                      {tab === "schedule" ? "SmartSchedule" : "Published"}
+                      {tab === "published" && (
+                        <span className="ml-1 opacity-70">({scheduled.filter(p => p.status === "published").length})</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                {activeTab === "published" && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex gap-1 flex-wrap">
+                      {([
+                        { key: "today", label: "Today" },
+                        { key: "week",  label: "Last 7 days" },
+                        { key: "month", label: "Last 30 days" },
+                        { key: "custom", label: "Custom" },
+                      ] as const).map(({ key, label }) => (
+                        <button key={key} onClick={() => setPubFilter(key)}
+                          className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-medium border transition-colors",
+                            pubFilter === key
+                              ? "bg-[#e60023] text-white border-[#e60023]"
+                              : "bg-white text-gray-500 border-gray-200 hover:border-[#e60023] hover:text-[#e60023]"
+                          )}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {pubFilter === "custom" && (
+                      <div className="flex gap-1 items-center">
+                        <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
+                          className="flex-1 text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:border-[#e60023]" />
+                        <span className="text-[10px] text-gray-400">–</span>
+                        <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
+                          className="flex-1 text-[10px] border border-gray-200 rounded px-1.5 py-0.5 text-gray-700 focus:outline-none focus:border-[#e60023]" />
+                      </div>
                     )}
-                  >
-                    {tab === "schedule" ? "SmartSchedule" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                    {tab !== "schedule" && (
-                      <span className="ml-1 opacity-70">
-                        ({scheduled.filter((p) => tab === "upcoming" ? p.status === "scheduled" : p.status === "published").length})
-                      </span>
-                    )}
-                  </button>
-                ))}
+                    <p className="text-[10px] text-gray-400">{filtered.length} pin{filtered.length !== 1 ? "s" : ""} published</p>
+                  </div>
+                )}
               </div>
 
               {activeTab === "schedule" ? (
@@ -1509,7 +1565,7 @@ export default function SchedulerPage() {
                   {filtered.length === 0 ? (
                     <div className="p-8 text-center">
                       <Calendar className="w-6 h-6 text-gray-300 mx-auto mb-2" />
-                      <p className="text-xs text-gray-400">No {activeTab} pins yet</p>
+                      <p className="text-xs text-gray-400">No published pins for this period</p>
                     </div>
                   ) : (
                     <div className="divide-y divide-gray-50">
