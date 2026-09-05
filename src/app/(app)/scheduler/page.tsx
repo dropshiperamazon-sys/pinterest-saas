@@ -1481,11 +1481,10 @@ export default function SchedulerPage() {
                   setDrafts((prev) => {
                     const updated = [...prev];
                     let urlIdx = 0;
-                    // Fill empty draft slots first
+                    // Fill drafts that have no image first (top to bottom)
                     for (let i = 0; i < updated.length && urlIdx < urls.length; i++) {
-                      const d = updated[i];
-                      if (!d.imageUrl && !d.title && !d.link) {
-                        updated[i] = { ...d, imageUrl: urls[urlIdx++] };
+                      if (!updated[i].imageUrl) {
+                        updated[i] = { ...updated[i], imageUrl: urls[urlIdx++] };
                       }
                     }
                     // Append remaining as new drafts
