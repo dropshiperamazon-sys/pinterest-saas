@@ -1479,7 +1479,7 @@ export default function SchedulerPage() {
         )}
 
         {/* ── Scheduling Tools bar ── */}
-        <div className="flex items-center gap-3 bg-white border border-gray-100 rounded-2xl px-4 py-2.5 shadow-sm">
+        <div className="flex items-center justify-end gap-3 bg-white border border-gray-100 rounded-2xl px-4 py-2.5 shadow-sm">
           {/* Shuffle Pins */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <Zap className="w-3.5 h-3.5 text-purple-500" />
