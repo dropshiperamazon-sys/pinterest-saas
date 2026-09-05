@@ -3,10 +3,12 @@ import { useState, useCallback, useEffect } from "react";
 import Header from "@/components/Header";
 import { formatNumber } from "@/lib/utils";
 import { PINTEREST_CATEGORIES, generateKeywords, type KeywordResult } from "@/lib/pinterest-data";
+import type { KeywordIntelligenceResult, KeywordEntry } from "@/lib/openai-keyword-analyzer";
 import {
   Search, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
   Download, Bookmark, Filter, BarChart2, X, Flame, ShoppingBag,
-  MapPin, Users, Calendar, ChevronUp, Globe,
+  MapPin, Users, Calendar, ChevronUp, Globe, Sparkles, RefreshCw,
+  Lightbulb, Tag, BookOpen, Star, AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -463,6 +465,373 @@ function SearchLimitGate({ remaining, limit, onClose }: { remaining: number; lim
   );
 }
 
+// ── Source badge ──────────────────────────────────────────────────────────────
+function SourceBadge({ source }: { source: KeywordEntry["source"] | "pinterest" | "ai" | "pinterest+ai" }) {
+  if (source === "pinterest") return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-50 text-[#e60023] border border-red-100">Pinterest</span>;
+  if (source === "ai") return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-600 border border-purple-100">AI</span>;
+  return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100">Pinterest + AI</span>;
+}
+
+// ── AI Intelligence section ───────────────────────────────────────────────────
+function AIIntelligenceSection({
+  aiAnalysis, aiLoading, aiError, searchedQuery, onRegenerate,
+}: {
+  aiAnalysis: KeywordIntelligenceResult | null;
+  aiLoading: boolean;
+  aiError: string | null;
+  searchedQuery: string;
+  onRegenerate: () => void;
+}) {
+  const [tab, setTab] = useState<"keywords" | "clusters" | "content" | "seo">("keywords");
+  const [filter, setFilter] = useState<"all" | "pinterest" | "ai" | "recommended">("all");
+  const [sortBy, setSortBy] = useState<"opportunity" | "relevance">("opportunity");
+  const [sortAscAI, setSortAscAI] = useState(false);
+
+  if (!searchedQuery) return null;
+
+  const tabs = [
+    { key: "keywords" as const, label: "AI Keywords", icon: Tag },
+    { key: "clusters" as const, label: "Clusters", icon: Filter },
+    { key: "content" as const, label: "Content Ideas", icon: Lightbulb },
+    { key: "seo" as const, label: "SEO Tips", icon: Star },
+  ];
+
+  const filteredKeywords = (aiAnalysis?.keywords ?? [])
+    .filter(k => {
+      if (filter === "pinterest") return k.source === "pinterest";
+      if (filter === "ai") return k.source === "ai";
+      if (filter === "recommended") return k.recommended;
+      return true;
+    })
+    .sort((a, b) => {
+      const val = sortBy === "opportunity"
+        ? (a.opportunityScore - b.opportunityScore)
+        : (a.relevanceScore - b.relevanceScore);
+      return sortAscAI ? val : -val;
+    });
+
+  const handleExportAI = () => {
+    if (!aiAnalysis) return;
+    const header = "Keyword,Source,Intent,AI Relevance,AI Opportunity,Recommended,Interpretation\n";
+    const rows = aiAnalysis.keywords.map(k =>
+      `"${k.keyword}","${k.source}","${k.intent}",${k.relevanceScore},${k.opportunityScore},${k.recommended},"${k.trendInterpretation}"`
+    ).join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url;
+    a.download = `ai-keyword-intelligence-${searchedQuery.replace(/\s+/g, "-")}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="mt-6 bg-white rounded-2xl border border-purple-100 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-purple-50 bg-gradient-to-r from-purple-50/60 to-blue-50/40">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-gradient-to-br from-purple-500 to-blue-500 rounded-xl flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-gray-800">AI Keyword Intelligence</span>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">AI Analysis</span>
+            </div>
+            <p className="text-xs text-gray-500">Powered by AI · Pinterest data when available</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {aiAnalysis && (
+            <button onClick={handleExportAI}
+              className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors">
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
+          )}
+          <button onClick={onRegenerate}
+            className="flex items-center gap-1.5 text-xs text-purple-600 hover:text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-50 transition-colors">
+            <RefreshCw className="w-3.5 h-3.5" /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Data source legend */}
+      <div className="flex items-center gap-4 px-5 py-2.5 bg-gray-50/70 border-b border-gray-100 text-xs text-gray-500">
+        <span className="font-semibold text-gray-600">Data sources:</span>
+        <span className="flex items-center gap-1.5"><SourceBadge source="pinterest" /> = Collected from Pinterest API</span>
+        <span className="flex items-center gap-1.5"><SourceBadge source="ai" /> = Generated by AI based on seed keyword</span>
+        <span className="flex items-center gap-1.5"><SourceBadge source="pinterest+ai" /> = Pinterest data + AI expansion</span>
+      </div>
+
+      {aiLoading && (
+        <div className="px-5 py-10 flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-purple-100 border-t-purple-500 rounded-full animate-spin" />
+          <div className="text-sm text-gray-500 text-center">
+            <p className="font-medium text-gray-700">Analyzing keyword intelligence...</p>
+            <p className="text-xs text-gray-400 mt-1">AI is researching Pinterest opportunities for &ldquo;{searchedQuery}&rdquo;</p>
+          </div>
+        </div>
+      )}
+
+      {aiError && !aiLoading && (
+        <div className="px-5 py-6 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-gray-700">AI analysis unavailable</p>
+            <p className="text-xs text-gray-500 mt-0.5">{aiError}</p>
+          </div>
+        </div>
+      )}
+
+      {aiAnalysis && !aiLoading && (
+        <>
+          {/* Overview cards */}
+          <div className="grid grid-cols-4 gap-4 px-5 py-4 border-b border-gray-100">
+            <div className="bg-gradient-to-br from-purple-50 to-purple-100/40 rounded-xl p-3">
+              <div className="text-xs font-semibold text-purple-600 mb-1">AI Opportunity Score</div>
+              <div className="text-2xl font-bold text-purple-700">{aiAnalysis.summary.overallOpportunity}<span className="text-sm font-normal text-purple-500">/100</span></div>
+              <div className="text-[10px] text-purple-400 mt-0.5">AI analytical score — not a Pinterest metric</div>
+            </div>
+            <div className="bg-gradient-to-br from-green-50 to-green-100/40 rounded-xl p-3">
+              <div className="text-xs font-semibold text-green-600 mb-1">Trend Status</div>
+              <div className="text-lg font-bold text-green-700">{aiAnalysis.summary.trendStatus}</div>
+              <div className="text-[10px] text-green-400 mt-0.5">Based on available data</div>
+            </div>
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100/40 rounded-xl p-3">
+              <div className="text-xs font-semibold text-blue-600 mb-1">Keyword Clusters</div>
+              <div className="text-2xl font-bold text-blue-700">{aiAnalysis.clusters.length}</div>
+              <div className="text-[10px] text-blue-400 mt-0.5">Topic groups identified</div>
+            </div>
+            <div className="bg-gradient-to-br from-orange-50 to-orange-100/40 rounded-xl p-3">
+              <div className="text-xs font-semibold text-orange-600 mb-1">Content Ideas</div>
+              <div className="text-2xl font-bold text-orange-700">{aiAnalysis.contentIdeas.length}</div>
+              <div className="text-[10px] text-orange-400 mt-0.5">AI-generated pin ideas</div>
+            </div>
+          </div>
+
+          {/* Summary text */}
+          <div className="px-5 py-3 bg-purple-50/30 border-b border-purple-50">
+            <p className="text-sm text-gray-600 leading-relaxed">{aiAnalysis.summary.summaryText}</p>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex border-b border-gray-100 px-5">
+            {tabs.map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={cn("flex items-center gap-1.5 text-xs font-semibold px-4 py-3 border-b-2 transition-colors",
+                  tab === t.key ? "border-purple-500 text-purple-600" : "border-transparent text-gray-500 hover:text-gray-700"
+                )}>
+                <t.icon className="w-3.5 h-3.5" />
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Tab: Keywords */}
+          {tab === "keywords" && (
+            <div>
+              {/* Filters + sort */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-gray-50">
+                <div className="flex items-center gap-1.5">
+                  {(["all","pinterest","ai","recommended"] as const).map(f => (
+                    <button key={f} onClick={() => setFilter(f)}
+                      className={cn("text-xs px-3 py-1.5 rounded-lg font-semibold transition-all border",
+                        filter === f ? "bg-purple-500 text-white border-purple-500" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                      )}>
+                      {f === "all" ? "All" : f === "pinterest" ? "Pinterest" : f === "ai" ? "AI Generated" : "⭐ Recommended"}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <span>Sort by:</span>
+                  <button onClick={() => { setSortBy("opportunity"); setSortAscAI(false); }}
+                    className={cn("px-2 py-1 rounded font-medium", sortBy === "opportunity" ? "text-purple-600 bg-purple-50" : "hover:text-gray-700")}>
+                    AI Opportunity {sortBy === "opportunity" && (sortAscAI ? "↑" : "↓")}
+                  </button>
+                  <button onClick={() => { setSortBy("relevance"); setSortAscAI(false); }}
+                    className={cn("px-2 py-1 rounded font-medium", sortBy === "relevance" ? "text-purple-600 bg-purple-50" : "hover:text-gray-700")}>
+                    AI Relevance
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-50 text-left">
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Keyword</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Intent</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Relevance</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Opportunity</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Interpretation</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Rec.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredKeywords.map(kw => (
+                      <tr key={kw.keyword} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-3"><span className="text-sm font-medium text-gray-800">{kw.keyword}</span></td>
+                        <td className="px-4 py-3"><SourceBadge source={kw.source} /></td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 font-medium capitalize">{kw.intent}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-gray-100 rounded-full h-1.5 w-16">
+                              <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${kw.relevanceScore}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-blue-600">{kw.relevanceScore}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 bg-gray-100 rounded-full h-1.5 w-16">
+                              <div className="bg-purple-400 h-1.5 rounded-full" style={{ width: `${kw.opportunityScore}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-purple-600">{kw.opportunityScore}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 max-w-[220px]">
+                          <span className="text-xs text-gray-500 line-clamp-2">{kw.trendInterpretation}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          {kw.recommended && <span className="text-yellow-500 text-base">⭐</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredKeywords.length === 0 && (
+                  <div className="text-center py-8 text-sm text-gray-400">No keywords match this filter.</div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Tab: Clusters */}
+          {tab === "clusters" && (
+            <div className="p-5 grid grid-cols-2 gap-4">
+              {aiAnalysis.clusters.map(cluster => (
+                <div key={cluster.name} className="border border-gray-100 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-bold text-gray-800">{cluster.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-xs font-bold",
+                        cluster.trendDirection === "up" ? "text-green-600" : cluster.trendDirection === "down" ? "text-red-500" : "text-gray-500"
+                      )}>
+                        {cluster.trendDirection === "up" ? "↑" : cluster.trendDirection === "down" ? "↓" : "→"}
+                      </span>
+                      <span className="text-xs font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded">{cluster.opportunityScore}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {cluster.keywords.map(kw => (
+                      <span key={kw} className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-lg">{kw}</span>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-[10px] text-gray-400">{cluster.keywords.length} keywords</span>
+                    <SourceBadge source="ai" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Tab: Content Ideas */}
+          {tab === "content" && (
+            <div className="p-5 space-y-4">
+              {aiAnalysis.contentIdeas.map((idea, i) => (
+                <div key={i} className="border border-gray-100 rounded-xl p-4 hover:border-purple-100 transition-colors">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-gray-800">{idea.title}</p>
+                      <p className="text-xs text-gray-500 mt-1">{idea.intent}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-xs font-semibold px-2 py-1 rounded-lg bg-orange-50 text-orange-600 border border-orange-100">{idea.format}</span>
+                      <SourceBadge source="ai" />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {idea.targetKeywords.map(kw => (
+                      <span key={kw} className="text-[11px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full"># {kw}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Tab: SEO Recommendations */}
+          {tab === "seo" && (
+            <div className="p-5 space-y-4">
+              {aiAnalysis.seasonalInsights.length > 0 && (
+                <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Calendar className="w-4 h-4 text-amber-600" />
+                    <span className="text-sm font-bold text-amber-700">Seasonal Insights</span>
+                    <SourceBadge source="ai" />
+                  </div>
+                  <ul className="space-y-1.5">
+                    {aiAnalysis.seasonalInsights.map((s, i) => (
+                      <li key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                        <span className="mt-0.5 flex-shrink-0">•</span>{s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="border border-gray-100 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-purple-500" />
+                    <span className="text-sm font-bold text-gray-800">Keyword Strategy</span>
+                    <SourceBadge source="ai" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Primary Keyword</div>
+                    <span className="text-sm font-bold text-purple-600">{aiAnalysis.recommendations.primaryKeyword}</span>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Secondary Keywords</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {aiAnalysis.recommendations.secondaryKeywords.map(kw => (
+                        <span key={kw} className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-lg">{kw}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Board Suggestion</div>
+                    <span className="text-sm text-gray-700">{aiAnalysis.recommendations.boardSuggestion}</span>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Content Angle</div>
+                    <span className="text-sm text-gray-700">{aiAnalysis.recommendations.contentAngle}</span>
+                  </div>
+                </div>
+                <div className="border border-gray-100 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Star className="w-4 h-4 text-orange-500" />
+                    <span className="text-sm font-bold text-gray-800">Optimized Pin Copy</span>
+                    <SourceBadge source="ai" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Pin Title</div>
+                    <p className="text-sm font-medium text-gray-800 bg-gray-50 rounded-lg px-3 py-2">{aiAnalysis.recommendations.pinTitle}</p>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Pin Description</div>
+                    <p className="text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2 leading-relaxed max-h-28 overflow-y-auto">{aiAnalysis.recommendations.pinDescription}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function KeywordsPage() {
   const [query, setQuery] = useState("");
@@ -482,11 +851,37 @@ export default function KeywordsPage() {
   const [isLive, setIsLive] = useState(false);
   const [trendingOpen, setTrendingOpen] = useState(false);
 
+  // AI Intelligence state
+  const [aiAnalysis, setAiAnalysis] = useState<KeywordIntelligenceResult | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [searchedQuery, setSearchedQuery] = useState("");
+
   // Fetch remaining searches on mount
   useEffect(() => {
     fetch("/api/search-limit").then(r => r.json()).then(d => {
       if (d.remaining != null) { setSearchRemaining(d.remaining); setSearchLimit(d.limit); }
     }).catch(() => {});
+  }, []);
+
+  const runAIAnalysis = useCallback(async (q: string, regenerate = false) => {
+    setAiLoading(true);
+    setAiError(null);
+    if (!regenerate) setAiAnalysis(null);
+    try {
+      const res = await fetch("/api/keyword-intelligence", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword: q, country: "US", language: "en", regenerate }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAiError(data.error ?? "AI analysis failed"); return; }
+      setAiAnalysis(data.aiAnalysis ?? null);
+    } catch {
+      setAiError("AI analysis temporarily unavailable. Please try again.");
+    } finally {
+      setAiLoading(false);
+    }
   }, []);
 
   const handleSearch = useCallback(async (q: string) => {
@@ -505,10 +900,14 @@ export default function KeywordsPage() {
       setSearchLimit(limitData.limit);
     } catch { /* allow search if limit API fails */ }
 
-    setQuery(q.trim());
+    const trimmed = q.trim();
+    setQuery(trimmed);
+    setSearchedQuery(trimmed);
     setLoading(true);
     setIsLive(false);
     setSuggestions([]);
+    // Kick off AI analysis in parallel (non-blocking)
+    runAIAnalysis(trimmed);
 
     // Fetch autocomplete suggestions in parallel (non-blocking)
     setLoadingSuggestions(true);
@@ -542,7 +941,7 @@ export default function KeywordsPage() {
     } catch { /* fall through */ }
     setResults(generateKeywords(q));
     setLoading(false);
-  }, []);
+  }, [runAIAnalysis]);
 
   const handleCategoryClick = (catId: string, catName: string) => {
     if (expandedCategory === catId) { setExpandedCategory(null); return; }
@@ -652,7 +1051,7 @@ export default function KeywordsPage() {
                   className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
                 />
                 {query && (
-                  <button onClick={() => { setQuery(""); setResults([]); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <button onClick={() => { setQuery(""); setResults([]); setSearchedQuery(""); setAiAnalysis(null); setAiError(null); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                     <X className="w-4 h-4" />
                   </button>
                 )}
@@ -727,7 +1126,7 @@ export default function KeywordsPage() {
           </div>
 
           {/* Results */}
-          <div className="px-6 pb-6">
+          <div className="px-6 pb-6 space-y-0">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <div className="w-10 h-10 border-4 border-[#e60023]/20 border-t-[#e60023] rounded-full animate-spin mb-4" />
@@ -802,7 +1201,20 @@ export default function KeywordsPage() {
                   </table>
                 </div>
               </div>
-            ) : results.length === 0 ? (
+            ) : null}
+
+            {/* AI Intelligence section — shown after any search attempt */}
+            {(aiLoading || aiAnalysis || aiError) && searchedQuery && (
+              <AIIntelligenceSection
+                aiAnalysis={aiAnalysis}
+                aiLoading={aiLoading}
+                aiError={aiError}
+                searchedQuery={searchedQuery}
+                onRegenerate={() => runAIAnalysis(searchedQuery, true)}
+              />
+            )}
+
+            {results.length === 0 && !loading && !searchedQuery && (
               <div className="flex flex-col items-center justify-center py-24 text-center">
                 <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mb-4">
                   <Search className="w-7 h-7 text-gray-400" />
@@ -811,13 +1223,6 @@ export default function KeywordsPage() {
                 <p className="text-sm text-gray-400 max-w-sm">
                   Search any topic, click a category, or expand <strong>Pinterest Trending Now</strong> in the sidebar to discover what&apos;s growing. Volume &amp; CPC show estimated benchmarks.
                 </p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mb-3">
-                  <Filter className="w-5 h-5 text-gray-400" />
-                </div>
-                <p className="text-sm text-gray-500">No keywords found.</p>
               </div>
             )}
           </div>
