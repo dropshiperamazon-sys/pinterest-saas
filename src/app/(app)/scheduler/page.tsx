@@ -797,6 +797,7 @@ function DraftCard({
               <input
                 type="date"
                 value={draft.date}
+                min={new Date().toISOString().split("T")[0]}
                 onChange={(e) => set("date", e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
               />
@@ -807,6 +808,7 @@ function DraftCard({
               <input
                 type="time"
                 value={draft.time}
+                min={draft.date === new Date().toISOString().split("T")[0] ? new Date().toTimeString().slice(0, 5) : undefined}
                 onChange={(e) => set("time", e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
               />
