@@ -699,21 +699,6 @@ function DraftCard({
           {/* Tag Products — Pinterest product search */}
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1.5">Tag Products</label>
-            {/* Mode toggle */}
-            <div className="flex gap-1 mb-2 bg-gray-100 p-0.5 rounded-xl w-fit">
-              {(["search", "link"] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => { setProductMode(m); setProductResults([]); setProductQuery(""); }}
-                  className={cn(
-                    "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
-                    productMode === m ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                  )}
-                >
-                  {m === "search" ? "Search Pins" : "Use a Link"}
-                </button>
-              ))}
-            </div>
             {/* Tagged products chips */}
             {draft.taggedProducts.length > 0 && (
               <div className="flex flex-col gap-1.5 mb-2">
@@ -735,76 +720,7 @@ function DraftCard({
                 ))}
               </div>
             )}
-            {productMode === "search" ? (
-              <>
-                <div className="flex gap-1.5">
-                  <input
-                    value={productQuery}
-                    onChange={(e) => setProductQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        if (!productQuery.trim()) return;
-                        setProductSearching(true);
-                        fetch(`/api/pinterest-product-search?q=${encodeURIComponent(productQuery.trim())}`)
-                          .then(r => r.json())
-                          .then(d => setProductResults(d.products ?? []))
-                          .catch(() => setProductResults([]))
-                          .finally(() => setProductSearching(false));
-                      }
-                    }}
-                    placeholder="Search by product name…"
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                  />
-                  <button
-                    onClick={() => {
-                      if (!productQuery.trim()) return;
-                      setProductSearching(true);
-                      fetch(`/api/pinterest-product-search?q=${encodeURIComponent(productQuery.trim())}`)
-                        .then(r => r.json())
-                        .then(d => setProductResults(d.products ?? []))
-                        .catch(() => setProductResults([]))
-                        .finally(() => setProductSearching(false));
-                    }}
-                    disabled={!productQuery.trim() || productSearching}
-                    className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1"
-                  >
-                    {productSearching
-                      ? <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      : <Plus className="w-3 h-3" />}
-                    Search
-                  </button>
-                </div>
-                {/* Search results */}
-                {productResults.length > 0 && (
-                  <div className="mt-1 border border-gray-200 rounded-xl bg-white shadow-sm max-h-48 overflow-y-auto divide-y divide-gray-50">
-                    {productResults.map(p => (
-                      <button
-                        key={p.id}
-                        onClick={() => {
-                          const label = p.title;
-                          if (!draft.taggedProducts.find((x) => x.url === p.link))
-                            onChange({ ...draft, taggedProducts: [...draft.taggedProducts, { url: p.link, image: p.imageUrl, title: p.title }] });
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-orange-50 transition-colors group"
-                      >
-                        {p.imageUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.imageUrl} alt={p.title} className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
-                        ) : (
-                          <div className="w-8 h-8 rounded-lg bg-gray-100 flex-shrink-0 flex items-center justify-center">
-                            <ShoppingCart className="w-3.5 h-3.5 text-gray-400" />
-                          </div>
-                        )}
-                        <span className="flex-1 text-xs text-gray-700 truncate group-hover:text-orange-700">{p.title}</span>
-                        <Plus className="w-3 h-3 text-gray-300 group-hover:text-orange-500 flex-shrink-0" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="space-y-2">
+            <div className="space-y-2">
                 <div className="flex gap-1.5">
                   <input
                     value={productLinkInput}
@@ -863,7 +779,6 @@ function DraftCard({
                 )}
                 <p className="text-xs text-gray-400 px-1">You can add multiple product links — paste each URL and click Add.</p>
               </div>
-            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
