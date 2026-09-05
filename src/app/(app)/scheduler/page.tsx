@@ -654,6 +654,7 @@ function DraftCard({
   const [interestsLoading, setInterestsLoading] = useState(false);
   const [interestsFetched, setInterestsFetched] = useState(false);
   const [topicFilter, setTopicFilter] = useState("");
+  const [topicOpen, setTopicOpen] = useState(false);
   const [productQuery, setProductQuery] = useState("");
   const [productResults, setProductResults] = useState<{ id: string; title: string; imageUrl: string; link: string }[]>([]);
   const [productSearching, setProductSearching] = useState(false);
@@ -938,6 +939,7 @@ function DraftCard({
                   }
                 }}
                 onFocus={() => {
+                  setTopicOpen(true);
                   if (!interestsFetched) {
                     setInterestsLoading(true);
                     setInterestsFetched(true);
@@ -948,13 +950,14 @@ function DraftCard({
                       .finally(() => setInterestsLoading(false));
                   }
                 }}
+                onBlur={() => setTimeout(() => setTopicOpen(false), 150)}
                 placeholder="Search for a topic…"
                 className="w-full pl-7 pr-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
               />
             </div>
-            {/* Dropdown of Pinterest interests */}
-            {(interestsLoading || interests.length > 0) && (
-              <div className="mt-1 border border-gray-200 rounded-xl bg-white shadow-sm max-h-36 overflow-y-auto">
+            {/* Dropdown of Pinterest interests — only when focused */}
+            {topicOpen && (interestsLoading || interests.length > 0) && (
+              <div className="mt-1 border border-gray-200 rounded-xl bg-white shadow-sm max-h-36 overflow-y-auto z-10 relative">
                 {interestsLoading ? (
                   <div className="px-3 py-3 text-xs text-gray-400 flex items-center gap-2">
                     <div className="w-3 h-3 border-2 border-gray-300 border-t-[#e60023] rounded-full animate-spin" />
@@ -1093,35 +1096,10 @@ function DraftCard({
               </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Date */}
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1.5">Date *</label>
-              <input
-                type="date"
-                value={draft.date}
-                min={new Date().toISOString().split("T")[0]}
-                onChange={(e) => set("date", e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-              />
-            </div>
-            {/* Time */}
-            <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1.5">Time *</label>
-              <input
-                type="time"
-                value={draft.time}
-                min={draft.date === new Date().toISOString().split("T")[0] ? new Date().toTimeString().slice(0, 5) : undefined}
-                onChange={(e) => set("time", e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-              />
-            </div>
-          </div>
-
           {/* Schedule button */}
           <button
             onClick={onSchedule}
-            disabled={!draft.title || !draft.date || !draft.time || isScheduling}
+            disabled={!draft.title || isScheduling}
             className="w-full flex items-center justify-center gap-2 bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isScheduling ? (
@@ -1330,7 +1308,7 @@ export default function SchedulerPage() {
     }
     return published;
   })();
-  const validDrafts = drafts.filter((d) => d.title && d.date && d.time).length;
+  const validDrafts = drafts.filter((d) => d.title).length;
 
   // Shuffle: spread drafts with dates across remaining days of the current month
   function shufflePins() {
