@@ -471,12 +471,15 @@ function slotTo24h(slot: string): string {
   return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function SmartSchedulePanel({ onApply, scheduled, onEdit }: {
+function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange }: {
   onApply: (date: string, time: string) => void;
   onEdit: (pin: ScheduledPin) => void;
   scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string; status: string; board: string; description?: string; link?: string }[];
+  slots: { label: string; short: string }[];
+  onSlotsChange: (slots: { label: string; short: string }[]) => void;
 }) {
-  const [customSlots, setCustomSlots] = useState<{ label: string; short: string }[]>([]);
+  const customSlots = slots;
+  const setCustomSlots = onSlotsChange;
   const [addingSlot, setAddingSlot] = useState(false);
   const [newSlotTime, setNewSlotTime] = useState("");
   const now = new Date();
@@ -552,7 +555,7 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit }: {
                     const label = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
                     const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
                     if (!customSlots.find(s => s.label === label))
-                      setCustomSlots(s => [...s, { label, short }]);
+                      setCustomSlots([...customSlots, { label, short }]);
                   }
                   setNewSlotTime("");
                   setAddingSlot(false);
@@ -1596,6 +1599,7 @@ export default function SchedulerPage() {
   const [spacingOpen, setSpacingOpen] = useState(false);
   const [csvModalOpen, setCsvModalOpen] = useState(false);
   const [boardsModalOpen, setBoardsModalOpen] = useState(false);
+  const [smartSlots, setSmartSlots] = useState<{ label: string; short: string }[]>([]);
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [successPopup, setSuccessPopup] = useState(false);
@@ -1680,27 +1684,64 @@ export default function SchedulerPage() {
     } catch { return null; }
   }
 
-  // Returns a default scheduledAt (next round hour) when the draft has no date/time
-  function defaultScheduledAt(date: string, time: string): number {
-    if (date && time) return new Date(`${date}T${time}:00`).getTime();
-    const now = new Date();
-    now.setMinutes(0, 0, 0);
-    now.setHours(now.getHours() + 1);
-    return now.getTime();
+  // Build the ordered list of active time slots (DAILY_SLOTS + custom), converted to "HH:MM"
+  function activeSlotTimes(): string[] {
+    const base = DAILY_SLOTS.map(s => slotTo24h(s.label));
+    const custom = smartSlots.map(s => slotTo24h(s.label));
+    return [...base, ...custom].sort();
   }
 
-  // Schedule a single draft — one POST per selected board, each 2 weeks apart
+  // Returns next available scheduledAt from the slot calendar, or falls back to next round hour.
+  // `usedSoFar` is a set of ISO strings already claimed by earlier drafts in the same batch.
+  function nextSlotMs(date: string, time: string, usedSoFar: Set<string>): number {
+    if (date && time) return new Date(`${date}T${time}:00`).getTime();
+    const slotTimes = activeSlotTimes();
+    if (slotTimes.length === 0) {
+      // No slots defined — fall back to next round hour
+      const now = new Date();
+      now.setMinutes(0, 0, 0);
+      now.setHours(now.getHours() + 1);
+      return now.getTime();
+    }
+    // Walk forward day by day from today, slot by slot, until we find an unclaimed slot in the future
+    const now = new Date();
+    for (let dayOffset = 0; dayOffset <= 365; dayOffset++) {
+      const day = new Date(now);
+      day.setDate(day.getDate() + dayOffset);
+      day.setSeconds(0, 0);
+      const dateStr = day.toISOString().split("T")[0];
+      for (const t of slotTimes) {
+        const candidate = new Date(`${dateStr}T${t}:00`);
+        if (candidate <= now) continue; // slot already passed today
+        const iso = candidate.toISOString();
+        if (!usedSoFar.has(iso) && !scheduled.some(p => p.scheduledAt === iso)) {
+          usedSoFar.add(iso);
+          return candidate.getTime();
+        }
+      }
+    }
+    // Absolute fallback
+    const fb = new Date();
+    fb.setMinutes(0, 0, 0);
+    fb.setHours(fb.getHours() + 1);
+    return fb.getTime();
+  }
+
+  // Schedule a single draft — one slot per board, serial across the slot calendar
   const scheduleSingle = async (draftId: string) => {
     const d = drafts.find((dr) => dr.id === draftId);
     if (!d || !d.title || !d.imageUrl) return;
     setSchedulingId(draftId);
     const boardList = d.boards?.length ? d.boards : [d.board || ""];
-    const baseMs = defaultScheduledAt(d.date, d.time);
-    const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+    const usedSoFar = new Set<string>();
     const saved: ScheduledPin[] = [];
     for (let i = 0; i < boardList.length; i++) {
-      const scheduledAt = new Date(baseMs + i * TWO_WEEKS_MS).toISOString();
-      const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, scheduledAt });
+      const ms = (d.date && d.time && i === 0)
+        ? new Date(`${d.date}T${d.time}:00`).getTime()
+        : nextSlotMs(i === 0 ? d.date : "", i === 0 ? d.time : "", usedSoFar);
+      const scheduledAt = new Date(ms).toISOString();
+      usedSoFar.add(scheduledAt);
+      const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, altText: d.altText, scheduledAt });
       if (pin) saved.push(pin);
     }
     setSchedulingId(null);
@@ -1712,18 +1753,21 @@ export default function SchedulerPage() {
     }
   };
 
-  // Schedule all valid drafts, expanding multi-board selections with 2-week intervals
+  // Schedule all valid drafts serially through the slot calendar
   const scheduleAll = async () => {
     const valid = drafts.filter((d) => d.title && d.imageUrl);
     if (valid.length === 0) return;
-    const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+    const usedSoFar = new Set<string>();
     const saved: ScheduledPin[] = [];
     for (const d of valid) {
       const boardList = d.boards?.length ? d.boards : [d.board || ""];
-      const baseMs = defaultScheduledAt(d.date, d.time);
       for (let i = 0; i < boardList.length; i++) {
-        const scheduledAt = new Date(baseMs + i * TWO_WEEKS_MS).toISOString();
-        const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, scheduledAt });
+        const ms = (d.date && d.time && i === 0)
+          ? new Date(`${d.date}T${d.time}:00`).getTime()
+          : nextSlotMs(i === 0 ? d.date : "", i === 0 ? d.time : "", usedSoFar);
+        const scheduledAt = new Date(ms).toISOString();
+        usedSoFar.add(scheduledAt);
+        const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, altText: d.altText, scheduledAt });
         if (pin) saved.push(pin);
       }
     }
@@ -2306,6 +2350,8 @@ export default function SchedulerPage() {
                     if (emptyDraft) updateDraft(emptyDraft.id, { ...emptyDraft, date, time });
                   }}
                   onEdit={setEditingPin}
+                  slots={smartSlots}
+                  onSlotsChange={setSmartSlots}
                 />
               ) : (
                 /* Thumbnail list */
