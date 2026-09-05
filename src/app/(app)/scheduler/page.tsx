@@ -369,8 +369,17 @@ function SmartSchedulePanel({ onApply, scheduled }: {
   onApply: (date: string, time: string) => void;
   scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string }[];
 }) {
+  const [customSlots, setCustomSlots] = useState<{ label: string; short: string }[]>([]);
+  const [addingSlot, setAddingSlot] = useState(false);
+  const [newSlotTime, setNewSlotTime] = useState("");
+
   const days = getMonthDays();
   const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const allSlots = [
+    ...DAILY_SLOTS,
+    ...customSlots.map(s => ({ ...s, color: "bg-purple-100 hover:bg-purple-500", text: "text-purple-700 hover:text-white" })),
+  ];
 
   // index scheduled pins by date string
   const pinsByDate: Record<string, { imageUrl?: string; title: string }[]> = {};
@@ -380,6 +389,8 @@ function SmartSchedulePanel({ onApply, scheduled }: {
     pinsByDate[d].push({ imageUrl: p.imageUrl, title: p.title });
   }
 
+  const colCount = allSlots.length + 1;
+
   return (
     <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
       {/* Month header */}
@@ -388,13 +399,52 @@ function SmartSchedulePanel({ onApply, scheduled }: {
         <span className="text-[10px] text-gray-400">Click to apply</span>
       </div>
 
-      {/* Column labels */}
+      {/* Column labels + Add button */}
       <div className="px-3 pb-1">
-        <div className="grid grid-cols-[76px_1fr_1fr_1fr_1fr] gap-1">
-          <div />
-          {DAILY_SLOTS.map((s) => (
-            <div key={s.label} className="text-[9px] font-semibold text-gray-400 text-center">{s.short}</div>
+        <div className="flex items-center gap-1">
+          <div className="w-[76px] flex-shrink-0" />
+          {allSlots.map((s) => (
+            <div key={s.label} className="flex-1 text-[9px] font-semibold text-gray-400 text-center">{s.short}</div>
           ))}
+          {/* + button to add custom slot */}
+          {addingSlot ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="time"
+                autoFocus
+                value={newSlotTime}
+                onChange={(e) => setNewSlotTime(e.target.value)}
+                className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-20 focus:outline-none focus:border-[#e60023]"
+              />
+              <button
+                onClick={() => {
+                  if (newSlotTime) {
+                    const [h, m] = newSlotTime.split(":").map(Number);
+                    const ampm = h >= 12 ? "PM" : "AM";
+                    const h12 = h % 12 || 12;
+                    const label = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                    const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
+                    if (!customSlots.find(s => s.label === label))
+                      setCustomSlots(s => [...s, { label, short }]);
+                  }
+                  setNewSlotTime("");
+                  setAddingSlot(false);
+                }}
+                className="text-[9px] bg-[#e60023] text-white px-1.5 py-0.5 rounded font-medium"
+              >✓</button>
+              <button onClick={() => { setNewSlotTime(""); setAddingSlot(false); }} className="text-gray-400 hover:text-gray-600">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setAddingSlot(true)}
+              title="Add custom time slot"
+              className="w-5 h-5 rounded border border-dashed border-gray-300 text-gray-400 hover:border-[#e60023] hover:text-[#e60023] flex items-center justify-center flex-shrink-0 transition-colors"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -404,17 +454,18 @@ function SmartSchedulePanel({ onApply, scheduled }: {
           const pins = pinsByDate[dateStr] ?? [];
           return (
             <div key={dateStr}>
-              <div className="grid grid-cols-[76px_1fr_1fr_1fr_1fr] gap-1 items-center">
-                <div className="text-[10px] text-gray-600 font-medium truncate pr-1 leading-tight">{label}</div>
-                {DAILY_SLOTS.map((slot) => (
+              <div className="flex items-center gap-1">
+                <div className="w-[76px] flex-shrink-0 text-[10px] text-gray-600 font-medium truncate pr-1 leading-tight">{label}</div>
+                {allSlots.map((slot) => (
                   <button
                     key={slot.label}
                     onClick={() => onApply(dateStr, slotTo24h(slot.label))}
-                    className={cn("text-[9px] rounded-md py-1.5 font-semibold transition-colors text-center", slot.color, slot.text)}
+                    className={cn("flex-1 text-[9px] rounded-md py-1.5 font-semibold transition-colors text-center", slot.color, slot.text)}
                   >
                     {slot.short}
                   </button>
                 ))}
+                <div className="w-5 flex-shrink-0" />
               </div>
               {/* Scheduled thumbnails for this day */}
               {pins.length > 0 && (
@@ -435,6 +486,7 @@ function SmartSchedulePanel({ onApply, scheduled }: {
           );
         })}
       </div>
+      {/* unused var suppression */ void colCount}
     </div>
   );
 }
