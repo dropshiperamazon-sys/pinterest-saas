@@ -336,14 +336,17 @@ function AiModal({
 
 const DAILY_SLOTS = ["2:00 AM", "10:00 AM", "5:00 PM", "8:00 PM"];
 
-function getUpcomingDays(count = 14): { dateStr: string; label: string }[] {
-  const days = [];
+function getMonthDays(): { dateStr: string; label: string }[] {
   const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now);
-    d.setDate(now.getDate() + i);
-    const dateStr = d.toISOString().split("T")[0];
-    const label = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const today = now.getDate();
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const days = [];
+  for (let d = today; d <= lastDay; d++) {
+    const date = new Date(year, month, d);
+    const dateStr = date.toISOString().split("T")[0];
+    const label = date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
     days.push({ dateStr, label });
   }
   return days;
@@ -358,7 +361,7 @@ function slotTo24h(slot: string): string {
 }
 
 function SmartSchedulePanel({ onApply }: { onApply: (date: string, time: string) => void }) {
-  const days = getUpcomingDays(14);
+  const days = getMonthDays();
   const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   return (
