@@ -25,6 +25,7 @@ interface PinDraft {
   pinType: "promotional" | "inspirational" | "educational" | "";
   topics: string[];
   taggedProducts: { url: string; image?: string; title?: string }[];
+  altText: string;
 }
 
 interface ScheduledPin {
@@ -142,6 +143,7 @@ function newDraft(): PinDraft {
     pinType: "",
     topics: [],
     taggedProducts: [],
+    altText: "",
   };
 }
 
@@ -1094,6 +1096,18 @@ function DraftCard({
                 )}
                 <p className="text-xs text-gray-400 px-1">You can add multiple product links — paste each URL and click Add.</p>
               </div>
+          </div>
+
+          {/* Alt Text */}
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1.5">Alt Text <span className="font-normal text-gray-400">(optional)</span></label>
+            <input
+              type="text"
+              placeholder="Describe your image for accessibility..."
+              value={draft.altText}
+              onChange={(e) => set("altText", e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/30 focus:border-[#e60023] text-gray-700 placeholder-gray-400"
+            />
           </div>
 
           {/* Schedule button */}
