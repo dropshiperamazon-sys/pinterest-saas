@@ -1216,13 +1216,11 @@ export default function SchedulerPage() {
                       <div key={pin.id} className="p-3 hover:bg-gray-50/80 flex gap-2.5 group relative">
                         {/* Thumbnail */}
                         <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
-                          {pin.imageUrl && pin.imageUrl.startsWith("data:") ? (
+                          {pin.imageUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={pin.imageUrl} alt={pin.title} className="w-full h-full object-cover" />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center text-xl">
-                              {pin.imageUrl || "📌"}
-                            </div>
+                            <div className="w-full h-full flex items-center justify-center text-xl">📌</div>
                           )}
                         </div>
                         {/* Info */}
