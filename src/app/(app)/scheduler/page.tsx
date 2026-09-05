@@ -22,7 +22,7 @@ interface PinDraft {
   time: string;
   status: "draft" | "scheduled" | "published";
   imageUrl: string;
-  pinType: "promotional" | "inspirational" | "";
+  pinType: "promotional" | "inspirational" | "educational" | "";
   topics: string[];
   taggedProducts: string[];
 }
@@ -67,7 +67,7 @@ const TIME_LEVEL_DOT: Record<"most" | "medium" | "low", string> = {
 
 // ── AI Generation ──────────────────────────────────────────────────────────────
 
-function generateAiContent(keywords: string, pinType: "promotional" | "inspirational"): { title: string; description: string } {
+function generateAiContent(keywords: string, pinType: "promotional" | "inspirational" | "educational"): { title: string; description: string } {
   const kws = keywords.split(",").map((k) => k.trim()).filter(Boolean);
   const primary = kws[0] || "your topic";
   const secondary = kws[1] || "";
@@ -89,6 +89,23 @@ function generateAiContent(keywords: string, pinType: "promotional" | "inspirati
     return {
       title: promoTitles[Math.floor(Math.random() * promoTitles.length)],
       description: promoDescs[Math.floor(Math.random() * promoDescs.length)],
+    };
+  } else if (pinType === "educational") {
+    const eduTitles = [
+      `How to Master ${primary.charAt(0).toUpperCase() + primary.slice(1)} — Step by Step Guide`,
+      `Everything You Need to Know About ${primary.charAt(0).toUpperCase() + primary.slice(1)} in ${year}`,
+      `${primary.charAt(0).toUpperCase() + primary.slice(1)} 101: Beginner to Pro`,
+      `Top ${primary.charAt(0).toUpperCase() + primary.slice(1)} Tips Experts Swear By`,
+      `The Complete ${primary.charAt(0).toUpperCase() + primary.slice(1)} Tutorial for ${year}`,
+    ];
+    const eduDescs = [
+      `Want to learn ${primary}${secondary ? ` and ${secondary}` : ""}? This step-by-step guide breaks it all down for you — from basics to advanced techniques. Save this pin and share it with anyone who wants to level up their skills! 📚\n\n#${primary.replace(/\s+/g, "")} #learnon${primary.replace(/\s+/g, "")} #education`,
+      `Did you know these ${primary} tips could change everything? We break down the most important things to know so you can avoid common mistakes and get results faster. Bookmark this for your learning journey! 🎓${secondary ? `\n\n#${secondary.replace(/\s+/g, "")}` : ""} #${primary.replace(/\s+/g, "")} #howto`,
+      `Learning ${primary} doesn't have to be hard. This easy-to-follow guide covers the essentials${secondary ? `, including ${secondary},` : ""} so you can start seeing results right away. Follow for more helpful tips! 💡\n\n#${primary.replace(/\s+/g, "")} #tutorial #tips${year}`,
+    ];
+    return {
+      title: eduTitles[Math.floor(Math.random() * eduTitles.length)],
+      description: eduDescs[Math.floor(Math.random() * eduDescs.length)],
     };
   } else {
     const insprTitles = [
@@ -136,11 +153,11 @@ function AiModal({
   onApply,
   onClose,
 }: {
-  onApply: (title: string, description: string, pinType: "promotional" | "inspirational") => void;
+  onApply: (title: string, description: string, pinType: "promotional" | "inspirational" | "educational") => void;
   onClose: () => void;
 }) {
   const [keywords, setKeywords] = useState("");
-  const [pinType, setPinType] = useState<"promotional" | "inspirational" | "">("");
+  const [pinType, setPinType] = useState<"promotional" | "inspirational" | "educational" | "">("");
   const [generated, setGenerated] = useState<{ title: string; description: string } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -151,7 +168,7 @@ function AiModal({
     setError("");
     setGenerating(true);
     setTimeout(() => {
-      setGenerated(generateAiContent(keywords, pinType as "promotional" | "inspirational"));
+      setGenerated(generateAiContent(keywords, pinType as "promotional" | "inspirational" | "educational"));
       setGenerating(false);
     }, 1200);
   };
@@ -159,7 +176,7 @@ function AiModal({
   const handleRegenerate = () => {
     setGenerating(true);
     setTimeout(() => {
-      setGenerated(generateAiContent(keywords, pinType as "promotional" | "inspirational"));
+      setGenerated(generateAiContent(keywords, pinType as "promotional" | "inspirational" | "educational"));
       setGenerating(false);
     }, 900);
   };
@@ -189,7 +206,7 @@ function AiModal({
             <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block mb-2">
               Step 1 — Pin Type
             </label>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {([
                 {
                   key: "promotional",
@@ -201,9 +218,16 @@ function AiModal({
                 {
                   key: "inspirational",
                   label: "✨ Inspirational",
-                  desc: "Inspire, educate, build brand awareness",
+                  desc: "Inspire, build brand awareness",
                   color: "border-purple-300 bg-purple-50",
                   selected: "border-purple-500 bg-purple-50 ring-2 ring-purple-200",
+                },
+                {
+                  key: "educational",
+                  label: "📚 Educational",
+                  desc: "Teach, guide, share knowledge",
+                  color: "border-blue-300 bg-blue-50",
+                  selected: "border-blue-500 bg-blue-50 ring-2 ring-blue-200",
                 },
               ] as const).map(({ key, label, desc, color, selected }) => (
                 <button
@@ -396,9 +420,9 @@ function DraftCard({
             {draft.pinType && (
               <span className={cn(
                 "text-xs px-2 py-0.5 rounded-full font-medium",
-                draft.pinType === "promotional" ? "bg-orange-100 text-orange-600" : "bg-purple-100 text-purple-600"
+                draft.pinType === "promotional" ? "bg-orange-100 text-orange-600" : draft.pinType === "educational" ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"
               )}>
-                {draft.pinType === "promotional" ? "🛍️ Promotional" : "✨ Inspirational"}
+                {draft.pinType === "promotional" ? "🛍️ Promotional" : draft.pinType === "educational" ? "📚 Educational" : "✨ Inspirational"}
               </span>
             )}
             {draft.date && draft.time && (
@@ -470,28 +494,32 @@ function DraftCard({
             )}
           </div>
 
-          {/* Pin Type */}
-          <div>
-            <label className="text-xs font-medium text-gray-500 block mb-1.5">Pin Type</label>
-            <div className="grid grid-cols-2 gap-2">
-              {(["promotional", "inspirational"] as const).map((type) => (
-                <button
-                  key={type}
-                  onClick={() => set("pinType", draft.pinType === type ? "" : type)}
-                  className={cn(
-                    "py-2 px-3 rounded-xl border text-xs font-semibold transition-all",
-                    draft.pinType === type
-                      ? type === "promotional"
-                        ? "border-orange-400 bg-orange-50 text-orange-700"
-                        : "border-purple-400 bg-purple-50 text-purple-700"
-                      : "border-gray-200 text-gray-500 hover:border-gray-300"
-                  )}
-                >
-                  {type === "promotional" ? "🛍️ Promotional" : "✨ Inspirational"}
-                </button>
-              ))}
+          {/* Pin Type — only shown after AI Generate sets it */}
+          {draft.pinType && (
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1.5">Pin Type</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(["promotional", "inspirational", "educational"] as const).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => set("pinType", draft.pinType === type ? "" : type)}
+                    className={cn(
+                      "py-2 px-2 rounded-xl border text-xs font-semibold transition-all",
+                      draft.pinType === type
+                        ? type === "promotional"
+                          ? "border-orange-400 bg-orange-50 text-orange-700"
+                          : type === "educational"
+                          ? "border-blue-400 bg-blue-50 text-blue-700"
+                          : "border-purple-400 bg-purple-50 text-purple-700"
+                        : "border-gray-200 text-gray-500 hover:border-gray-300"
+                    )}
+                  >
+                    {type === "promotional" ? "🛍️ Promo" : type === "educational" ? "📚 Edu" : "✨ Inspo"}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Title */}
           <div>
