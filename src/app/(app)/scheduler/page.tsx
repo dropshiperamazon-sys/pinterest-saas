@@ -341,16 +341,16 @@ const DAILY_SLOTS: { label: string; short: string; color: string; text: string }
   { label: "5:00 PM",  short: "5p",  color: "bg-green-100 hover:bg-green-500", text: "text-green-700 hover:text-white" },
 ];
 
-function getMonthDays(): { dateStr: string; label: string }[] {
+function getMonthDays(year: number, month: number): { dateStr: string; label: string }[] {
   const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const today = now.getDate();
+  const todayStr = now.toISOString().split("T")[0];
+  const firstDay = 1;
   const lastDay = new Date(year, month + 1, 0).getDate();
   const days = [];
-  for (let d = today; d <= lastDay; d++) {
+  for (let d = firstDay; d <= lastDay; d++) {
     const date = new Date(year, month, d);
     const dateStr = date.toISOString().split("T")[0];
+    if (dateStr < todayStr) continue; // skip past days
     const label = date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
     days.push({ dateStr, label });
   }
@@ -372,9 +372,21 @@ function SmartSchedulePanel({ onApply, scheduled }: {
   const [customSlots, setCustomSlots] = useState<{ label: string; short: string }[]>([]);
   const [addingSlot, setAddingSlot] = useState(false);
   const [newSlotTime, setNewSlotTime] = useState("");
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
 
-  const days = getMonthDays();
-  const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const goToPrev = () => {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
+    else setViewMonth(m => m - 1);
+  };
+  const goToNext = () => {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
+    else setViewMonth(m => m + 1);
+  };
+
+  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const days = getMonthDays(viewYear, viewMonth);
 
   const allSlots = [
     ...DAILY_SLOTS,
@@ -393,9 +405,17 @@ function SmartSchedulePanel({ onApply, scheduled }: {
 
   return (
     <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
-      {/* Month header */}
+      {/* Month header with navigation */}
       <div className="px-3 pt-3 pb-2 flex items-center justify-between">
-        <span className="text-xs font-semibold text-gray-700">{monthLabel}</span>
+        <div className="flex items-center gap-1">
+          <button onClick={goToPrev} className="w-5 h-5 rounded hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors">
+            <ChevronDown className="w-3 h-3 rotate-90" />
+          </button>
+          <span className="text-xs font-semibold text-gray-700">{monthLabel}</span>
+          <button onClick={goToNext} className="w-5 h-5 rounded hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors">
+            <ChevronDown className="w-3 h-3 -rotate-90" />
+          </button>
+        </div>
         <span className="text-[10px] text-gray-400">Click to apply</span>
       </div>
 
