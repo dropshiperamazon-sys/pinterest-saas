@@ -1165,6 +1165,8 @@ export default function SchedulerPage() {
   const [pubFilter, setPubFilter] = useState<"today" | "week" | "month" | "custom">("month");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [pinSpacing, setPinSpacing] = useState(2);
+  const [shuffleMsg, setShuffleMsg] = useState("");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [successPopup, setSuccessPopup] = useState(false);
@@ -1327,6 +1329,61 @@ export default function SchedulerPage() {
   })();
   const validDrafts = drafts.filter((d) => d.title && d.date && d.time).length;
 
+  // Shuffle: spread drafts with dates across remaining days of the current month
+  function shufflePins() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const futureDays: string[] = [];
+    for (let d = now.getDate(); d <= lastDay; d++) {
+      const dt = new Date(year, month, d);
+      futureDays.push(dt.toISOString().split("T")[0]);
+    }
+    if (futureDays.length === 0) return;
+    // shuffle the future days array
+    const shuffled = [...futureDays].sort(() => Math.random() - 0.5);
+    const times = ["08:00", "12:00", "14:00", "17:00"];
+    setDrafts(prev => prev.map((d, i) => ({
+      ...d,
+      date: shuffled[i % shuffled.length],
+      time: times[i % times.length],
+    })));
+    setShuffleMsg("Pins reshuffled across the month!");
+    setTimeout(() => setShuffleMsg(""), 3000);
+  }
+
+  // Apply pin spacing: for drafts sharing the same link, enforce minimum gap (days)
+  function applyPinSpacing() {
+    const spacing = pinSpacing;
+    if (spacing < 1) return;
+    const updated = [...drafts];
+    // group by link
+    const byLink: Record<string, number[]> = {};
+    updated.forEach((d, i) => { if (d.link) { (byLink[d.link] ||= []).push(i); } });
+    Object.values(byLink).forEach(indices => {
+      if (indices.length < 2) return;
+      // sort by current date
+      indices.sort((a, b) => (updated[a].date || "").localeCompare(updated[b].date || ""));
+      for (let k = 1; k < indices.length; k++) {
+        const prev = updated[indices[k - 1]];
+        const curr = updated[indices[k]];
+        if (!prev.date) continue;
+        const prevDate = new Date(prev.date);
+        const currDate = curr.date ? new Date(curr.date) : new Date(prevDate);
+        const diffDays = (currDate.getTime() - prevDate.getTime()) / 86400000;
+        if (diffDays < spacing) {
+          const newDate = new Date(prevDate);
+          newDate.setDate(prevDate.getDate() + spacing);
+          updated[indices[k]] = { ...curr, date: newDate.toISOString().split("T")[0] };
+        }
+      }
+    });
+    setDrafts(updated);
+    setShuffleMsg(`Pin spacing of ${spacing}d applied!`);
+    setTimeout(() => setShuffleMsg(""), 3000);
+  }
+
   return (
     <div>
       {/* Success popup */}
@@ -1419,6 +1476,54 @@ export default function SchedulerPage() {
             <a href="/connect" className="ml-auto text-green-600 hover:text-green-800 text-xs underline">Manage</a>
           </div>
         )}
+
+        {/* ── Scheduling Tools bar ── */}
+        <div className="flex items-center gap-3 bg-white border border-gray-100 rounded-2xl px-4 py-3 shadow-sm flex-wrap">
+          {/* Shuffle Pins */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Zap className="w-4 h-4 text-purple-500" />
+            <span className="text-xs font-semibold text-gray-700">Shuffle Pins</span>
+            <span className="text-xs text-gray-400">Spread drafts randomly across this month</span>
+            <button
+              onClick={shufflePins}
+              className="ml-1 px-3 py-1 rounded-lg text-xs font-semibold bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors"
+            >
+              Shuffle
+            </button>
+          </div>
+
+          <div className="w-px h-6 bg-gray-200 flex-shrink-0" />
+
+          {/* Pin Spacing */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Calendar className="w-4 h-4 text-blue-500" />
+            <span className="text-xs font-semibold text-gray-700">Pin Spacing</span>
+            <span className="text-xs text-gray-400">Min gap between same-link pins</span>
+            <div className="flex items-center gap-1 ml-1">
+              <button
+                onClick={() => setPinSpacing(s => Math.max(1, s - 1))}
+                className="w-6 h-6 rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 text-sm flex items-center justify-center font-bold"
+              >−</button>
+              <span className="w-8 text-center text-xs font-semibold text-gray-800">{pinSpacing}d</span>
+              <button
+                onClick={() => setPinSpacing(s => Math.min(30, s + 1))}
+                className="w-6 h-6 rounded-md border border-gray-200 text-gray-500 hover:bg-gray-50 text-sm flex items-center justify-center font-bold"
+              >+</button>
+            </div>
+            <button
+              onClick={applyPinSpacing}
+              className="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+            >
+              Apply
+            </button>
+          </div>
+
+          {shuffleMsg && (
+            <span className="ml-auto text-xs text-green-600 font-medium flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5" />{shuffleMsg}
+            </span>
+          )}
+        </div>
 
         {/* ── Main layout: queue left, sidebar right ── */}
         <div className="flex gap-5 items-start">
