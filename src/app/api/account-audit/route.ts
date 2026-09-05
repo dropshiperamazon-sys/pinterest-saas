@@ -12,55 +12,102 @@ const redis = new Redis({
 // real search intent (what people would type into Pinterest search).
 
 const STOP_WORDS = new Set([
-  "a","an","the","and","or","but","in","on","at","to","for","of","with","by","from","is","are",
-  "was","were","be","been","have","has","had","do","does","did","will","would","could","should",
-  "this","that","these","those","i","you","he","she","it","we","they","my","your","his","her",
-  "its","our","their","what","which","who","when","where","why","how","all","each","some","just",
-  "so","than","too","very","get","make","go","come","take","see","know","look","use","find","tell",
-  "also","like","many","much","now","free","shop","new","best","top","good","great","save","click",
-  "follow","share","pin","check","here","there","up","out","off","into","over","today","later",
-  "someone","needs","little","things","along","test","less","covered","premium","options","collection",
-  "shipping","orders","miss","prem","picks","starter","we've","don't",
+  // Articles / conjunctions / prepositions
+  "a","an","the","and","or","but","in","on","at","to","for","of","with","by","from","into","onto",
+  "off","over","under","about","above","below","through","during","before","after","since","until",
+  "while","although","though","because","as","if","then","so","than","yet","nor","either","neither",
+  // Pronouns
+  "i","you","he","she","it","we","they","me","him","her","us","them",
+  "my","your","his","its","our","their","mine","yours","hers","ours","theirs",
+  "this","that","these","those","what","which","who","whom","whose","when","where","why","how",
+  // Auxiliary verbs
+  "is","are","was","were","be","been","being","have","has","had","do","does","did",
+  "will","would","could","should","may","might","shall","can","need","dare","ought",
+  // Common verbs that don't add search value
+  "get","got","make","made","go","gone","went","come","came","take","took","see","saw",
+  "know","knew","think","thought","look","looked","use","used","find","found","tell","told",
+  "ask","asked","seem","seemed","feel","felt","try","tried","leave","left","call","called",
+  "keep","kept","let","set","put","say","said","want","give","gave","show","showed","like",
+  "follow","share","click","save","check","pin","help","need","love","enjoy","explore","discover",
+  // Filler / low-signal words
+  "all","each","every","both","few","more","most","other","some","such","no","not","only",
+  "same","also","just","very","too","so","up","out","off","here","there","again","further","once",
+  "now","today","later","along","among","around","across","against","within","without","instead",
+  "however","therefore","thus","hence","indeed","else","own","right","left","next","last","long",
+  // Pinterest board meta-words (cause "board home decor" type noise)
+  "board","boards","pin","pins","curated","things","go","goto","thing","stuff","item","items",
+  "more","less","much","many","lot","lots","bit","bits","kind","type","sort","form","way","ways",
+  // Commerce noise
+  "free","shop","buy","order","shipping","discount","sale","deal","promo","code","price","cost",
+  "best","top","new","good","great","amazing","awesome","beautiful","perfect","simple","easy",
+  "quick","fast","premium","starter","picks","options","collection","orders","miss","covered",
+  // Common filler ends
+  "today","tomorrow","later","week","month","year","time","times","day","days","life","people",
+  "someone","anyone","everyone","anyone","something","anything","everything","nothing",
 ]);
 
-// Patterns that look like purchase/spam noise rather than search intent
-const NOISE_PATTERN = /\b(click|buy now|shop now|limited|sale|off|discount|code|promo|deal|order)\b/i;
+// Patterns that look like noise rather than real search intent
+const NOISE_PATTERN = /\b(click here|buy now|shop now|limited time|sold out|order now|add to cart)\b/i;
 
-function extractSeedTopics(texts: string[]): string[] {
+// A phrase is considered "search-worthy" if:
+// - It doesn't start or end with a stop word
+// - It contains at least one meaningful content word (4+ chars, not a stop word)
+// - It doesn't contain known board meta-words in the middle
+function isSearchPhrase(words: string[]): boolean {
+  if (words.length === 0) return false;
+  if (STOP_WORDS.has(words[0]) || STOP_WORDS.has(words[words.length - 1])) return false;
+  const contentWords = words.filter(w => w.length >= 4 && !STOP_WORDS.has(w));
+  return contentWords.length >= Math.ceil(words.length / 2);
+}
+
+function extractSeedTopics(pinTexts: string[], boardNames: string[]): string[] {
   const seen = new Set<string>();
   const seeds: { phrase: string; score: number }[] = [];
 
-  for (const text of texts) {
-    if (!text) continue;
+  // Board names are clean seeds on their own (e.g. "Home Decor", "Products")
+  for (const name of boardNames) {
+    const clean = name.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    const words = clean.split(" ").filter(w => w.length > 2 && !STOP_WORDS.has(w));
+    if (words.length > 0) {
+      const phrase = words.join(" ");
+      if (!seen.has(phrase)) {
+        seen.add(phrase);
+        seeds.push({ phrase, score: 10 }); // high priority — user-defined niche topic
+      }
+    }
+  }
+
+  // Pin titles and descriptions — extract 2–4 word content phrases
+  for (const text of pinTexts) {
+    if (!text || NOISE_PATTERN.test(text)) continue;
     const clean = text
       .toLowerCase()
-      .replace(/[^a-z0-9\s'-]/g, " ")
+      .replace(/[^a-z0-9\s]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
 
     const words = clean.split(" ").filter(w => w.length > 2 && !STOP_WORDS.has(w));
 
-    // Prefer 2–4 word phrases (more Pinterest search-like than single words)
     for (let len = 4; len >= 2; len--) {
       for (let i = 0; i <= words.length - len; i++) {
-        const phrase = words.slice(i, i + len).join(" ");
+        const slice = words.slice(i, i + len);
+        if (!isSearchPhrase(slice)) continue;
+        const phrase = slice.join(" ");
         if (seen.has(phrase)) continue;
-        if (NOISE_PATTERN.test(phrase)) continue;
-        if (phrase.split(" ").every(w => STOP_WORDS.has(w))) continue;
         seen.add(phrase);
-        // Score: longer phrases score higher, penalise single-count
         seeds.push({ phrase, score: len * 2 });
       }
     }
   }
 
-  // Deduplicate: if a shorter phrase is contained in a longer one already present, drop it
+  // Sort by score, deduplicate sub-phrases
   const top = seeds
     .sort((a, b) => b.score - a.score)
-    .slice(0, 30)
+    .slice(0, 40)
     .map(s => s.phrase);
 
-  return top.filter(p => !top.some(q => q !== p && q.includes(p) && q.length > p.length));
+  // Remove a phrase if it's a sub-string of a better longer phrase already in the list
+  return top.filter(p => !top.some(q => q !== p && q.includes(p) && q.split(" ").length > p.split(" ").length));
 }
 
 // ── Expand seeds into real Pinterest-style search phrases ──────────────────────
@@ -201,7 +248,7 @@ export async function GET() {
   const allTexts = [...boardTexts, ...pinTexts];
 
   // Step 1: extract seed topics (2–4 word meaningful phrases)
-  const seeds = extractSeedTopics(allTexts);
+  const seeds = extractSeedTopics(pinTexts, boards.map((b) => b.name ?? ""));
 
   // Step 2: expand seeds into Pinterest-style search intent phrases
   const expanded = expandToSearchPhrases(seeds);
