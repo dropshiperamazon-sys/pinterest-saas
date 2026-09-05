@@ -332,6 +332,76 @@ function AiModal({
   );
 }
 
+// ── SmartSchedule Panel ────────────────────────────────────────────────────────
+
+const DAILY_SLOTS = ["2:00 AM", "10:00 AM", "5:00 PM", "8:00 PM"];
+
+function getUpcomingDays(count = 14): { dateStr: string; label: string }[] {
+  const days = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    const dateStr = d.toISOString().split("T")[0];
+    const label = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    days.push({ dateStr, label });
+  }
+  return days;
+}
+
+function slotTo24h(slot: string): string {
+  const [time, mer] = slot.split(" ");
+  const [h, m] = time.split(":").map(Number);
+  let h24 = h % 12;
+  if (mer === "PM") h24 += 12;
+  return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function SmartSchedulePanel({ onApply }: { onApply: (date: string, time: string) => void }) {
+  const days = getUpcomingDays(14);
+  const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  return (
+    <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
+      {/* Month header */}
+      <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-700">{monthLabel}</span>
+        <span className="text-[10px] text-gray-400">Click a slot to apply</span>
+      </div>
+
+      {/* Column labels */}
+      <div className="px-4 pb-1">
+        <div className="grid grid-cols-[88px_1fr_1fr_1fr_1fr] gap-1">
+          <div />
+          {DAILY_SLOTS.map((s) => (
+            <div key={s} className="text-[9px] font-medium text-gray-400 text-center leading-tight">
+              {s.split(" ")[1]}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Day rows */}
+      <div className="px-4 pb-4 space-y-1">
+        {days.map(({ dateStr, label }) => (
+          <div key={dateStr} className="grid grid-cols-[88px_1fr_1fr_1fr_1fr] gap-1 items-center">
+            <div className="text-[10px] text-gray-600 font-medium truncate pr-1">{label}</div>
+            {DAILY_SLOTS.map((slot) => (
+              <button
+                key={slot}
+                onClick={() => onApply(dateStr, slotTo24h(slot))}
+                className="text-[9px] bg-blue-50 hover:bg-[#e60023] text-blue-500 hover:text-white rounded py-1 font-medium transition-colors text-center"
+              >
+                {slot.replace(" AM", "a").replace(" PM", "p")}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Single Draft Card ──────────────────────────────────────────────────────────
 
 function DraftCard({
@@ -960,7 +1030,7 @@ export default function SchedulerPage() {
     } catch { /* ignore */ }
     return [newDraft(), newDraft(), newDraft()];
   });
-  const [activeTab, setActiveTab] = useState<"upcoming" | "published">("upcoming");
+  const [activeTab, setActiveTab] = useState<"schedule" | "upcoming" | "published">("schedule");
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [successPopup, setSuccessPopup] = useState(false);
@@ -1097,7 +1167,7 @@ export default function SchedulerPage() {
   };
 
   const filtered = scheduled.filter((p) =>
-    activeTab === "upcoming" ? p.status === "scheduled" : p.status === "published"
+    activeTab === "published" ? p.status === "published" : p.status === "scheduled"
   );
   const validDrafts = drafts.filter((d) => d.title && d.date && d.time).length;
 
@@ -1231,79 +1301,83 @@ export default function SchedulerPage() {
             </div>
           </div>
 
-          {/* ── Right: Scheduled Pins Sidebar ── */}
-          <div className="w-64 flex-shrink-0">
+          {/* ── Right: Sidebar ── */}
+          <div className="w-72 flex-shrink-0">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-20">
               {/* Tab toggle */}
               <div className="p-3 border-b border-gray-100 flex items-center gap-1">
-                {(["upcoming", "published"] as const).map((tab) => (
+                {(["schedule", "upcoming", "published"] as const).map((tab) => (
                   <button
                     key={tab}
-                    onClick={() => setActiveTab(tab)}
+                    onClick={() => setActiveTab(tab as typeof activeTab)}
                     className={cn(
-                      "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize flex-1",
+                      "px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex-1",
                       activeTab === tab ? "bg-[#e60023] text-white" : "text-gray-500 hover:bg-gray-50"
                     )}
                   >
-                    {tab}
-                    <span className="ml-1 opacity-70">
-                      ({scheduled.filter((p) => tab === "upcoming" ? p.status === "scheduled" : p.status === "published").length})
-                    </span>
+                    {tab === "schedule" ? "SmartSchedule" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                    {tab !== "schedule" && (
+                      <span className="ml-1 opacity-70">
+                        ({scheduled.filter((p) => tab === "upcoming" ? p.status === "scheduled" : p.status === "published").length})
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
 
-              {/* Thumbnail list */}
-              <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
-                {filtered.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <Calendar className="w-6 h-6 text-gray-300 mx-auto mb-2" />
-                    <p className="text-xs text-gray-400">No {activeTab} pins yet</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-50">
-                    {filtered.map((pin) => (
-                      <div key={pin.id} className="p-3 hover:bg-gray-50/80 flex gap-2.5 group relative">
-                        {/* Thumbnail */}
-                        <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
-                          {pin.imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={pin.imageUrl} alt={pin.title} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-xl">📌</div>
-                          )}
-                        </div>
-                        {/* Info */}
-                        <div className="flex-1 min-w-0 flex flex-col justify-between">
-                          <div className="text-xs font-medium text-gray-900 truncate leading-tight">{pin.title}</div>
-                          <div>
-                            <div className="text-xs text-gray-400 truncate">{pin.board}</div>
-                            <div className="text-xs text-gray-400">{format(parseISO(pin.scheduledAt), "MMM d · h:mm a")}</div>
-                            {pin.status === "scheduled" ? (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full font-medium mt-0.5">
-                                <Clock className="w-2.5 h-2.5" />
-                                Scheduled
-                              </span>
+              {activeTab === "schedule" ? (
+                <SmartSchedulePanel onApply={(date, time) => {
+                  const emptyDraft = drafts.find(d => !d.date && !d.time);
+                  if (emptyDraft) updateDraft(emptyDraft.id, { ...emptyDraft, date, time });
+                }} />
+              ) : (
+                /* Thumbnail list */
+                <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
+                  {filtered.length === 0 ? (
+                    <div className="p-8 text-center">
+                      <Calendar className="w-6 h-6 text-gray-300 mx-auto mb-2" />
+                      <p className="text-xs text-gray-400">No {activeTab} pins yet</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-50">
+                      {filtered.map((pin) => (
+                        <div key={pin.id} className="p-3 hover:bg-gray-50/80 flex gap-2.5 group relative">
+                          <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
+                            {pin.imageUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={pin.imageUrl} alt={pin.title} className="w-full h-full object-cover" />
                             ) : (
-                              <span className="inline-flex items-center gap-0.5 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full font-medium mt-0.5">
-                                <CheckCircle2 className="w-2.5 h-2.5" />
-                                Published
-                              </span>
+                              <div className="w-full h-full flex items-center justify-center text-xl">📌</div>
                             )}
                           </div>
+                          <div className="flex-1 min-w-0 flex flex-col justify-between">
+                            <div className="text-xs font-medium text-gray-900 truncate leading-tight">{pin.title}</div>
+                            <div>
+                              <div className="text-xs text-gray-400 truncate">{pin.board}</div>
+                              <div className="text-xs text-gray-400">{format(parseISO(pin.scheduledAt), "MMM d · h:mm a")}</div>
+                              {pin.status === "scheduled" ? (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full font-medium mt-0.5">
+                                  <Clock className="w-2.5 h-2.5" />Scheduled
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full font-medium mt-0.5">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />Published
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => deleteScheduled(pin.id)}
+                            className="absolute top-2 right-2 p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                         </div>
-                        {/* Delete on hover */}
-                        <button
-                          onClick={() => deleteScheduled(pin.id)}
-                          className="absolute top-2 right-2 p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
