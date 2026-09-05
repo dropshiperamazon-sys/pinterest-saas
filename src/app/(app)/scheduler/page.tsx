@@ -597,13 +597,16 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit }: {
                 <div className="flex gap-1 mt-1 pl-[76px] flex-wrap">
                   {pins.map((p, i) => (
                     <button key={i} title={`Edit: ${p.title}`} onClick={() => onEdit(p as ScheduledPin)}
-                      className="w-7 h-7 rounded-md overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0 hover:ring-2 hover:ring-[#e60023] transition-all">
+                      className="group/thumb w-7 h-7 rounded-md overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0 hover:ring-2 hover:ring-[#e60023] transition-all relative">
                       {p.imageUrl && p.imageUrl.startsWith("http") ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={p.imageUrl} alt={p.title} className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-[10px]">📌</div>
                       )}
+                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+                        <Edit2 className="w-3 h-3 text-white" />
+                      </div>
                     </button>
                   ))}
                 </div>
@@ -1512,12 +1515,17 @@ export default function SchedulerPage() {
                     <div className="divide-y divide-gray-50">
                       {filtered.map((pin) => (
                         <div key={pin.id} className="p-3 hover:bg-gray-50/80 flex gap-2.5 group relative cursor-pointer" onClick={() => pin.status === "scheduled" && setEditingPin(pin)}>
-                          <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
+                          <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100 relative">
                             {pin.imageUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img src={pin.imageUrl} alt={pin.title} className="w-full h-full object-cover" />
                             ) : (
                               <div className="w-full h-full flex items-center justify-center text-xl">📌</div>
+                            )}
+                            {pin.status === "scheduled" && (
+                              <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Edit2 className="w-4 h-4 text-white" />
+                              </div>
                             )}
                           </div>
                           <div className="flex-1 min-w-0 flex flex-col justify-between">
