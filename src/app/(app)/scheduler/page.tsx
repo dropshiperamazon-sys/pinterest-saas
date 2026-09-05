@@ -1138,6 +1138,26 @@ function DraftCard({
   );
 }
 
+// ── Board Description AI Generator ────────────────────────────────────────────
+
+function generateBoardDescription(keywords: string): string {
+  const kws = keywords.split(",").map(k => k.trim()).filter(Boolean);
+  const primary = kws[0] || "ideas";
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+  const rest = kws.slice(1).map(cap).join(", ");
+  const year = new Date().getFullYear();
+
+  const templates = [
+    `Your go-to board for all things ${primary}${rest ? `, ${rest},` : ""} and more. Curated with the best ideas, tips, and inspiration to spark your creativity. Follow along and save your favourites! ✨`,
+    `A carefully curated collection of ${cap(primary)} ideas${rest ? ` featuring ${rest}` : ""}. Whether you're just starting out or looking for fresh inspiration, this board has everything you need. Updated regularly with the best pins of ${year}. 📌`,
+    `Explore the world of ${cap(primary)}${rest ? ` — from ${rest} to everyday inspiration` : ""}. This board brings together the most beautiful, useful, and creative content to help you discover, plan, and create. Save your favourites and share with friends! 💡`,
+    `Everything you love about ${cap(primary)} in one place.${rest ? ` Covers ${rest} and so much more.` : ""} Follow this board for weekly updates, handpicked tips, and endless inspiration you'll come back to again and again. 🌟`,
+    `Dive into ${cap(primary)}${rest ? `, ${rest}` : ""} — curated content that informs, inspires, and delights. Perfect for anyone who wants to explore new ideas and stay ahead of the trends in ${year}. Follow for the latest picks! 🎯`,
+  ];
+
+  return templates[Math.floor(Math.random() * templates.length)];
+}
+
 // ── Manage Boards Modal ────────────────────────────────────────────────────────
 
 type BoardSection = { id: string; name: string };
@@ -1166,6 +1186,11 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
   // Delete section confirmation
   const [deletingSection, setDeletingSection] = useState<BoardSection | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
+  // AI description generator popup: "create" or "edit" or null
+  const [aiDescTarget, setAiDescTarget] = useState<"create" | "edit" | null>(null);
+  const [aiKeywords, setAiKeywords] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   const authHeaders: Record<string, string> = {
     "Content-Type": "application/json",
@@ -1333,7 +1358,14 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30 focus:border-purple-400" />
               </div>
               <div>
-                <label className="text-xs font-semibold text-gray-500 block mb-1">Description <span className="font-normal text-gray-400">(optional)</span></label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-gray-500">Description <span className="font-normal text-gray-400">(optional)</span></label>
+                  <button onClick={() => { setAiDescTarget("create"); setAiKeywords(""); }}
+                    className="flex items-center gap-1 text-[11px] font-semibold text-purple-600 hover:text-purple-800 transition-colors">
+                    <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                    AI Generate
+                  </button>
+                </div>
                 <textarea value={newBoardDesc} onChange={e => setNewBoardDesc(e.target.value)}
                   placeholder="What is this board about?"
                   rows={3}
@@ -1369,7 +1401,14 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30 focus:border-purple-400 bg-white" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-500 block mb-1">Description</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-500">Description</label>
+                    <button onClick={() => { setAiDescTarget("edit"); setAiKeywords(""); }}
+                      className="flex items-center gap-1 text-[11px] font-semibold text-purple-600 hover:text-purple-800 transition-colors">
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                      AI Generate
+                    </button>
+                  </div>
                   <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30 focus:border-purple-400 resize-none bg-white" />
                 </div>
@@ -1412,6 +1451,76 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
             </div>
           )}
         </div>
+
+        {/* ── AI Description Generator overlay ── */}
+        {aiDescTarget && (
+          <div className="absolute inset-0 bg-black/50 rounded-2xl flex items-center justify-center p-6 z-10">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-purple-600" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm">AI Board Description</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">Enter keywords to generate a compelling description</p>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1.5">
+                  Keywords <span className="font-normal text-gray-400">(separate with commas)</span>
+                </label>
+                <input
+                  autoFocus
+                  value={aiKeywords}
+                  onChange={e => setAiKeywords(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && aiKeywords.trim()) {
+                      setAiGenerating(true);
+                      setTimeout(() => {
+                        const desc = generateBoardDescription(aiKeywords);
+                        if (aiDescTarget === "create") setNewBoardDesc(desc);
+                        else setEditDesc(desc);
+                        setAiGenerating(false);
+                        setAiDescTarget(null);
+                        setAiKeywords("");
+                      }, 800);
+                    }
+                  }}
+                  placeholder="e.g. home decor, minimalist, cozy living"
+                  className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-400"
+                />
+                <p className="text-[11px] text-gray-400 mt-1.5">Add one or more keywords that describe your board topic</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setAiDescTarget(null); setAiKeywords(""); }}
+                  className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  disabled={!aiKeywords.trim() || aiGenerating}
+                  onClick={() => {
+                    setAiGenerating(true);
+                    setTimeout(() => {
+                      const desc = generateBoardDescription(aiKeywords);
+                      if (aiDescTarget === "create") setNewBoardDesc(desc);
+                      else setEditDesc(desc);
+                      setAiGenerating(false);
+                      setAiDescTarget(null);
+                      setAiKeywords("");
+                    }, 800);
+                  }}
+                  className="flex-1 py-2 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {aiGenerating ? (
+                    <><svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" /></svg> Generating…</>
+                  ) : "Generate"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Delete Section Confirmation overlay ── */}
         {deletingSection && (
