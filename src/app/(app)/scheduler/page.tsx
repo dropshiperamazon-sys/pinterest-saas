@@ -1277,7 +1277,7 @@ export default function SchedulerPage() {
 
               {activeTab === "schedule" ? (
                 <SmartSchedulePanel
-                  scheduled={scheduled}
+                  scheduled={scheduled.filter(p => p.status === "scheduled" && new Date(p.scheduledAt) >= new Date())}
                   onApply={(date, time) => {
                     const emptyDraft = drafts.find(d => !d.date && !d.time);
                     if (emptyDraft) updateDraft(emptyDraft.id, { ...emptyDraft, date, time });
