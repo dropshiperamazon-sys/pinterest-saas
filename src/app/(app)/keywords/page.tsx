@@ -856,6 +856,7 @@ export default function KeywordsPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [searchedQuery, setSearchedQuery] = useState("");
+  const [aiTriggered, setAiTriggered] = useState(false);
 
   // Fetch remaining searches on mount
   useEffect(() => {
@@ -865,6 +866,7 @@ export default function KeywordsPage() {
   }, []);
 
   const runAIAnalysis = useCallback(async (q: string, regenerate = false) => {
+    setAiTriggered(true);
     setAiLoading(true);
     setAiError(null);
     if (!regenerate) setAiAnalysis(null);
@@ -875,8 +877,15 @@ export default function KeywordsPage() {
         body: JSON.stringify({ keyword: q, country: "US", language: "en", regenerate }),
       });
       const data = await res.json();
-      if (!res.ok) { setAiError(data.error ?? "AI analysis failed"); return; }
-      setAiAnalysis(data.aiAnalysis ?? null);
+      if (!res.ok) {
+        setAiError(data.error ?? "AI analysis failed. Please check your OpenAI API key.");
+        return;
+      }
+      if (!data.aiAnalysis) {
+        setAiError("AI analysis returned no results. Please try again.");
+        return;
+      }
+      setAiAnalysis(data.aiAnalysis);
     } catch {
       setAiError("AI analysis temporarily unavailable. Please try again.");
     } finally {
@@ -903,6 +912,7 @@ export default function KeywordsPage() {
     const trimmed = q.trim();
     setQuery(trimmed);
     setSearchedQuery(trimmed);
+    setAiTriggered(false);
     setLoading(true);
     setIsLive(false);
     setSuggestions([]);
