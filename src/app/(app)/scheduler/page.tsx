@@ -1471,13 +1471,29 @@ export default function SchedulerPage() {
               onChange={(e) => {
                 const files = Array.from(e.target.files ?? []);
                 if (!files.length) return;
-                files.forEach((file) => {
-                  const reader = new FileReader();
-                  reader.onload = (ev) => {
-                    const imageUrl = ev.target?.result as string;
-                    setDrafts((prev) => [...prev, { ...newDraft(), imageUrl }]);
-                  };
-                  reader.readAsDataURL(file);
+                // Read all files first, then fill empty slots before appending
+                const readers = files.map((file) => new Promise<string>((resolve) => {
+                  const r = new FileReader();
+                  r.onload = (ev) => resolve(ev.target?.result as string);
+                  r.readAsDataURL(file);
+                }));
+                Promise.all(readers).then((urls) => {
+                  setDrafts((prev) => {
+                    const updated = [...prev];
+                    let urlIdx = 0;
+                    // Fill empty draft slots first
+                    for (let i = 0; i < updated.length && urlIdx < urls.length; i++) {
+                      const d = updated[i];
+                      if (!d.imageUrl && !d.title && !d.link) {
+                        updated[i] = { ...d, imageUrl: urls[urlIdx++] };
+                      }
+                    }
+                    // Append remaining as new drafts
+                    while (urlIdx < urls.length) {
+                      updated.push({ ...newDraft(), imageUrl: urls[urlIdx++] });
+                    }
+                    return updated;
+                  });
                 });
                 e.target.value = "";
               }}
