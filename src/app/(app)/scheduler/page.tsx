@@ -1138,6 +1138,279 @@ function DraftCard({
   );
 }
 
+// ── Manage Boards Modal ────────────────────────────────────────────────────────
+
+type BoardSection = { id: string; name: string };
+type ManagedBoard = { id: string; name: string; description: string; privacy: string; sections: BoardSection[] };
+
+function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onClose: () => void }) {
+  const [boards, setBoards] = useState<ManagedBoard[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [selectedBoard, setSelectedBoard] = useState<ManagedBoard | null>(null);
+  const [view, setView] = useState<"list" | "board_detail" | "new_board">("list");
+
+  // New board form
+  const [newBoardName, setNewBoardName] = useState("");
+  const [newBoardDesc, setNewBoardDesc] = useState("");
+  const [newBoardPrivacy, setNewBoardPrivacy] = useState("PUBLIC");
+
+  // Edit board inline
+  const [editName, setEditName] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+
+  // New section
+  const [newSectionName, setNewSectionName] = useState("");
+
+  const authHeaders: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+  };
+
+  useEffect(() => {
+    fetch("/api/manage-boards", { headers: authHeaders })
+      .then(r => r.json())
+      .then(d => { setBoards(d.boards ?? []); setLoading(false); })
+      .catch(() => { setError("Failed to load boards"); setLoading(false); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function createBoard() {
+    if (!newBoardName.trim()) return;
+    setSaving(true); setError("");
+    try {
+      const res = await fetch("/api/manage-boards", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ action: "create_board", name: newBoardName.trim(), description: newBoardDesc.trim(), privacy: newBoardPrivacy }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError("Failed to create board"); return; }
+      setBoards(b => [...b, data.board]);
+      setNewBoardName(""); setNewBoardDesc(""); setNewBoardPrivacy("PUBLIC");
+      setView("list");
+    } finally { setSaving(false); }
+  }
+
+  async function saveBoard() {
+    if (!selectedBoard) return;
+    setSaving(true); setError("");
+    try {
+      const res = await fetch("/api/manage-boards", {
+        method: "PATCH",
+        headers: authHeaders,
+        body: JSON.stringify({ boardId: selectedBoard.id, name: editName.trim(), description: editDesc }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError("Failed to update board"); return; }
+      const updated = { ...selectedBoard, name: data.board.name, description: data.board.description };
+      setBoards(b => b.map(x => x.id === updated.id ? updated : x));
+      setSelectedBoard(updated);
+    } finally { setSaving(false); }
+  }
+
+  async function addSection() {
+    if (!selectedBoard || !newSectionName.trim()) return;
+    setSaving(true); setError("");
+    try {
+      const res = await fetch("/api/manage-boards", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ action: "create_section", boardId: selectedBoard.id, name: newSectionName.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError("Failed to add section"); return; }
+      const updated = { ...selectedBoard, sections: [...selectedBoard.sections, data.section] };
+      setBoards(b => b.map(x => x.id === updated.id ? updated : x));
+      setSelectedBoard(updated);
+      setNewSectionName("");
+    } finally { setSaving(false); }
+  }
+
+  async function deleteSection(sectionId: string) {
+    if (!selectedBoard) return;
+    setSaving(true); setError("");
+    try {
+      const res = await fetch("/api/manage-boards", {
+        method: "DELETE",
+        headers: authHeaders,
+        body: JSON.stringify({ boardId: selectedBoard.id, sectionId }),
+      });
+      if (!res.ok) { setError("Failed to delete section"); return; }
+      const updated = { ...selectedBoard, sections: selectedBoard.sections.filter(s => s.id !== sectionId) };
+      setBoards(b => b.map(x => x.id === updated.id ? updated : x));
+      setSelectedBoard(updated);
+    } finally { setSaving(false); }
+  }
+
+  function openBoard(board: ManagedBoard) {
+    setSelectedBoard(board);
+    setEditName(board.name);
+    setEditDesc(board.description);
+    setNewSectionName("");
+    setView("board_detail");
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="bg-gradient-to-r from-purple-600 to-purple-500 px-6 py-4 flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-3">
+            {view !== "list" && (
+              <button onClick={() => setView("list")} className="text-white/70 hover:text-white mr-1">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+              </button>
+            )}
+            <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center">
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+            </div>
+            <div>
+              <h2 className="text-white font-bold text-sm">
+                {view === "list" && "Manage Boards"}
+                {view === "new_board" && "Create New Board"}
+                {view === "board_detail" && selectedBoard?.name}
+              </h2>
+              <p className="text-purple-200 text-xs">
+                {view === "list" && `${boards.length} board${boards.length !== 1 ? "s" : ""} on your Pinterest`}
+                {view === "new_board" && "Add a new board to your Pinterest account"}
+                {view === "board_detail" && "Edit board details and manage sections"}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-white/70 hover:text-white">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        {error && <div className="bg-red-50 border-b border-red-100 px-6 py-2 text-xs text-red-600">{error}</div>}
+
+        <div className="overflow-y-auto flex-1">
+          {/* ── Board List ── */}
+          {view === "list" && (
+            <div className="p-5 space-y-3">
+              {loading ? (
+                <div className="flex items-center justify-center py-10 text-gray-400 text-sm">Loading boards…</div>
+              ) : boards.length === 0 ? (
+                <div className="text-center py-10 text-gray-400 text-sm">No boards found. Create your first one!</div>
+              ) : (
+                boards.map(board => (
+                  <button key={board.id} onClick={() => openBoard(board)}
+                    className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-gray-200 hover:border-purple-300 hover:bg-purple-50 transition-colors text-left group">
+                    <div>
+                      <div className="font-semibold text-sm text-gray-800 group-hover:text-purple-700">{board.name}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {board.sections.length > 0 ? `${board.sections.length} section${board.sections.length !== 1 ? "s" : ""}` : "No sections"}
+                        {board.privacy === "SECRET" && <span className="ml-2 bg-gray-100 px-1.5 py-0.5 rounded text-[10px]">Secret</span>}
+                      </div>
+                    </div>
+                    <svg className="w-4 h-4 text-gray-300 group-hover:text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  </button>
+                ))
+              )}
+              <button onClick={() => setView("new_board")}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-purple-300 text-purple-600 text-sm font-semibold hover:bg-purple-50 transition-colors mt-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                Create New Board
+              </button>
+            </div>
+          )}
+
+          {/* ── New Board Form ── */}
+          {view === "new_board" && (
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1">Board Name *</label>
+                <input value={newBoardName} onChange={e => setNewBoardName(e.target.value)}
+                  placeholder="e.g. Home Decor Ideas"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30 focus:border-purple-400" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1">Description <span className="font-normal text-gray-400">(optional)</span></label>
+                <textarea value={newBoardDesc} onChange={e => setNewBoardDesc(e.target.value)}
+                  placeholder="What is this board about?"
+                  rows={3}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30 focus:border-purple-400 resize-none" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1">Privacy</label>
+                <div className="flex gap-3">
+                  {["PUBLIC", "SECRET"].map(p => (
+                    <button key={p} onClick={() => setNewBoardPrivacy(p)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-colors ${newBoardPrivacy === p ? "bg-purple-600 text-white border-purple-600" : "border-gray-200 text-gray-600 hover:border-purple-300"}`}>
+                      {p === "PUBLIC" ? "Public" : "Secret"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button onClick={createBoard} disabled={!newBoardName.trim() || saving}
+                className="w-full py-2.5 rounded-xl bg-purple-600 text-white font-semibold text-sm hover:bg-purple-700 transition-colors disabled:opacity-40">
+                {saving ? "Creating…" : "Create Board on Pinterest"}
+              </button>
+            </div>
+          )}
+
+          {/* ── Board Detail ── */}
+          {view === "board_detail" && selectedBoard && (
+            <div className="p-5 space-y-5">
+              {/* Edit name & description */}
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Board Details</p>
+                <div>
+                  <label className="text-xs font-medium text-gray-500 block mb-1">Board Name</label>
+                  <input value={editName} onChange={e => setEditName(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30 focus:border-purple-400 bg-white" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-500 block mb-1">Description</label>
+                  <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} rows={3}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30 focus:border-purple-400 resize-none bg-white" />
+                </div>
+                <button onClick={saveBoard} disabled={saving || (editName.trim() === selectedBoard.name && editDesc === selectedBoard.description)}
+                  className="px-4 py-2 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 transition-colors disabled:opacity-40">
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
+              </div>
+
+              {/* Sections */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Sections</p>
+                {selectedBoard.sections.length === 0 ? (
+                  <p className="text-xs text-gray-400 mb-3">No sections yet. Add one below.</p>
+                ) : (
+                  <div className="space-y-2 mb-3">
+                    {selectedBoard.sections.map(sec => (
+                      <div key={sec.id} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100">
+                        <span className="text-sm text-gray-700">{sec.name}</span>
+                        <button onClick={() => deleteSection(sec.id)} disabled={saving}
+                          className="text-gray-300 hover:text-red-500 transition-colors ml-2 flex-shrink-0">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Add section */}
+                <div className="flex gap-2">
+                  <input value={newSectionName} onChange={e => setNewSectionName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addSection()}
+                    placeholder="New section name…"
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400/30 focus:border-purple-400" />
+                  <button onClick={addSection} disabled={!newSectionName.trim() || saving}
+                    className="px-3 py-2 rounded-lg bg-purple-600 text-white text-xs font-semibold hover:bg-purple-700 transition-colors disabled:opacity-40">
+                    {saving ? "…" : "+ Add"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function SchedulerPage() {
@@ -1162,6 +1435,7 @@ export default function SchedulerPage() {
   const [shuffleMsg, setShuffleMsg] = useState("");
   const [spacingOpen, setSpacingOpen] = useState(false);
   const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [boardsModalOpen, setBoardsModalOpen] = useState(false);
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [successPopup, setSuccessPopup] = useState(false);
@@ -1180,6 +1454,7 @@ export default function SchedulerPage() {
         setConnected(data.connected);
         setPinterestName(data.pinterestName || data.pinterestUsername || "");
         if (data.connected && data.accessToken) {
+          (window as Window & { __pinterestToken?: string }).__pinterestToken = data.accessToken;
           return fetch("/api/pinterest-boards", {
             headers: { Authorization: `Bearer ${data.accessToken}` },
           }).then((r) => r.json());
@@ -1439,6 +1714,23 @@ export default function SchedulerPage() {
         />
       )}
 
+      {/* ── Manage Boards Modal ── */}
+      {boardsModalOpen && (
+        <ManageBoardsModal
+          accessToken={typeof window !== "undefined" ? ((window as Window & { __pinterestToken?: string }).__pinterestToken ?? "") : ""}
+          onClose={() => {
+            setBoardsModalOpen(false);
+            // Refresh boards list after edits
+            fetch("/api/manage-boards").then(r => r.json()).then(data => {
+              if (data.boards?.length) {
+                const list = data.boards.map((b: { id: string; name: string }) => ({ id: b.id, name: b.name }));
+                setBoards(list);
+              }
+            }).catch(() => {});
+          }}
+        />
+      )}
+
       {/* ── CSV Import Modal ── */}
       {csvModalOpen && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setCsvModalOpen(false)}>
@@ -1642,6 +1934,17 @@ export default function SchedulerPage() {
           >
             <Copy className="w-3.5 h-3.5" />
             Import CSV
+          </button>
+
+          <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
+
+          {/* Manage Boards */}
+          <button
+            onClick={() => setBoardsModalOpen(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700 transition-colors cursor-pointer"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+            Manage Boards
           </button>
 
         </div>
