@@ -110,6 +110,23 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PUT(req: NextRequest) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const { pinId, title, description, scheduledAt } = await req.json();
+  if (!pinId) return NextResponse.json({ error: "pinId required" }, { status: 400 });
+
+  const raw = await redis.get(`scheduled_pin:${email}:${pinId}`);
+  if (!raw) return NextResponse.json({ error: "Pin not found" }, { status: 404 });
+
+  const pin = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const updated = { ...pin, ...(title !== undefined && { title }), ...(description !== undefined && { description }), ...(scheduledAt !== undefined && { scheduledAt }) };
+  await redis.set(`scheduled_pin:${email}:${pinId}`, JSON.stringify(updated), { ex: 60 * 60 * 24 * 90 });
+  return NextResponse.json({ success: true, pin: { id: pinId, ...updated } });
+}
+
 export async function DELETE(req: NextRequest) {
   const session = await auth();
   const email = session?.user?.email;

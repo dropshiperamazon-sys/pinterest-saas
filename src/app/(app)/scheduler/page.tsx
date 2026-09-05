@@ -332,6 +332,110 @@ function AiModal({
   );
 }
 
+// ── Scheduled Pin Edit Modal ───────────────────────────────────────────────────
+
+function ScheduledPinModal({
+  pin,
+  onClose,
+  onSave,
+  onDelete,
+  onBackToDraft,
+  onPinNow,
+}: {
+  pin: ScheduledPin;
+  onClose: () => void;
+  onSave: (updated: Partial<ScheduledPin>) => Promise<void>;
+  onDelete: () => void;
+  onBackToDraft: () => void;
+  onPinNow: () => Promise<void>;
+}) {
+  const dt = pin.scheduledAt ? new Date(pin.scheduledAt) : new Date();
+  const [title, setTitle] = useState(pin.title || "");
+  const [description, setDescription] = useState(pin.description || "");
+  const [date, setDate] = useState(dt.toISOString().split("T")[0]);
+  const [time, setTime] = useState(dt.toTimeString().slice(0, 5));
+  const [saving, setSaving] = useState(false);
+  const [pinning, setPinning] = useState(false);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+              {pin.imageUrl?.startsWith("http") ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={pin.imageUrl} alt={pin.title} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-sm">📌</div>
+              )}
+            </div>
+            <span className="text-sm font-semibold text-gray-800">Edit Scheduled Pin</span>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+        </div>
+
+        {/* Body */}
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Title</label>
+            <input value={title} onChange={e => setTitle(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 block mb-1">Description</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] resize-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1">Date</label>
+              <input type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e => setDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1">Time</label>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="px-5 pb-5 space-y-2">
+          <button
+            onClick={async () => { setSaving(true); await onSave({ title, description, scheduledAt: new Date(`${date}T${time}:00`).toISOString() }); setSaving(false); onClose(); }}
+            disabled={saving}
+            className="w-full bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {saving ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Edit2 className="w-3.5 h-3.5" />}
+            Save Changes
+          </button>
+          <button
+            onClick={async () => { setPinning(true); await onPinNow(); setPinning(false); onClose(); }}
+            disabled={pinning}
+            className="w-full bg-green-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {pinning ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+            Pin Now
+          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => { onBackToDraft(); onClose(); }}
+              className="py-2 border border-gray-200 rounded-xl text-sm text-gray-600 font-medium hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5">
+              <Copy className="w-3.5 h-3.5" /> Back to Draft
+            </button>
+            <button onClick={() => { onDelete(); onClose(); }}
+              className="py-2 border border-red-200 rounded-xl text-sm text-red-500 font-medium hover:bg-red-50 transition-colors flex items-center justify-center gap-1.5">
+              <Trash2 className="w-3.5 h-3.5" /> Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── SmartSchedule Panel ────────────────────────────────────────────────────────
 
 const DAILY_SLOTS: { label: string; short: string; color: string; text: string }[] = [
@@ -365,9 +469,10 @@ function slotTo24h(slot: string): string {
   return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function SmartSchedulePanel({ onApply, scheduled }: {
+function SmartSchedulePanel({ onApply, scheduled, onEdit }: {
   onApply: (date: string, time: string) => void;
-  scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string }[];
+  onEdit: (pin: ScheduledPin) => void;
+  scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string; status: string; board: string; description?: string; link?: string }[];
 }) {
   const [customSlots, setCustomSlots] = useState<{ label: string; short: string }[]>([]);
   const [addingSlot, setAddingSlot] = useState(false);
@@ -491,14 +596,15 @@ function SmartSchedulePanel({ onApply, scheduled }: {
               {pins.length > 0 && (
                 <div className="flex gap-1 mt-1 pl-[76px] flex-wrap">
                   {pins.map((p, i) => (
-                    <div key={i} title={p.title} className="w-7 h-7 rounded-md overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
+                    <button key={i} title={`Edit: ${p.title}`} onClick={() => onEdit(p as ScheduledPin)}
+                      className="w-7 h-7 rounded-md overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0 hover:ring-2 hover:ring-[#e60023] transition-all">
                       {p.imageUrl && p.imageUrl.startsWith("http") ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={p.imageUrl} alt={p.title} className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-[10px]">📌</div>
                       )}
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -1056,6 +1162,7 @@ export default function SchedulerPage() {
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [successPopup, setSuccessPopup] = useState(false);
+  const [editingPin, setEditingPin] = useState<ScheduledPin | null>(null);
   const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
   const [boardsLoading, setBoardsLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -1215,6 +1322,43 @@ export default function SchedulerPage() {
           onClose={() => setAiTarget(null)}
         />
       )}
+      {editingPin && (
+        <ScheduledPinModal
+          pin={editingPin}
+          onClose={() => setEditingPin(null)}
+          onSave={async (updates) => {
+            const res = await fetch("/api/schedule-pin", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pinId: editingPin.id, ...updates }),
+            });
+            if (res.ok) {
+              const { pin: updated } = await res.json();
+              setScheduled(s => s.map(p => p.id === editingPin.id ? { ...p, ...updated } : p));
+            }
+          }}
+          onDelete={() => deleteScheduled(editingPin.id)}
+          onBackToDraft={() => {
+            setDrafts(d => [...d, {
+              ...newDraft(),
+              title: editingPin.title,
+              description: editingPin.description || "",
+              imageUrl: editingPin.imageUrl || "",
+              board: editingPin.board || "",
+              link: editingPin.link || "",
+            }]);
+            deleteScheduled(editingPin.id);
+          }}
+          onPinNow={async () => {
+            await fetch("/api/publish-pin", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pinId: editingPin.id }),
+            });
+            setScheduled(s => s.map(p => p.id === editingPin.id ? { ...p, status: "published" } : p));
+          }}
+        />
+      )}
 
       <Header title="Pin Scheduler" subtitle="Create and schedule multiple pins at once with AI-powered content generation" />
 
@@ -1354,6 +1498,7 @@ export default function SchedulerPage() {
                     const emptyDraft = drafts.find(d => !d.date && !d.time);
                     if (emptyDraft) updateDraft(emptyDraft.id, { ...emptyDraft, date, time });
                   }}
+                  onEdit={setEditingPin}
                 />
               ) : (
                 /* Thumbnail list */
@@ -1366,7 +1511,7 @@ export default function SchedulerPage() {
                   ) : (
                     <div className="divide-y divide-gray-50">
                       {filtered.map((pin) => (
-                        <div key={pin.id} className="p-3 hover:bg-gray-50/80 flex gap-2.5 group relative">
+                        <div key={pin.id} className="p-3 hover:bg-gray-50/80 flex gap-2.5 group relative cursor-pointer" onClick={() => pin.status === "scheduled" && setEditingPin(pin)}>
                           <div className="flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden bg-gray-100">
                             {pin.imageUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
