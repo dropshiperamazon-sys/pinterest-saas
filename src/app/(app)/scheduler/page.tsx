@@ -1163,6 +1163,10 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
   // New section
   const [newSectionName, setNewSectionName] = useState("");
 
+  // Delete section confirmation
+  const [deletingSection, setDeletingSection] = useState<BoardSection | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
   const authHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
@@ -1228,19 +1232,21 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
     } finally { setSaving(false); }
   }
 
-  async function deleteSection(sectionId: string) {
-    if (!selectedBoard) return;
+  async function confirmDeleteSection() {
+    if (!selectedBoard || !deletingSection) return;
     setSaving(true); setError("");
     try {
       const res = await fetch("/api/manage-boards", {
         method: "DELETE",
         headers: authHeaders,
-        body: JSON.stringify({ boardId: selectedBoard.id, sectionId }),
+        body: JSON.stringify({ boardId: selectedBoard.id, sectionId: deletingSection.id }),
       });
       if (!res.ok) { setError("Failed to delete section"); return; }
-      const updated = { ...selectedBoard, sections: selectedBoard.sections.filter(s => s.id !== sectionId) };
+      const updated = { ...selectedBoard, sections: selectedBoard.sections.filter(s => s.id !== deletingSection.id) };
       setBoards(b => b.map(x => x.id === updated.id ? updated : x));
       setSelectedBoard(updated);
+      setDeletingSection(null);
+      setDeleteConfirmText("");
     } finally { setSaving(false); }
   }
 
@@ -1254,7 +1260,7 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="bg-gradient-to-r from-purple-600 to-purple-500 px-6 py-4 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -1383,7 +1389,7 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
                     {selectedBoard.sections.map(sec => (
                       <div key={sec.id} className="flex items-center justify-between px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100">
                         <span className="text-sm text-gray-700">{sec.name}</span>
-                        <button onClick={() => deleteSection(sec.id)} disabled={saving}
+                        <button onClick={() => { setDeletingSection(sec); setDeleteConfirmText(""); }} disabled={saving}
                           className="text-gray-300 hover:text-red-500 transition-colors ml-2 flex-shrink-0">
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                         </button>
@@ -1406,6 +1412,51 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
             </div>
           )}
         </div>
+
+        {/* ── Delete Section Confirmation overlay ── */}
+        {deletingSection && (
+          <div className="absolute inset-0 bg-black/50 rounded-2xl flex items-center justify-center p-6 z-10">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" /></svg>
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-sm">Delete Section</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">This will permanently delete <span className="font-semibold text-gray-700">&quot;{deletingSection.name}&quot;</span> from Pinterest.</p>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 block mb-1.5">
+                  Type <span className="font-bold text-red-600 tracking-widest">DELETE</span> to confirm
+                </label>
+                <input
+                  autoFocus
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && deleteConfirmText === "DELETE" && confirmDeleteSection()}
+                  placeholder="DELETE"
+                  className="w-full border-2 border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-red-400 tracking-widest"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setDeletingSection(null); setDeleteConfirmText(""); }}
+                  className="flex-1 py-2 rounded-lg border border-gray-200 text-gray-600 text-sm font-semibold hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDeleteSection}
+                  disabled={deleteConfirmText !== "DELETE" || saving}
+                  className="flex-1 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {saving ? "Deleting…" : "Delete Section"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
