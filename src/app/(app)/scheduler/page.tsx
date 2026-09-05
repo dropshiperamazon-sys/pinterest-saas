@@ -937,7 +937,7 @@ function DraftCard({
             className="w-full flex items-center justify-center gap-2 bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Calendar className="w-3.5 h-3.5" />
-            Schedule This Pin
+            Schedule
           </button>
 
         </div>
