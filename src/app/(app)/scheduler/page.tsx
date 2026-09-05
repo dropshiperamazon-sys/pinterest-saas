@@ -854,6 +854,7 @@ function DraftCard({
                     <span className="text-xs text-gray-700 line-clamp-2 flex-1">{linkPreview.title}</span>
                   </div>
                 )}
+                <p className="text-xs text-gray-400 px-1">You can add multiple product links — paste each URL and click Add.</p>
               </div>
             )}
           </div>
