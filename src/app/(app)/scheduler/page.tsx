@@ -1146,7 +1146,6 @@ export default function SchedulerPage() {
   const [pinSpacing, setPinSpacing] = useState(2);
   const [spacingLocked, setSpacingLocked] = useState(false);
   const [shuffleMsg, setShuffleMsg] = useState("");
-  const [shuffleOpen, setShuffleOpen] = useState(false);
   const [spacingOpen, setSpacingOpen] = useState(false);
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
@@ -1537,27 +1536,16 @@ export default function SchedulerPage() {
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-20">
               {/* Scheduling Tools */}
               <div className="px-3 pt-2.5 pb-2 border-b border-gray-100 flex items-center gap-2">
-                {/* Shuffle Pins */}
-                <div className="relative flex-1">
-                  <button onClick={() => { setShuffleOpen(o => !o); setSpacingOpen(false); }}
-                    className={cn("w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors",
-                      shuffleOpen ? "bg-purple-100 text-purple-700 border-purple-200" : "bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600")}>
+                {/* Shuffle Pins — direct action */}
+                <div className="flex-1">
+                  <button onClick={() => { shufflePins(); setSpacingOpen(false); }}
+                    className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border bg-white text-gray-600 border-gray-200 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700 transition-colors active:bg-purple-100">
                     <Zap className="w-3 h-3" />Shuffle Pins
-                    <ChevronDown className={cn("w-3 h-3 ml-auto transition-transform", shuffleOpen && "rotate-180")} />
                   </button>
-                  {shuffleOpen && (
-                    <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg p-3 z-20 flex flex-col gap-2">
-                      <p className="text-[10px] text-gray-400">Spread all draft pins randomly across remaining days this month.</p>
-                      <button onClick={() => { shufflePins(); setShuffleOpen(false); }}
-                        className="w-full py-1.5 rounded-lg text-xs font-semibold bg-purple-100 text-purple-700 hover:bg-purple-200 transition-colors">
-                        Shuffle Now
-                      </button>
-                    </div>
-                  )}
                 </div>
                 {/* Pin Spacing */}
                 <div className="relative flex-1">
-                  <button onClick={() => { setSpacingOpen(o => !o); setShuffleOpen(false); }}
+                  <button onClick={() => { setSpacingOpen(o => !o); }}
                     className={cn("w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors",
                       spacingOpen ? "bg-blue-100 text-blue-700 border-blue-200" : "bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:text-blue-600")}>
                     <Calendar className="w-3 h-3" />Pin Spacing
