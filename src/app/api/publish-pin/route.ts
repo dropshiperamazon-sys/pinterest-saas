@@ -32,14 +32,16 @@ async function handler(req: NextRequest) {
     }
 
     // Build link: prefer explicit link, fall back to first tagged product
-    const taggedProducts: string[] = Array.isArray(pin.taggedProducts) ? pin.taggedProducts : [];
+    const taggedProducts: { url: string; title?: string }[] = Array.isArray(pin.taggedProducts)
+      ? pin.taggedProducts.map((p: unknown) => typeof p === "string" ? { url: p } : p as { url: string; title?: string })
+      : [];
     const resolvedLink = (pin.link?.startsWith("https://") ? pin.link : null)
-      ?? (taggedProducts.find((u: string) => u.startsWith("https://")) || undefined);
+      ?? (taggedProducts.find((p) => p.url?.startsWith("https://"))?.url || undefined);
 
     // Append tagged product URLs to description
     let resolvedDescription = pin.description || "";
     if (taggedProducts.length > 0) {
-      const shopLines = taggedProducts.map((u: string) => `🛍️ Shop: ${u}`).join("\n");
+      const shopLines = taggedProducts.map((p) => `🛍️ Shop: ${p.url}`).join("\n");
       resolvedDescription = resolvedDescription
         ? `${resolvedDescription}\n\n${shopLines}`
         : shopLines;

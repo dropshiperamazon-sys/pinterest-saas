@@ -24,7 +24,7 @@ interface PinDraft {
   imageUrl: string;
   pinType: "promotional" | "inspirational" | "educational" | "";
   topics: string[];
-  taggedProducts: string[];
+  taggedProducts: { url: string; image?: string; title?: string }[];
 }
 
 interface ScheduledPin {
@@ -716,15 +716,22 @@ function DraftCard({
             </div>
             {/* Tagged products chips */}
             {draft.taggedProducts.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-2">
+              <div className="flex flex-col gap-1.5 mb-2">
                 {draft.taggedProducts.map((p) => (
-                  <span key={p} className="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium max-w-[200px]">
-                    <ShoppingCart className="w-2.5 h-2.5 flex-shrink-0" />
-                    <span className="truncate">{p}</span>
-                    <button onClick={() => onChange({ ...draft, taggedProducts: draft.taggedProducts.filter((x) => x !== p) })} className="hover:text-orange-900 flex-shrink-0">
-                      <X className="w-2.5 h-2.5" />
+                  <div key={p.url} className="flex items-center gap-2 bg-orange-50 border border-orange-200 rounded-xl px-2 py-1.5">
+                    {p.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.image} alt={p.title || ""} className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-orange-100" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0">
+                        <ShoppingCart className="w-3.5 h-3.5 text-orange-400" />
+                      </div>
+                    )}
+                    <span className="text-xs text-orange-700 font-medium truncate flex-1">{p.title || p.url}</span>
+                    <button onClick={() => onChange({ ...draft, taggedProducts: draft.taggedProducts.filter((x) => x.url !== p.url) })} className="hover:text-orange-900 flex-shrink-0">
+                      <X className="w-3 h-3 text-orange-400" />
                     </button>
-                  </span>
+                  </div>
                 ))}
               </div>
             )}
@@ -776,8 +783,8 @@ function DraftCard({
                         key={p.id}
                         onClick={() => {
                           const label = p.title;
-                          if (!draft.taggedProducts.includes(label))
-                            onChange({ ...draft, taggedProducts: [...draft.taggedProducts, label] });
+                          if (!draft.taggedProducts.find((x) => x.url === p.link))
+                            onChange({ ...draft, taggedProducts: [...draft.taggedProducts, { url: p.link, image: p.imageUrl, title: p.title }] });
                         }}
                         className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-orange-50 transition-colors group"
                       >
@@ -823,8 +830,8 @@ function DraftCard({
                   <button
                     onClick={() => {
                       const url = productLinkInput.trim();
-                      if (url && !draft.taggedProducts.includes(url)) {
-                        onChange({ ...draft, taggedProducts: [...draft.taggedProducts, url] });
+                      if (url && !draft.taggedProducts.find((x) => x.url === url)) {
+                        onChange({ ...draft, taggedProducts: [...draft.taggedProducts, { url, image: linkPreview?.image ?? undefined, title: linkPreview?.title || undefined }] });
                       }
                       setProductLinkInput("");
                       setLinkPreview(null);
