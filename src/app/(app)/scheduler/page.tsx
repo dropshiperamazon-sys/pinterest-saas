@@ -191,7 +191,7 @@ function AiModal({
               <Sparkles className="w-4 h-4 text-white" />
             </div>
             <div>
-              <div className="font-semibold text-gray-900">AI Pin Generator</div>
+              <div className="font-semibold text-gray-900">AI Generator</div>
               <div className="text-xs text-gray-400">Generate title & description with AI</div>
             </div>
           </div>
