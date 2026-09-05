@@ -1457,6 +1457,77 @@ export default function SchedulerPage() {
           </div>
         )}
 
+        {/* ── Bulk Import bar ── */}
+        <div className="flex items-center gap-3 bg-white border border-gray-100 rounded-2xl px-4 py-2.5 shadow-sm">
+          {/* Upload Bulk */}
+          <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors cursor-pointer">
+            <ImageIcon className="w-3.5 h-3.5" />
+            Upload Bulk
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                if (!files.length) return;
+                files.forEach((file) => {
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    const imageUrl = ev.target?.result as string;
+                    setDrafts((prev) => [...prev, { ...newDraft(), imageUrl }]);
+                  };
+                  reader.readAsDataURL(file);
+                });
+                e.target.value = "";
+              }}
+            />
+          </label>
+
+          <div className="w-px h-5 bg-gray-200 flex-shrink-0" />
+
+          {/* Import CSV */}
+          <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700 transition-colors cursor-pointer">
+            <Copy className="w-3.5 h-3.5" />
+            Import CSV
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  const text = ev.target?.result as string;
+                  const lines = text.split(/\r?\n/).filter(Boolean);
+                  if (lines.length < 2) return;
+                  const header = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z]/g, ""));
+                  const col = (row: string[], key: string) => {
+                    const idx = header.findIndex((h) => h.includes(key));
+                    return idx >= 0 ? (row[idx] ?? "").trim().replace(/^"|"$/g, "") : "";
+                  };
+                  const newDrafts = lines.slice(1).map((line) => {
+                    const row = line.match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,))/g) ?? line.split(",");
+                    return {
+                      ...newDraft(),
+                      imageUrl: col(row, "image"),
+                      link: col(row, "link") || col(row, "destination") || col(row, "url"),
+                      title: col(row, "title"),
+                      description: col(row, "description") || col(row, "desc"),
+                    };
+                  }).filter((d) => d.title || d.imageUrl || d.link);
+                  if (newDrafts.length) setDrafts((prev) => [...prev, ...newDrafts]);
+                };
+                reader.readAsText(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+
+          <span className="text-[10px] text-gray-400 ml-1">CSV columns: <code className="bg-gray-100 px-1 rounded">image_url, destination_link, title, description</code></span>
+        </div>
+
         {/* ── Main layout: queue left, sidebar right ── */}
         <div className="flex gap-5 items-start">
 
