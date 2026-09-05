@@ -31,6 +31,20 @@ async function handler(req: NextRequest) {
       return NextResponse.json({ error: "No Pinterest access token available" }, { status: 401 });
     }
 
+    // Build link: prefer explicit link, fall back to first tagged product
+    const taggedProducts: string[] = Array.isArray(pin.taggedProducts) ? pin.taggedProducts : [];
+    const resolvedLink = (pin.link?.startsWith("https://") ? pin.link : null)
+      ?? (taggedProducts.find((u: string) => u.startsWith("https://")) || undefined);
+
+    // Append tagged product URLs to description
+    let resolvedDescription = pin.description || "";
+    if (taggedProducts.length > 0) {
+      const shopLines = taggedProducts.map((u: string) => `🛍️ Shop: ${u}`).join("\n");
+      resolvedDescription = resolvedDescription
+        ? `${resolvedDescription}\n\n${shopLines}`
+        : shopLines;
+    }
+
     const pinterestRes = await fetch("https://api.pinterest.com/v5/pins", {
       method: "POST",
       headers: {
@@ -39,9 +53,9 @@ async function handler(req: NextRequest) {
       },
       body: JSON.stringify({
         title: pin.title,
-        description: pin.description,
+        description: resolvedDescription,
         board_id: pin.boardId,
-        link: pin.link || undefined,
+        link: resolvedLink,
         media_source: pin.imageUrl?.startsWith("http")
           ? { source_type: "image_url", url: pin.imageUrl }
           : { source_type: "image_url", url: "https://i.pinimg.com/736x/placeholder.jpg" },

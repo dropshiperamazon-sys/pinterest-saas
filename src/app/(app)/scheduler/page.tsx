@@ -1107,7 +1107,7 @@ export default function SchedulerPage() {
     const saved: ScheduledPin[] = [];
     for (let i = 0; i < boardList.length; i++) {
       const scheduledAt = new Date(baseMs + i * TWO_WEEKS_MS).toISOString();
-      const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, scheduledAt });
+      const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, scheduledAt });
       if (pin) saved.push(pin);
     }
     setSchedulingId(null);
@@ -1130,7 +1130,7 @@ export default function SchedulerPage() {
       const baseMs = new Date(`${d.date}T${d.time}:00`).getTime();
       for (let i = 0; i < boardList.length; i++) {
         const scheduledAt = new Date(baseMs + i * TWO_WEEKS_MS).toISOString();
-        const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, scheduledAt });
+        const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, scheduledAt });
         if (pin) saved.push(pin);
       }
     }

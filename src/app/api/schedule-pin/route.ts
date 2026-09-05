@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { title, description, imageUrl, board, boardId, scheduledAt, link, pinType } = body;
+    const { title, description, imageUrl, board, boardId, scheduledAt, link, pinType, taggedProducts } = body;
 
     if (!title || !scheduledAt) {
       return NextResponse.json({ error: "Title and scheduledAt are required" }, { status: 400 });
@@ -73,6 +73,7 @@ export async function POST(req: NextRequest) {
       boardId: boardId || "",
       link: link || "",
       pinType: pinType || "",
+      taggedProducts: Array.isArray(taggedProducts) ? taggedProducts : [],
       scheduledAt,
       status: "scheduled",
       createdAt: new Date().toISOString(),
