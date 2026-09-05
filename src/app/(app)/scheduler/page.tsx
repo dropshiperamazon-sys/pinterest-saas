@@ -334,7 +334,12 @@ function AiModal({
 
 // ── SmartSchedule Panel ────────────────────────────────────────────────────────
 
-const DAILY_SLOTS = ["2:00 AM", "10:00 AM", "5:00 PM", "8:00 PM"];
+const DAILY_SLOTS: { label: string; short: string; color: string; text: string }[] = [
+  { label: "8:00 AM",  short: "8a",  color: "bg-green-100 hover:bg-green-500", text: "text-green-700 hover:text-white" },
+  { label: "12:00 PM", short: "12p", color: "bg-green-100 hover:bg-green-500", text: "text-green-700 hover:text-white" },
+  { label: "2:00 PM",  short: "2p",  color: "bg-amber-100 hover:bg-amber-500", text: "text-amber-700 hover:text-white" },
+  { label: "5:00 PM",  short: "5p",  color: "bg-green-100 hover:bg-green-500", text: "text-green-700 hover:text-white" },
+];
 
 function getMonthDays(): { dateStr: string; label: string }[] {
   const now = new Date();
@@ -360,46 +365,75 @@ function slotTo24h(slot: string): string {
   return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function SmartSchedulePanel({ onApply }: { onApply: (date: string, time: string) => void }) {
+function SmartSchedulePanel({ onApply, scheduled }: {
+  onApply: (date: string, time: string) => void;
+  scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string }[];
+}) {
   const days = getMonthDays();
   const monthLabel = new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  // index scheduled pins by date string
+  const pinsByDate: Record<string, { imageUrl?: string; title: string }[]> = {};
+  for (const p of scheduled) {
+    const d = p.scheduledAt.split("T")[0];
+    if (!pinsByDate[d]) pinsByDate[d] = [];
+    pinsByDate[d].push({ imageUrl: p.imageUrl, title: p.title });
+  }
 
   return (
     <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
       {/* Month header */}
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between">
+      <div className="px-3 pt-3 pb-2 flex items-center justify-between">
         <span className="text-xs font-semibold text-gray-700">{monthLabel}</span>
-        <span className="text-[10px] text-gray-400">Click a slot to apply</span>
+        <span className="text-[10px] text-gray-400">Click to apply</span>
       </div>
 
       {/* Column labels */}
-      <div className="px-4 pb-1">
-        <div className="grid grid-cols-[88px_1fr_1fr_1fr_1fr] gap-1">
+      <div className="px-3 pb-1">
+        <div className="grid grid-cols-[76px_1fr_1fr_1fr_1fr] gap-1">
           <div />
           {DAILY_SLOTS.map((s) => (
-            <div key={s} className="text-[9px] font-medium text-gray-400 text-center leading-tight">
-              {s.split(" ")[1]}
-            </div>
+            <div key={s.label} className="text-[9px] font-semibold text-gray-400 text-center">{s.short}</div>
           ))}
         </div>
       </div>
 
       {/* Day rows */}
-      <div className="px-4 pb-4 space-y-1">
-        {days.map(({ dateStr, label }) => (
-          <div key={dateStr} className="grid grid-cols-[88px_1fr_1fr_1fr_1fr] gap-1 items-center">
-            <div className="text-[10px] text-gray-600 font-medium truncate pr-1">{label}</div>
-            {DAILY_SLOTS.map((slot) => (
-              <button
-                key={slot}
-                onClick={() => onApply(dateStr, slotTo24h(slot))}
-                className="text-[9px] bg-blue-50 hover:bg-[#e60023] text-blue-500 hover:text-white rounded py-1 font-medium transition-colors text-center"
-              >
-                {slot.replace(" AM", "a").replace(" PM", "p")}
-              </button>
-            ))}
-          </div>
-        ))}
+      <div className="px-3 pb-4 space-y-1.5">
+        {days.map(({ dateStr, label }) => {
+          const pins = pinsByDate[dateStr] ?? [];
+          return (
+            <div key={dateStr}>
+              <div className="grid grid-cols-[76px_1fr_1fr_1fr_1fr] gap-1 items-center">
+                <div className="text-[10px] text-gray-600 font-medium truncate pr-1 leading-tight">{label}</div>
+                {DAILY_SLOTS.map((slot) => (
+                  <button
+                    key={slot.label}
+                    onClick={() => onApply(dateStr, slotTo24h(slot.label))}
+                    className={cn("text-[9px] rounded-md py-1.5 font-semibold transition-colors text-center", slot.color, slot.text)}
+                  >
+                    {slot.short}
+                  </button>
+                ))}
+              </div>
+              {/* Scheduled thumbnails for this day */}
+              {pins.length > 0 && (
+                <div className="flex gap-1 mt-1 pl-[76px] flex-wrap">
+                  {pins.map((p, i) => (
+                    <div key={i} title={p.title} className="w-7 h-7 rounded-md overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0">
+                      {p.imageUrl && p.imageUrl.startsWith("http") ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.imageUrl} alt={p.title} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[10px]">📌</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -903,93 +937,6 @@ function DraftCard({
             </div>
           </div>
 
-          {/* Best Times */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-medium text-gray-500">Best Times to Post</label>
-              {/* Legend */}
-              <div className="flex items-center gap-2.5">
-                {(["most", "medium", "low"] as const).map((lvl) => (
-                  <span key={lvl} className="flex items-center gap-1 text-[10px] text-gray-400">
-                    <span className={cn("w-1.5 h-1.5 rounded-full inline-block", TIME_LEVEL_DOT[lvl])} />
-                    {lvl === "most" ? "High" : lvl === "medium" ? "Mid" : "Low"}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {BEST_TIMES.map(({ label, level }) => (
-                <button
-                  key={label}
-                  onClick={() => set("time", timeToInput(label))}
-                  className={cn("text-xs px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1", TIME_LEVEL_STYLE[level])}
-                >
-                  <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", TIME_LEVEL_DOT[level])} />
-                  {label}
-                </button>
-              ))}
-              {/* Custom slots */}
-              {customSlots.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => set("time", t)}
-                  className="text-xs px-2.5 py-1 rounded-lg font-medium transition-colors flex items-center gap-1 bg-[#e60023]/10 text-[#e60023] border border-[#e60023]/20 hover:bg-[#e60023]/20 group"
-                >
-                  {/* format to 12h for display */}
-                  {(() => {
-                    const [h, m] = t.split(":").map(Number);
-                    const ampm = h >= 12 ? "PM" : "AM";
-                    const h12 = h % 12 || 12;
-                    return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
-                  })()}
-                  <X
-                    className="w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={(e) => { e.stopPropagation(); setCustomSlots((s) => s.filter((x) => x !== t)); }}
-                  />
-                </button>
-              ))}
-              {/* Add slot button / inline input */}
-              {addingSlot ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    type="time"
-                    autoFocus
-                    value={newSlotTime}
-                    onChange={(e) => setNewSlotTime(e.target.value)}
-                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] w-28"
-                  />
-                  <button
-                    onClick={() => {
-                      if (newSlotTime && !customSlots.includes(newSlotTime)) {
-                        setCustomSlots((s) => [...s, newSlotTime]);
-                        set("time", newSlotTime);
-                      }
-                      setNewSlotTime("");
-                      setAddingSlot(false);
-                    }}
-                    className="text-xs bg-[#e60023] text-white px-2 py-1 rounded-lg hover:bg-[#ad081b] transition-colors font-medium"
-                  >
-                    Add
-                  </button>
-                  <button
-                    onClick={() => { setNewSlotTime(""); setAddingSlot(false); }}
-                    className="text-xs text-gray-400 hover:text-gray-600 px-1"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setAddingSlot(true)}
-                  title="Add custom time slot"
-                  className="text-xs px-2.5 py-1 rounded-lg font-medium border border-dashed border-gray-300 text-gray-400 hover:border-[#e60023]/50 hover:text-[#e60023] transition-colors flex items-center gap-0.5"
-                >
-                  <Plus className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-          </div>
-
           {/* Schedule button */}
           <button
             onClick={onSchedule}
@@ -1329,10 +1276,13 @@ export default function SchedulerPage() {
               </div>
 
               {activeTab === "schedule" ? (
-                <SmartSchedulePanel onApply={(date, time) => {
-                  const emptyDraft = drafts.find(d => !d.date && !d.time);
-                  if (emptyDraft) updateDraft(emptyDraft.id, { ...emptyDraft, date, time });
-                }} />
+                <SmartSchedulePanel
+                  scheduled={scheduled}
+                  onApply={(date, time) => {
+                    const emptyDraft = drafts.find(d => !d.date && !d.time);
+                    if (emptyDraft) updateDraft(emptyDraft.id, { ...emptyDraft, date, time });
+                  }}
+                />
               ) : (
                 /* Thumbnail list */
                 <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
