@@ -1099,7 +1099,7 @@ function DraftCard({
           {/* Schedule button */}
           <button
             onClick={onSchedule}
-            disabled={!draft.title || isScheduling}
+            disabled={!draft.title || !draft.imageUrl || isScheduling}
             className="w-full flex items-center justify-center gap-2 bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {isScheduling ? (
@@ -1307,7 +1307,7 @@ export default function SchedulerPage() {
     }
     return published;
   })();
-  const validDrafts = drafts.filter((d) => d.title).length;
+  const validDrafts = drafts.filter((d) => d.title && d.imageUrl).length;
 
   // Shuffle: spread drafts with dates across remaining days of the current month
   function shufflePins() {
