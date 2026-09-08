@@ -144,18 +144,20 @@ export async function POST(req: NextRequest) {
 
   if (!aiAnalysis) {
     if (!process.env.OPENAI_API_KEY) {
+      console.error("[keyword-intelligence] OPENAI_API_KEY is not set in environment variables");
       return NextResponse.json(
-        { error: "AI analysis not configured — OPENAI_API_KEY is missing", pinterestData },
+        { error: "OPENAI_API_KEY is missing from server environment. Add it to your Vercel environment variables and redeploy.", pinterestData },
         { status: 503 }
       );
     }
     try {
       aiAnalysis = await analyzeKeywords(pinterestData);
       await redis.set(aiCacheKey, JSON.stringify(aiAnalysis), { ex: AI_CACHE_TTL }).catch(() => {});
-    } catch (err) {
-      console.error("OpenAI keyword analysis failed:", err);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[keyword-intelligence] Analysis failed:", message);
       return NextResponse.json(
-        { error: "AI analysis temporarily unavailable. Pinterest data is still available.", pinterestData },
+        { error: message, pinterestData },
         { status: 500 }
       );
     }

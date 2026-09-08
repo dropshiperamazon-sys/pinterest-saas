@@ -98,9 +98,18 @@ IMPORTANT RULES:
 - Return valid JSON only — no markdown, no commentary outside JSON`;
 
 export async function analyzeKeywords(data: PinterestKeywordData): Promise<KeywordIntelligenceResult> {
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const apiKey = process.env.OPENAI_API_KEY;
   const model = process.env.OPENAI_MODEL ?? "gpt-4o";
   const maxKeywords = parseInt(process.env.OPENAI_MAX_KEYWORDS ?? "50");
+
+  // Diagnostic logging (key presence only, never the value)
+  console.log("[keyword-intelligence] OPENAI_API_KEY present:", !!apiKey);
+  console.log("[keyword-intelligence] OPENAI_API_KEY prefix:", apiKey ? apiKey.slice(0, 7) + "..." : "MISSING");
+  console.log("[keyword-intelligence] model:", model);
+
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not set in environment");
+
+  const client = new OpenAI({ apiKey });
 
   const hasRelated = data.relatedKeywords.length > 0;
   const hasTrending = data.trendingKeywords.length > 0;
@@ -167,19 +176,49 @@ Return ONLY a JSON object with this exact structure (no markdown wrapping):
 
 Include 20-40 keywords total. Include at least 5 content ideas. Include 3-6 clusters. Keep recommendations practical for Pinterest creators.`;
 
-  const response = await client.chat.completions.create({
-    model,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    response_format: { type: "json_object" },
-    temperature: 0.7,
-    max_tokens: 4000,
-  });
+  let response;
+  try {
+    console.log("[keyword-intelligence] Calling OpenAI API, model:", model);
+    response = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+      max_tokens: 4000,
+    });
+    console.log("[keyword-intelligence] OpenAI response received, finish_reason:", response.choices[0]?.finish_reason);
+  } catch (err: unknown) {
+    // Log the full error so we can diagnose auth/billing/model issues
+    if (err && typeof err === "object") {
+      const e = err as Record<string, unknown>;
+      console.error("[keyword-intelligence] OpenAI API error:", {
+        status: e.status,
+        message: e.message,
+        code: e.code,
+        type: e.type,
+        error: e.error,
+      });
+      const status = (e.status as number) ?? 0;
+      if (status === 401) throw new Error("OpenAI authentication failed (401) — check OPENAI_API_KEY");
+      if (status === 403) throw new Error("OpenAI access forbidden (403) — key may lack permissions");
+      if (status === 429) throw new Error("OpenAI rate limit or quota exceeded (429)");
+      if (status === 404) throw new Error(`OpenAI model not found (404) — model "${model}" may not exist`);
+      if (status === 400) throw new Error(`OpenAI bad request (400): ${e.message}`);
+      throw new Error(`OpenAI API error ${status}: ${e.message}`);
+    }
+    throw err;
+  }
 
   const content = response.choices[0]?.message?.content;
   if (!content) throw new Error("Empty OpenAI response");
 
-  return JSON.parse(content) as KeywordIntelligenceResult;
+  try {
+    return JSON.parse(content) as KeywordIntelligenceResult;
+  } catch {
+    console.error("[keyword-intelligence] Failed to parse OpenAI JSON response:", content.slice(0, 500));
+    throw new Error("OpenAI returned invalid JSON");
+  }
 }
