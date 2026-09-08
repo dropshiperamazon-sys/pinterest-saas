@@ -512,7 +512,7 @@ function AIIntelligenceSection({
 
   const handleExportAI = () => {
     if (!aiAnalysis) return;
-    const header = "Keyword,Source,Intent,AI Relevance,AI Opportunity,Recommended,Interpretation\n";
+    const header = "Keyword,Source,Intent,Relevance,Opportunity,Recommended,Interpretation\n";
     const rows = aiAnalysis.keywords.map(k =>
       `"${k.keyword}","${k.source}","${k.intent}",${k.relevanceScore},${k.opportunityScore},${k.recommended},"${k.trendInterpretation}"`
     ).join("\n");
@@ -586,9 +586,9 @@ function AIIntelligenceSection({
           {/* Overview cards */}
           <div className="grid grid-cols-4 gap-4 px-5 py-4 border-b border-gray-100">
             <div className="bg-gradient-to-br from-purple-50 to-purple-100/40 rounded-xl p-3">
-              <div className="text-xs font-semibold text-purple-600 mb-1">AI Opportunity Score</div>
+              <div className="text-xs font-semibold text-purple-600 mb-1">Opportunity Score</div>
               <div className="text-2xl font-bold text-purple-700">{aiAnalysis.summary.overallOpportunity}<span className="text-sm font-normal text-purple-500">/100</span></div>
-              <div className="text-[10px] text-purple-400 mt-0.5">AI analytical score — not a Pinterest metric</div>
+              <div className="text-[10px] text-purple-400 mt-0.5">Based on competition & search volume</div>
             </div>
             <div className="bg-gradient-to-br from-green-50 to-green-100/40 rounded-xl p-3">
               <div className="text-xs font-semibold text-green-600 mb-1">Trend Status</div>
@@ -644,11 +644,11 @@ function AIIntelligenceSection({
                   <span>Sort by:</span>
                   <button onClick={() => { setSortBy("opportunity"); setSortAscAI(false); }}
                     className={cn("px-2 py-1 rounded font-medium", sortBy === "opportunity" ? "text-purple-600 bg-purple-50" : "hover:text-gray-700")}>
-                    AI Opportunity {sortBy === "opportunity" && (sortAscAI ? "↑" : "↓")}
+                    Opportunity {sortBy === "opportunity" && (sortAscAI ? "↑" : "↓")}
                   </button>
                   <button onClick={() => { setSortBy("relevance"); setSortAscAI(false); }}
                     className={cn("px-2 py-1 rounded font-medium", sortBy === "relevance" ? "text-purple-600 bg-purple-50" : "hover:text-gray-700")}>
-                    AI Relevance
+                    Relevance
                   </button>
                 </div>
               </div>
@@ -659,8 +659,8 @@ function AIIntelligenceSection({
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Keyword</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Intent</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Relevance</th>
-                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Opportunity</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Relevance</th>
+                      <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Opportunity</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Interpretation</th>
                       <th className="px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Rec.</th>
                     </tr>
