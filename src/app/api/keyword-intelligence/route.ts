@@ -184,16 +184,23 @@ function analyzeWithPinterestData(data: PinterestKeywordData): KeywordIntelligen
     recommended: i < 10,
   }));
 
-  // Pinterest trending as additional entries
+  // Pinterest trending — only include entries that share words with the seed keyword
+  // Global trending (nails, hairstyles, etc.) must NOT appear when searching "home decor ideas"
+  const seedWords = new Set(seed.toLowerCase().split(/\s+/).filter(w => w.length > 3));
   const trendingEntries: KeywordEntry[] = data.trendingKeywords
-    .filter(t => !pinterestEntries.some(p => p.keyword === t.keyword))
-    .slice(0, 10)
+    .filter(t => {
+      if (pinterestEntries.some(p => p.keyword === t.keyword)) return false;
+      const tWords = t.keyword.toLowerCase().split(/\s+/);
+      // Must share at least one meaningful word with the seed, or seed must appear as substring
+      return tWords.some(w => seedWords.has(w)) || t.keyword.toLowerCase().includes(seed.toLowerCase());
+    })
+    .slice(0, 8)
     .map(t => ({
       keyword: t.keyword,
-      source: "pinterest",
-      intent: "informational",
-      relevanceScore: 80,
-      opportunityScore: 75,
+      source: "pinterest" as const,
+      intent: "informational" as KeywordEntry["intent"],
+      relevanceScore: 82,
+      opportunityScore: 78,
       trendInterpretation: t.monthlyChange !== null
         ? `${t.monthlyChange > 0 ? "+" : ""}${t.monthlyChange}% change month-over-month on Pinterest`
         : "Trending on Pinterest this month",
@@ -202,9 +209,13 @@ function analyzeWithPinterestData(data: PinterestKeywordData): KeywordIntelligen
 
   const allKeywords = [...pinterestEntries, ...trendingEntries, ...expandedEntries];
 
-  // Trend status
-  const avgMonthlyChange = data.trendingKeywords.reduce((sum, t) => sum + (t.monthlyChange ?? 0), 0) / Math.max(data.trendingKeywords.length, 1);
-  const trendStatus = avgMonthlyChange > 10 ? "Growing" : avgMonthlyChange < -10 ? "Declining" : data.trendingKeywords.some(t => (t.monthlyChange ?? 0) > 20) ? "Seasonal" : "Stable";
+  // Trend status — use only niche-relevant trending keywords (already filtered above)
+  const avgMonthlyChange = trendingEntries.length > 0
+    ? data.trendingKeywords
+        .filter(t => trendingEntries.some(e => e.keyword === t.keyword))
+        .reduce((sum, t) => sum + (t.monthlyChange ?? 0), 0) / trendingEntries.length
+    : 0;
+  const trendStatus = avgMonthlyChange > 10 ? "Growing" : avgMonthlyChange < -10 ? "Declining" : trendingEntries.some(e => data.trendingKeywords.find(t => t.keyword === e.keyword && (t.monthlyChange ?? 0) > 20)) ? "Seasonal" : "Stable";
 
   const overallOpportunity = Math.round(
     (pinterestEntries.length > 0 ? 70 : 55) +
@@ -330,7 +341,7 @@ export async function POST(req: NextRequest) {
 
   const normalizedKey = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const pinterestCacheKey = `ki-pinterest:${normalizedKey}:${country}:${language}`;
-  const analysisCacheKey = `ki-analysis:${normalizedKey}:${country}:${language}`;
+  const analysisCacheKey = `ki-analysis2:${normalizedKey}:${country}:${language}`;
 
   // Stage 1: Pinterest data (cache or live)
   let pinterestData: PinterestKeywordData | null = null;
@@ -394,7 +405,7 @@ export async function GET(req: NextRequest) {
   if (!keyword) return NextResponse.json({ error: "keyword param required" }, { status: 400 });
 
   const normalizedKey = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const analysisCacheKey = `ki-analysis:${normalizedKey}:${country}:${language}`;
+  const analysisCacheKey = `ki-analysis2:${normalizedKey}:${country}:${language}`;
   const cachedAnalysis = await redis.get<string>(analysisCacheKey).catch(() => null);
 
   if (!cachedAnalysis) return NextResponse.json({ cached: false });
