@@ -302,7 +302,7 @@ function TrendingPanel({ onSearch, onClose }: { onSearch: (q: string) => void; o
                 </select>
               </div>
               <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5">
-                <Calendar className="w-3 h-3 text-gray-400" />
+                <Filter className="w-3 h-3 text-gray-400" />
                 <select value={moment} onChange={e => setMoment(e.target.value)} className="text-xs text-gray-700 bg-transparent outline-none cursor-pointer font-medium max-w-[100px]">
                   {MOMENTS.map(m => <option key={m}>{m}</option>)}
                 </select>
@@ -496,8 +496,6 @@ function AIIntelligenceSection({
 
   const filteredKeywords = (aiAnalysis?.keywords ?? [])
     .filter(k => {
-      if (filter === "pinterest") return k.source === "pinterest" || k.source === "pinterest+ai";
-      if (filter === "ai") return k.source === "ai";
       if (filter === "recommended") return k.recommended;
       return true;
     })
