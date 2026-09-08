@@ -498,7 +498,7 @@ function AIIntelligenceSection({
 
   const filteredKeywords = (aiAnalysis?.keywords ?? [])
     .filter(k => {
-      if (filter === "pinterest") return k.source === "pinterest";
+      if (filter === "pinterest") return k.source === "pinterest" || k.source === "pinterest+ai";
       if (filter === "ai") return k.source === "ai";
       if (filter === "recommended") return k.recommended;
       return true;
