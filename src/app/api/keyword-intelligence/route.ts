@@ -190,15 +190,25 @@ function analyzeWithPinterestData(data: PinterestKeywordData): KeywordIntelligen
     recommended: i < 10,
   }));
 
-  // Pinterest trending — only include entries that share words with the seed keyword
-  // Global trending (nails, hairstyles, etc.) must NOT appear when searching "home decor ideas"
-  const seedWords = new Set(seed.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+  // Pinterest trending — only include entries that share a NICHE word with the seed keyword
+  // Strip generic words (ideas, tips, inspiration, aesthetic, etc.) from matching so that
+  // "nail ideas" doesn't appear when searching "home decor ideas"
+  const GENERIC_WORDS = new Set(["ideas", "tips", "inspiration", "inspo", "aesthetic", "design",
+    "style", "tutorial", "guide", "simple", "modern", "cute", "best", "good", "great", "easy",
+    "free", "diy", "home", "room", "decor", "decoration", "look", "color", "shop", "buy"]);
+  const seedWords = new Set(
+    seed.toLowerCase().split(/\s+/).filter(w => w.length > 3 && !GENERIC_WORDS.has(w))
+  );
   const trendingEntries: KeywordEntry[] = data.trendingKeywords
     .filter(t => {
       if (pinterestEntries.some(p => p.keyword === t.keyword)) return false;
-      const tWords = t.keyword.toLowerCase().split(/\s+/);
-      // Must share at least one meaningful word with the seed, or seed must appear as substring
-      return tWords.some(w => seedWords.has(w)) || t.keyword.toLowerCase().includes(seed.toLowerCase());
+      const tLower = t.keyword.toLowerCase();
+      const tWords = tLower.split(/\s+/);
+      // Only include if: seed appears as substring in trending kw, OR trending kw appears in seed,
+      // OR they share a non-generic niche word
+      return tLower.includes(seed.toLowerCase())
+        || seed.toLowerCase().includes(tLower)
+        || (seedWords.size > 0 && tWords.some(w => seedWords.has(w)));
     })
     .slice(0, 8)
     .map(t => ({
@@ -413,7 +423,7 @@ export async function POST(req: NextRequest) {
 
   const normalizedKey = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const pinterestCacheKey = `ki-pinterest2:${normalizedKey}:${country}:${language}`;
-  const analysisCacheKey = `ki-analysis4:${normalizedKey}:${country}:${language}`;
+  const analysisCacheKey = `ki-analysis5:${normalizedKey}:${country}:${language}`;
 
   // Stage 1: Pinterest data (cache or live)
   let pinterestData: PinterestKeywordData | null = null;
@@ -477,7 +487,7 @@ export async function GET(req: NextRequest) {
   if (!keyword) return NextResponse.json({ error: "keyword param required" }, { status: 400 });
 
   const normalizedKey = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const analysisCacheKey = `ki-analysis4:${normalizedKey}:${country}:${language}`;
+  const analysisCacheKey = `ki-analysis5:${normalizedKey}:${country}:${language}`;
   const cachedAnalysis = await redis.get<string>(analysisCacheKey).catch(() => null);
 
   if (!cachedAnalysis) return NextResponse.json({ cached: false });
