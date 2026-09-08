@@ -23,7 +23,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       authorization: {
         url: "https://www.pinterest.com/oauth/",
         params: {
-          scope: "boards:read,boards:write,pins:read,pins:write,user_accounts:read",
+          scope: "boards:read,boards:write,pins:read,pins:write,user_accounts:read,ads:read",
           response_type: "code",
         },
       },
