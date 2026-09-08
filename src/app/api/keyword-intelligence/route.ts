@@ -159,16 +159,16 @@ function buildSEORecommendations(seed: string, keywords: KeywordEntry[], pintere
 function analyzeWithPinterestData(data: PinterestKeywordData): KeywordIntelligenceResult {
   const seed = data.seedKeyword;
 
-  // Build keyword entries from Pinterest related keywords
-  const pinterestEntries: KeywordEntry[] = data.relatedKeywords.map(k => ({
+  // Build keyword entries from Pinterest related keywords (autocomplete + ad targeting)
+  const pinterestEntries: KeywordEntry[] = data.relatedKeywords.map((k, i) => ({
     keyword: k.keyword,
     source: "pinterest",
     intent: classifyIntent(k.keyword),
-    relevanceScore: Math.min(100, 60 + Math.round(((k.monthlySearches ?? 0) / 10000) * 20)),
-    opportunityScore: k.competition === "low" ? 85 : k.competition === "medium" ? 65 : 45,
+    relevanceScore: Math.min(100, 85 - i * 2 + (k.monthlySearches ? Math.round(k.monthlySearches / 1000) : 0)),
+    opportunityScore: k.competition === "low" ? 85 : k.competition === "medium" ? 65 : k.competition === "high" ? 45 : 72,
     trendInterpretation: k.monthlySearches
       ? `~${k.monthlySearches.toLocaleString()} monthly searches on Pinterest`
-      : "No search volume data available from Pinterest",
+      : "Suggested by Pinterest search",
     recommended: k.competition !== "high",
   }));
 
@@ -253,48 +253,114 @@ async function getAccessToken(email: string): Promise<string> {
 }
 
 async function fetchPinterestRelated(keyword: string, accessToken: string) {
-  if (!accessToken) return [];
-  const BASE = "https://api.pinterest.com/v5";
-  const headers = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+  const encoded = encodeURIComponent(keyword);
+  const seen = new Set<string>();
+  const results: { keyword: string; monthlySearches: number | null; competition: string | null; suggestedBid: number | null }[] = [];
 
-  try {
-    const accountsRes = await fetch(`${BASE}/ad_accounts?page_size=10`, { headers });
-    if (!accountsRes.ok) return [];
-    const accountsData = await accountsRes.json();
-    const adAccountId: string | undefined = accountsData?.items?.[0]?.id;
-    if (!adAccountId) return [];
+  // 1. Pinterest Trends keyword search (no ad account required)
+  const trendsUrls = [
+    `https://trends.pinterest.com/api/v1/keywords/search?query=${encoded}&country_code=US`,
+    `https://trends.pinterest.com/api/v1/search?query=${encoded}&country_code=US`,
+  ];
+  for (const url of trendsUrls) {
+    try {
+      const headers: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        Accept: "application/json",
+        Referer: "https://trends.pinterest.com/",
+      };
+      if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(4000) });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const items: unknown[] = data?.keywords ?? data?.results ?? data?.suggestions ?? data?.data ?? (Array.isArray(data) ? data : []);
+      for (const item of items) {
+        const kw = typeof item === "string" ? item : ((item as Record<string, unknown>).keyword ?? (item as Record<string, unknown>).term ?? "") as string;
+        const k = kw.trim().toLowerCase();
+        if (k && k.length > 2 && !seen.has(k)) {
+          seen.add(k);
+          results.push({ keyword: k, monthlySearches: null, competition: null, suggestedBid: null });
+        }
+      }
+      if (results.length >= 15) break;
+    } catch { /* try next */ }
+  }
 
-    const encoded = encodeURIComponent(keyword);
-    const res = await fetch(
-      `${BASE}/ad_accounts/${adAccountId}/targeting_options?targeting_type=KEYWORD&query=${encoded}`,
-      { headers }
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
+  // 2. Pinterest autocomplete (no ad account required)
+  if (results.length < 10) {
+    const autocompleteUrls = [
+      `https://www.pinterest.com/resource/SearchAutocompletesResource/get/?source_url=/&data=${encodeURIComponent(JSON.stringify({ options: { query: keyword }, context: {} }))}&_=${Date.now()}`,
+      `https://www.pinterest.com/search/autocomplete/?q=${encoded}`,
+    ];
+    for (const url of autocompleteUrls) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            Accept: "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest",
+            Referer: "https://www.pinterest.com/",
+          },
+          signal: AbortSignal.timeout(4000),
+        });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const items: unknown[] = data?.resource_response?.data ?? data?.resource_response?.data?.items ?? (Array.isArray(data) ? data : []) ?? data?.items ?? [];
+        for (const item of items) {
+          const kw = typeof item === "string" ? item : ((item as Record<string, unknown>).display ?? (item as Record<string, unknown>).query ?? (item as Record<string, unknown>).term ?? "") as string;
+          const k = kw.trim().toLowerCase();
+          if (k && k.length > 2 && !seen.has(k)) {
+            seen.add(k);
+            results.push({ keyword: k, monthlySearches: null, competition: null, suggestedBid: null });
+          }
+        }
+        if (results.length >= 15) break;
+      } catch { /* try next */ }
+    }
+  }
 
-    const items: Record<string, unknown>[] = Array.isArray(data) ? data
-      : Array.isArray(data.items) ? data.items
-      : Array.isArray(data.keywords) ? data.keywords
-      : [];
+  // 3. Pinterest Ad Account keyword targeting (requires ad account — best data but not always available)
+  if (accessToken) {
+    try {
+      const BASE = "https://api.pinterest.com/v5";
+      const headers = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
+      const accountsRes = await fetch(`${BASE}/ad_accounts?page_size=10`, { headers, signal: AbortSignal.timeout(4000) });
+      if (accountsRes.ok) {
+        const accountsData = await accountsRes.json();
+        const adAccountId: string | undefined = accountsData?.items?.[0]?.id;
+        if (adAccountId) {
+          const res = await fetch(
+            `${BASE}/ad_accounts/${adAccountId}/targeting_options?targeting_type=KEYWORD&query=${encoded}`,
+            { headers, signal: AbortSignal.timeout(4000) }
+          );
+          if (res.ok) {
+            const data = await res.json();
+            const items: Record<string, unknown>[] = Array.isArray(data) ? data
+              : Array.isArray(data.items) ? data.items
+              : Array.isArray(data.keywords) ? data.keywords : [];
+            for (const i of items.filter(i => i.keyword || i.term || i.name).slice(0, 30)) {
+              const kw = ((i.keyword ?? i.term ?? i.name ?? "") as string).toLowerCase().trim();
+              if (!kw || seen.has(kw)) continue;
+              seen.add(kw);
+              const bid = (i.bid ?? i.cpc ?? i.suggested_bid ?? null) as number | null;
+              const rawComp = (i.competition ?? i.competition_score ?? null) as string | number | null;
+              let competition: string | null = null;
+              if (typeof rawComp === "string") competition = rawComp.toLowerCase();
+              else if (typeof rawComp === "number") competition = rawComp < 0.34 ? "low" : rawComp < 0.67 ? "medium" : "high";
+              results.push({
+                keyword: kw,
+                monthlySearches: (i.monthly_searches ?? i.impressions_organic ?? i.search_volume ?? null) as number | null,
+                competition,
+                suggestedBid: bid !== null ? (bid > 100 ? bid / 1_000_000 : bid) : null,
+              });
+            }
+          }
+        }
+      }
+    } catch { /* skip */ }
+  }
 
-    return items
-      .filter(i => i.keyword || i.term || i.name)
-      .slice(0, 50)
-      .map(i => {
-        const bid = (i.bid ?? i.cpc ?? i.suggested_bid ?? null) as number | null;
-        const rawComp = (i.competition ?? i.competition_score ?? null) as string | number | null;
-        let competition: string | null = null;
-        if (typeof rawComp === "string") competition = rawComp.toLowerCase();
-        else if (typeof rawComp === "number") competition = rawComp < 0.34 ? "low" : rawComp < 0.67 ? "medium" : "high";
-        return {
-          keyword: (i.keyword ?? i.term ?? i.name ?? "") as string,
-          monthlySearches: (i.monthly_searches ?? i.impressions_organic ?? i.search_volume ?? null) as number | null,
-          competition,
-          suggestedBid: bid !== null ? (bid > 100 ? bid / 1_000_000 : bid) : null,
-        };
-      })
-      .filter(k => k.keyword);
-  } catch { return []; }
+  return results.slice(0, 50);
 }
 
 async function fetchPinterestTrending(accessToken: string) {
