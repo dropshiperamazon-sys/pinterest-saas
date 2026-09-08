@@ -758,7 +758,7 @@ function AIIntelligenceSection({
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-xs font-semibold px-2 py-1 rounded-lg bg-orange-50 text-orange-600 border border-orange-100">{idea.format}</span>
-                      <SourceBadge source="ai" />
+                      <SourceBadge source={idea.intent === "Top-performing Pinterest pin" ? "pinterest" : "ai"} />
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1.5 mt-3">

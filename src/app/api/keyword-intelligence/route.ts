@@ -107,7 +107,7 @@ const FORMAT_MAP: { pattern: RegExp; format: ContentIdea["format"] }[] = [
   { pattern: /shop|buy|product/i, format: "Standard Pin" },
 ];
 
-function buildContentIdeas(seed: string, keywords: KeywordEntry[]): ContentIdea[] {
+function buildContentIdeas(seed: string, keywords: KeywordEntry[], topPins: { title: string; description: string }[] = []): ContentIdea[] {
   const cap = (s: string) => s.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   const templates = [
     { title: `10 ${cap(seed)} Ideas That Will Transform Your Space`, kws: ["ideas", "inspiration", "aesthetic"], intent: "Inspirational roundup", format: "Standard Pin" as ContentIdea["format"] },
@@ -124,7 +124,19 @@ function buildContentIdeas(seed: string, keywords: KeywordEntry[]): ContentIdea[
     { title: `Seasonal ${cap(seed)}: Summer vs Winter Looks`, kws: ["seasonal", "summer", "fall"], intent: "Seasonal content", format: "Standard Pin" as ContentIdea["format"] },
   ];
 
-  return templates.map(t => {
+  // Real Pinterest pins — shown first, labeled as pinterest source
+  const pinIdeas: ContentIdea[] = topPins
+    .filter(p => p.title.length > 5)
+    .slice(0, 8)
+    .map(p => ({
+      title: p.title,
+      targetKeywords: keywords.filter(k => p.title.toLowerCase().includes(k.keyword.split(" ")[0])).slice(0, 2).map(k => k.keyword).concat([seed]).slice(0, 3),
+      intent: "Top-performing Pinterest pin",
+      format: "Standard Pin" as ContentIdea["format"],
+    }));
+
+  // Generated template ideas
+  const generatedIdeas: ContentIdea[] = templates.map(t => {
     const matchKws = keywords.filter(k => t.kws.some(s => k.keyword.includes(s))).slice(0, 3).map(k => k.keyword);
     const picked = matchKws.length ? matchKws : [`${seed} ${t.kws[0]}`];
     return {
@@ -134,6 +146,8 @@ function buildContentIdeas(seed: string, keywords: KeywordEntry[]): ContentIdea[
       format: t.format,
     };
   });
+
+  return [...pinIdeas, ...generatedIdeas];
 }
 
 // ── SEO Recommendations ───────────────────────────────────────────────────────
@@ -254,7 +268,7 @@ function analyzeWithPinterestData(data: PinterestKeywordData): KeywordIntelligen
     summary: { trendStatus, overallOpportunity: Math.min(overallOpportunity, 100), summaryText },
     keywords: allKeywords,
     clusters: buildClusters(seed, allKeywords),
-    contentIdeas: buildContentIdeas(seed, allKeywords),
+    contentIdeas: buildContentIdeas(seed, allKeywords, data.topPins ?? []),
     seasonalInsights: [
       `Pinterest search for "${seed}" peaks in Q1 (January–March) as users plan for the new year`,
       `Summer months (June–August) typically see 20-30% higher engagement for ${seed}-related content`,
@@ -401,6 +415,28 @@ async function fetchPinterestTrending(accessToken: string) {
   } catch { return []; }
 }
 
+async function fetchTopPins(keyword: string, accessToken: string): Promise<{ title: string; description: string }[]> {
+  if (!accessToken) return [];
+  try {
+    const encoded = encodeURIComponent(keyword);
+    const res = await fetch(
+      `https://api.pinterest.com/v5/pins?query=${encoded}&page_size=25`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(5000) }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    const items: Record<string, unknown>[] = Array.isArray(data.items) ? data.items : [];
+    return items
+      .filter(p => p.title || (p.description && (p.description as string).length > 10))
+      .slice(0, 15)
+      .map(p => ({
+        title: ((p.title ?? "") as string).trim(),
+        description: ((p.description ?? "") as string).trim(),
+      }))
+      .filter(p => p.title.length > 5 || p.description.length > 10);
+  } catch { return []; }
+}
+
 // ── POST /api/keyword-intelligence ────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -439,9 +475,10 @@ export async function POST(req: NextRequest) {
 
   if (!pinterestData) {
     const accessToken = await getAccessToken(email);
-    const [relatedKeywords, trendingKeywords] = await Promise.all([
+    const [relatedKeywords, trendingKeywords, topPins] = await Promise.all([
       fetchPinterestRelated(keyword, accessToken),
       fetchPinterestTrending(accessToken),
+      fetchTopPins(keyword, accessToken),
     ]);
 
     pinterestData = {
@@ -450,6 +487,7 @@ export async function POST(req: NextRequest) {
       language,
       relatedKeywords,
       trendingKeywords,
+      topPins,
       retrievedAt: new Date().toISOString(),
     };
 

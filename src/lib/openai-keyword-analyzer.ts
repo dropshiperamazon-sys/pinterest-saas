@@ -16,12 +16,18 @@ export interface PinterestTrendingKeyword {
   yearlyChange: number | null;
 }
 
+export interface PinterestTopPin {
+  title: string;
+  description: string;
+}
+
 export interface PinterestKeywordData {
   seedKeyword: string;
   country: string;
   language: string;
   relatedKeywords: PinterestRelatedKeyword[];
   trendingKeywords: PinterestTrendingKeyword[];
+  topPins: PinterestTopPin[];
   retrievedAt: string;
 }
 
