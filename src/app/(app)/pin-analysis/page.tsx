@@ -7,11 +7,12 @@ import {
   searchPinsByKeyword,
   type PinData,
 } from "@/lib/pinterest-data";
+import type { LivePin } from "@/app/api/pin-search/route";
 import {
   Search, Link2, Bookmark, Eye, MousePointerClick,
-  Calendar, Tag, TrendingUp, TrendingDown, ArrowUpRight,
+  Calendar, Tag, TrendingUp, ArrowUpRight,
   Hash, X, BarChart2, ImageIcon, Film, LayoutGrid, Lightbulb,
-  ChevronDown, Info,
+  ExternalLink, User, AlertCircle,
 } from "lucide-react";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 
@@ -196,43 +197,197 @@ function PinDetail({ pin, onClose }: { pin: PinData; onClose: () => void }) {
   );
 }
 
+// ── Live pin card (real Pinterest API data) ───────────────────────────────────
+const CREATIVE_ICON: Record<string, React.ElementType> = {
+  VIDEO: Film, IDEA: Lightbulb, CAROUSEL: LayoutGrid,
+  REGULAR: ImageIcon, SHOPPING: Tag,
+};
+
+function LivePinCard({ pin, selected, onClick }: { pin: LivePin; selected: boolean; onClick: () => void }) {
+  const Icon = CREATIVE_ICON[pin.creativeType] ?? ImageIcon;
+  const createdLabel = pin.createdAt
+    ? formatDistanceToNow(new Date(pin.createdAt), { addSuffix: true })
+    : null;
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "w-full text-left rounded-2xl border transition-all bg-white shadow-sm overflow-hidden",
+        selected ? "border-[#e60023] shadow-md ring-1 ring-[#e60023]/20" : "border-gray-100 hover:border-gray-200 hover:shadow"
+      )}
+    >
+      {pin.thumbnailUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={pin.thumbnailUrl} alt={pin.altText || pin.title} className="w-full h-36 object-cover" />
+      ) : (
+        <div className="w-full h-36 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+          <Icon className="w-8 h-8 text-gray-300" />
+        </div>
+      )}
+      <div className="p-3 space-y-1.5">
+        <p className="text-sm font-semibold text-gray-900 line-clamp-2 leading-snug">
+          {pin.title || pin.description.slice(0, 80)}
+        </p>
+        {pin.pinnerUsername && (
+          <div className="flex items-center gap-1 text-xs text-gray-500">
+            <User className="w-3 h-3" />
+            @{pin.pinnerUsername}
+          </div>
+        )}
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 capitalize">
+            <Icon className="w-2.5 h-2.5 inline mr-0.5" />
+            {pin.creativeType.toLowerCase()}
+          </span>
+          {createdLabel && <span className="text-[10px] text-gray-400">{createdLabel}</span>}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function LivePinDetail({ pin }: { pin: LivePin }) {
+  const Icon = CREATIVE_ICON[pin.creativeType] ?? ImageIcon;
+  const createdLabel = pin.createdAt
+    ? format(new Date(pin.createdAt), "MMMM d, yyyy")
+    : null;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        {pin.thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={pin.thumbnailUrl} alt={pin.altText || pin.title} className="w-full h-64 object-cover" />
+        ) : (
+          <div className="w-full h-64 bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
+            <Icon className="w-14 h-14 text-gray-200" />
+          </div>
+        )}
+        <div className="p-5 space-y-3">
+          <h2 className="text-lg font-bold text-gray-900 leading-snug">
+            {pin.title || "(No title)"}
+          </h2>
+          {pin.description && (
+            <p className="text-sm text-gray-500 leading-relaxed">{pin.description}</p>
+          )}
+          {pin.pinnerUsername && (
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-[#e60023]/10 text-[#e60023] flex items-center justify-center font-bold text-sm">
+                {pin.pinnerUsername.charAt(0).toUpperCase()}
+              </div>
+              <span className="text-sm font-semibold text-gray-800">@{pin.pinnerUsername}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-800">Pin Details</h3>
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between py-2 border-b border-gray-50">
+            <span className="text-gray-500">Format</span>
+            <span className="flex items-center gap-1.5 font-semibold text-gray-800 capitalize">
+              <Icon className="w-3.5 h-3.5 text-[#e60023]" />
+              {pin.creativeType.toLowerCase().replace("_", " ")}
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-2 border-b border-gray-50">
+            <span className="text-gray-500">Media type</span>
+            <span className="font-semibold text-gray-800 capitalize">{pin.mediaType}</span>
+          </div>
+          {createdLabel && (
+            <div className="flex items-center justify-between py-2 border-b border-gray-50">
+              <span className="text-gray-500">Created</span>
+              <span className="font-semibold text-gray-800">{createdLabel}</span>
+            </div>
+          )}
+          {pin.link && (
+            <div className="flex items-start justify-between py-2 border-b border-gray-50 gap-3">
+              <span className="text-gray-500 flex-shrink-0">Destination</span>
+              <a href={pin.link} target="_blank" rel="noopener noreferrer"
+                className="text-blue-600 hover:underline text-xs break-all flex items-center gap-1">
+                {pin.link.slice(0, 50)}{pin.link.length > 50 ? "…" : ""}
+                <ExternalLink className="w-3 h-3 flex-shrink-0" />
+              </a>
+            </div>
+          )}
+          {pin.altText && (
+            <div className="flex items-start justify-between py-2 gap-3">
+              <span className="text-gray-500 flex-shrink-0">Alt text</span>
+              <span className="text-gray-700 text-xs text-right">{pin.altText}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <a href={pin.pinUrl} target="_blank" rel="noopener noreferrer"
+        className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-[#e60023] text-white text-sm font-semibold hover:bg-[#ad081b] transition-colors">
+        View on Pinterest <ExternalLink className="w-4 h-4" />
+      </a>
+    </div>
+  );
+}
+
 export default function PinAnalysisPage() {
   const [mode, setMode] = useState<SearchMode>("keyword");
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [pinResult, setPinResult] = useState<PinData | null>(null);
   const [keywordResults, setKeywordResults] = useState<PinData[]>([]);
+  const [livePins, setLivePins] = useState<LivePin[]>([]);
+  const [selectedLivePin, setSelectedLivePin] = useState<LivePin | null>(null);
   const [selectedPin, setSelectedPin] = useState<PinData | null>(null);
   const [searched, setSearched] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const isUrl = (val: string) =>
     val.startsWith("http") || val.startsWith("pinterest.com") || val.includes("/pin/");
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     const val = inputValue.trim();
     if (!val) return;
 
-    // Auto-detect mode
     const detectedMode: SearchMode = isUrl(val) ? "url" : "keyword";
     setMode(detectedMode);
     setLoading(true);
     setPinResult(null);
     setKeywordResults([]);
+    setLivePins([]);
     setSelectedPin(null);
+    setSelectedLivePin(null);
     setSearched(true);
+    setLiveError(null);
 
-    setTimeout(() => {
-      if (detectedMode === "url") {
+    if (detectedMode === "url") {
+      setTimeout(() => {
         const pin = getPinByUrl(val);
         setPinResult(pin);
         setSelectedPin(pin);
-      } else {
-        const pins = searchPinsByKeyword(val);
-        setKeywordResults(pins);
-        if (pins.length > 0) setSelectedPin(pins[0]);
-      }
+        setLoading(false);
+      }, 800);
+    } else {
+      // Try real Pinterest API first
+      try {
+        const res = await fetch(`/api/pin-search?q=${encodeURIComponent(val)}`);
+        const data = await res.json();
+        if (data.pins && data.pins.length > 0) {
+          setLivePins(data.pins);
+          setSelectedLivePin(data.pins[0]);
+          setLoading(false);
+          return;
+        }
+        if (data.error && data.error !== "Pinterest not connected") {
+          setLiveError(data.error);
+        }
+      } catch { /* fall through to mock */ }
+
+      // Fallback to mock data
+      const pins = searchPinsByKeyword(val);
+      setKeywordResults(pins);
+      if (pins.length > 0) setSelectedPin(pins[0]);
       setLoading(false);
-    }, 800);
+    }
   };
 
   const EXAMPLE_PINS = ["pin_001", "pin_003", "pin_005"];
@@ -347,8 +502,50 @@ export default function PinAnalysisPage() {
           </div>
         )}
 
-        {/* Keyword Mode — List + Detail */}
-        {!loading && keywordResults.length > 0 && mode === "keyword" && (
+        {/* Live Pins from Pinterest API */}
+        {!loading && livePins.length > 0 && mode === "keyword" && (
+          <div className="grid grid-cols-5 gap-5">
+            <div className="col-span-2 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900 text-sm">
+                  {livePins.length} Pins Found
+                </h3>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">● Live</span>
+              </div>
+              <div className="space-y-3 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
+                {livePins.map(pin => (
+                  <LivePinCard
+                    key={pin.id}
+                    pin={pin}
+                    selected={selectedLivePin?.id === pin.id}
+                    onClick={() => setSelectedLivePin(pin)}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="col-span-3">
+              {selectedLivePin && (
+                <div className="sticky top-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold text-gray-900 text-sm">Pin Details</h3>
+                  </div>
+                  <LivePinDetail pin={selectedLivePin} />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Live pin error banner */}
+        {liveError && !loading && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-sm text-amber-700">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{liveError}</span>
+          </div>
+        )}
+
+        {/* Keyword Mode — List + Detail (mock fallback) */}
+        {!loading && keywordResults.length > 0 && mode === "keyword" && livePins.length === 0 && (
           <div className="grid grid-cols-5 gap-5">
             {/* Left: Pin List */}
             <div className="col-span-2 space-y-3">
