@@ -739,6 +739,16 @@ function AIIntelligenceSection({
           {/* Tab: Content Ideas */}
           {tab === "content" && (
             <div className="p-5 space-y-4">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-xs text-gray-500">{aiAnalysis.contentIdeas.length} pin ideas for <span className="font-semibold text-gray-700">"{searchedQuery}"</span></p>
+                <button
+                  onClick={onRegenerate}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-purple-600 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Regenerate Ideas
+                </button>
+              </div>
               {aiAnalysis.contentIdeas.map((idea, i) => (
                 <div key={i} className="border border-gray-100 rounded-xl p-4 hover:border-purple-100 transition-colors">
                   <div className="flex items-start justify-between gap-3">
