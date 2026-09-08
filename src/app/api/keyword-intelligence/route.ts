@@ -108,25 +108,30 @@ const FORMAT_MAP: { pattern: RegExp; format: ContentIdea["format"] }[] = [
 ];
 
 function buildContentIdeas(seed: string, keywords: KeywordEntry[]): ContentIdea[] {
+  const cap = (s: string) => s.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   const templates = [
-    { title: `10 ${seed} Ideas That Will Transform Your Space`, kws: ["ideas", "inspiration", "aesthetic"], intent: "Inspirational roundup" },
-    { title: `The Ultimate ${seed} Guide for Beginners`, kws: ["for beginners", "tutorial", "tips"], intent: "Educational how-to" },
-    { title: `${seed} Aesthetic: Trending Styles to Try Now`, kws: ["aesthetic", "trending", "inspo"], intent: "Trend showcase" },
-    { title: `Budget-Friendly ${seed} on a Budget`, kws: ["on a budget", "affordable", "diy"], intent: "Budget inspiration" },
-    { title: `Minimal & Modern ${seed}`, kws: ["minimalist", "modern", "simple"], intent: "Niche aesthetic" },
-    { title: `Seasonal ${seed} Inspiration`, kws: ["seasonal", "summer", "fall"], intent: "Seasonal content" },
-    { title: `DIY ${seed}: Step-by-Step Tutorial`, kws: ["diy", "tutorial", "step"], intent: "How-to tutorial" },
+    { title: `10 ${cap(seed)} Ideas That Will Transform Your Space`, kws: ["ideas", "inspiration", "aesthetic"], intent: "Inspirational roundup", format: "Standard Pin" as ContentIdea["format"] },
+    { title: `The Ultimate ${cap(seed)} Guide for Beginners`, kws: ["for beginners", "tutorial", "tips"], intent: "Educational how-to", format: "Idea Pin" as ContentIdea["format"] },
+    { title: `${cap(seed)} Aesthetic: Trending Styles to Try Now`, kws: ["aesthetic", "trending", "inspo"], intent: "Trend showcase", format: "Standard Pin" as ContentIdea["format"] },
+    { title: `Budget-Friendly ${cap(seed)}: Look Expensive for Less`, kws: ["on a budget", "affordable", "cheap"], intent: "Budget inspiration", format: "Carousel" as ContentIdea["format"] },
+    { title: `Minimal & Modern ${cap(seed)} for 2025`, kws: ["minimalist", "modern", "simple"], intent: "Niche aesthetic", format: "Standard Pin" as ContentIdea["format"] },
+    { title: `${cap(seed)}: Before & After Transformation`, kws: ["transformation", "before", "makeover"], intent: "Transformation story", format: "Video Pin" as ContentIdea["format"] },
+    { title: `DIY ${cap(seed)}: Step-by-Step Tutorial`, kws: ["diy", "tutorial", "step"], intent: "How-to tutorial", format: "Idea Pin" as ContentIdea["format"] },
+    { title: `5 ${cap(seed)} Mistakes to Avoid`, kws: ["tips", "mistakes", "advice"], intent: "Problem-solving content", format: "Carousel" as ContentIdea["format"] },
+    { title: `${cap(seed)} for Small Spaces: Smart Solutions`, kws: ["small", "space", "apartment"], intent: "Niche problem solver", format: "Idea Pin" as ContentIdea["format"] },
+    { title: `Cozy ${cap(seed)}: Warm & Inviting Styles`, kws: ["cozy", "warm", "inviting"], intent: "Lifestyle aesthetic", format: "Standard Pin" as ContentIdea["format"] },
+    { title: `${cap(seed)} Color Palette Ideas`, kws: ["color", "palette", "scheme"], intent: "Visual inspiration", format: "Carousel" as ContentIdea["format"] },
+    { title: `Seasonal ${cap(seed)}: Summer vs Winter Looks`, kws: ["seasonal", "summer", "fall"], intent: "Seasonal content", format: "Standard Pin" as ContentIdea["format"] },
   ];
 
-  return templates.slice(0, 5).map(t => {
+  return templates.map(t => {
     const matchKws = keywords.filter(k => t.kws.some(s => k.keyword.includes(s))).slice(0, 3).map(k => k.keyword);
     const picked = matchKws.length ? matchKws : [`${seed} ${t.kws[0]}`];
-    const formatEntry = FORMAT_MAP.find(f => f.pattern.test(t.intent)) ?? FORMAT_MAP[0];
     return {
       title: t.title,
       targetKeywords: picked,
       intent: t.intent,
-      format: formatEntry.format,
+      format: t.format,
     };
   });
 }
@@ -423,7 +428,7 @@ export async function POST(req: NextRequest) {
 
   const normalizedKey = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-");
   const pinterestCacheKey = `ki-pinterest2:${normalizedKey}:${country}:${language}`;
-  const analysisCacheKey = `ki-analysis5:${normalizedKey}:${country}:${language}`;
+  const analysisCacheKey = `ki-analysis6:${normalizedKey}:${country}:${language}`;
 
   // Stage 1: Pinterest data (cache or live)
   let pinterestData: PinterestKeywordData | null = null;
@@ -487,7 +492,7 @@ export async function GET(req: NextRequest) {
   if (!keyword) return NextResponse.json({ error: "keyword param required" }, { status: 400 });
 
   const normalizedKey = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const analysisCacheKey = `ki-analysis5:${normalizedKey}:${country}:${language}`;
+  const analysisCacheKey = `ki-analysis6:${normalizedKey}:${country}:${language}`;
   const cachedAnalysis = await redis.get<string>(analysisCacheKey).catch(() => null);
 
   if (!cachedAnalysis) return NextResponse.json({ cached: false });
