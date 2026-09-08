@@ -6,9 +6,9 @@ import { PINTEREST_CATEGORIES, generateKeywords, type KeywordResult } from "@/li
 import type { KeywordIntelligenceResult, KeywordEntry } from "@/lib/openai-keyword-analyzer";
 import {
   Search, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
-  Download, Bookmark, Filter, BarChart2, X, Flame, ShoppingBag,
-  MapPin, Users, Calendar, ChevronUp, Globe, Sparkles, RefreshCw,
-  Lightbulb, Tag, BookOpen, Star, AlertCircle,
+  Download, Bookmark, Filter, BarChart2, X, Flame,
+  Users, ChevronUp, Globe, Sparkles, RefreshCw,
+  Tag, AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -482,18 +482,16 @@ function AIIntelligenceSection({
   searchedQuery: string;
   onRegenerate: () => void;
 }) {
-  const [tab, setTab] = useState<"keywords" | "clusters" | "content" | "seo">("keywords");
-  const [filter, setFilter] = useState<"all" | "pinterest" | "ai" | "recommended">("all");
+  const [tab, setTab] = useState<"keywords" | "clusters">("keywords");
+  const [filter, setFilter] = useState<"all" | "recommended">("all");
   const [sortBy, setSortBy] = useState<"opportunity" | "relevance">("opportunity");
   const [sortAscAI, setSortAscAI] = useState(false);
 
   if (!searchedQuery) return null;
 
   const tabs = [
-    { key: "keywords" as const, label: "AI Keywords", icon: Tag },
+    { key: "keywords" as const, label: "Keywords", icon: Tag },
     { key: "clusters" as const, label: "Clusters", icon: Filter },
-    { key: "content" as const, label: "Content Ideas", icon: Lightbulb },
-    { key: "seo" as const, label: "SEO Tips", icon: Star },
   ];
 
   const filteredKeywords = (aiAnalysis?.keywords ?? [])
@@ -631,12 +629,12 @@ function AIIntelligenceSection({
               {/* Filters + sort */}
               <div className="flex items-center justify-between px-5 py-3 border-b border-gray-50">
                 <div className="flex items-center gap-1.5">
-                  {(["all","pinterest","ai","recommended"] as const).map(f => (
+                  {(["all","recommended"] as const).map(f => (
                     <button key={f} onClick={() => setFilter(f)}
                       className={cn("text-xs px-3 py-1.5 rounded-lg font-semibold transition-all border",
                         filter === f ? "bg-purple-500 text-white border-purple-500" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
                       )}>
-                      {f === "all" ? "All" : f === "pinterest" ? "Pinterest" : f === "ai" ? "AI Generated" : "⭐ Recommended"}
+                      {f === "all" ? "All" : "⭐ Recommended"}
                     </button>
                   ))}
                 </div>
@@ -736,106 +734,6 @@ function AIIntelligenceSection({
             </div>
           )}
 
-          {/* Tab: Content Ideas */}
-          {tab === "content" && (
-            <div className="p-5 space-y-4">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-xs text-gray-500">{aiAnalysis.contentIdeas.length} pin ideas for <span className="font-semibold text-gray-700">"{searchedQuery}"</span></p>
-                <button
-                  onClick={onRegenerate}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-purple-600 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  Regenerate Ideas
-                </button>
-              </div>
-              {aiAnalysis.contentIdeas.map((idea, i) => (
-                <div key={i} className="border border-gray-100 rounded-xl p-4 hover:border-purple-100 transition-colors">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-bold text-gray-800">{idea.title}</p>
-                      <p className="text-xs text-gray-500 mt-1">{idea.intent}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs font-semibold px-2 py-1 rounded-lg bg-orange-50 text-orange-600 border border-orange-100">{idea.format}</span>
-                      <SourceBadge source={idea.intent === "Top-performing Pinterest pin" ? "pinterest" : "ai"} />
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {idea.targetKeywords.map(kw => (
-                      <span key={kw} className="text-[11px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full"># {kw}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Tab: SEO Recommendations */}
-          {tab === "seo" && (
-            <div className="p-5 space-y-4">
-              {aiAnalysis.seasonalInsights.length > 0 && (
-                <div className="bg-amber-50 border border-amber-100 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Calendar className="w-4 h-4 text-amber-600" />
-                    <span className="text-sm font-bold text-amber-700">Seasonal Insights</span>
-                    <SourceBadge source="ai" />
-                  </div>
-                  <ul className="space-y-1.5">
-                    {aiAnalysis.seasonalInsights.map((s, i) => (
-                      <li key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
-                        <span className="mt-0.5 flex-shrink-0">•</span>{s}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="border border-gray-100 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="w-4 h-4 text-purple-500" />
-                    <span className="text-sm font-bold text-gray-800">Keyword Strategy</span>
-                    <SourceBadge source="ai" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Primary Keyword</div>
-                    <span className="text-sm font-bold text-purple-600">{aiAnalysis.recommendations.primaryKeyword}</span>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Secondary Keywords</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {aiAnalysis.recommendations.secondaryKeywords.map(kw => (
-                        <span key={kw} className="text-xs bg-gray-50 border border-gray-200 text-gray-600 px-2 py-1 rounded-lg">{kw}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Board Suggestion</div>
-                    <span className="text-sm text-gray-700">{aiAnalysis.recommendations.boardSuggestion}</span>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Content Angle</div>
-                    <span className="text-sm text-gray-700">{aiAnalysis.recommendations.contentAngle}</span>
-                  </div>
-                </div>
-                <div className="border border-gray-100 rounded-xl p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Star className="w-4 h-4 text-orange-500" />
-                    <span className="text-sm font-bold text-gray-800">Optimized Pin Copy</span>
-                    <SourceBadge source="ai" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Pin Title</div>
-                    <p className="text-sm font-medium text-gray-800 bg-gray-50 rounded-lg px-3 py-2">{aiAnalysis.recommendations.pinTitle}</p>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Pin Description</div>
-                    <p className="text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2 leading-relaxed max-h-28 overflow-y-auto">{aiAnalysis.recommendations.pinDescription}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       )}
     </div>
