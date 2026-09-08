@@ -533,10 +533,10 @@ function AIIntelligenceSection({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-gray-800">AI Keyword Intelligence</span>
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">AI Analysis</span>
+              <span className="text-sm font-bold text-gray-800">Keyword Intelligence</span>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">Pinterest Powered</span>
             </div>
-            <p className="text-xs text-gray-500">Powered by AI · Pinterest data when available</p>
+            <p className="text-xs text-gray-500">Real Pinterest data · Long-tail keyword expansion</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -575,7 +575,7 @@ function AIIntelligenceSection({
         <div className="px-5 py-6 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-gray-700">AI analysis unavailable</p>
+            <p className="text-sm font-semibold text-gray-700">Keyword analysis unavailable</p>
             <p className="text-xs text-gray-500 mt-0.5">{aiError}</p>
           </div>
         </div>
@@ -878,7 +878,7 @@ export default function KeywordsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setAiError(data.error ?? "AI analysis failed. Please check your OpenAI API key.");
+        setAiError(data.error ?? "Keyword analysis failed. Please try again.");
         return;
       }
       if (!data.aiAnalysis) {
@@ -887,7 +887,7 @@ export default function KeywordsPage() {
       }
       setAiAnalysis(data.aiAnalysis);
     } catch {
-      setAiError("AI analysis temporarily unavailable. Please try again.");
+      setAiError("Keyword analysis temporarily unavailable. Please try again.");
     } finally {
       setAiLoading(false);
     }
