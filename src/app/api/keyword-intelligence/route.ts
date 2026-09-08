@@ -406,8 +406,8 @@ export async function POST(req: NextRequest) {
   const email = session.user.email;
 
   const normalizedKey = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const pinterestCacheKey = `ki-pinterest:${normalizedKey}:${country}:${language}`;
-  const analysisCacheKey = `ki-analysis2:${normalizedKey}:${country}:${language}`;
+  const pinterestCacheKey = `ki-pinterest2:${normalizedKey}:${country}:${language}`;
+  const analysisCacheKey = `ki-analysis3:${normalizedKey}:${country}:${language}`;
 
   // Stage 1: Pinterest data (cache or live)
   let pinterestData: PinterestKeywordData | null = null;
@@ -471,7 +471,7 @@ export async function GET(req: NextRequest) {
   if (!keyword) return NextResponse.json({ error: "keyword param required" }, { status: 400 });
 
   const normalizedKey = keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  const analysisCacheKey = `ki-analysis2:${normalizedKey}:${country}:${language}`;
+  const analysisCacheKey = `ki-analysis3:${normalizedKey}:${country}:${language}`;
   const cachedAnalysis = await redis.get<string>(analysisCacheKey).catch(() => null);
 
   if (!cachedAnalysis) return NextResponse.json({ cached: false });
