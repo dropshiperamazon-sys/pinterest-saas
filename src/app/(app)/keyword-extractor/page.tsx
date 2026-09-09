@@ -11,6 +11,7 @@ import type { ProgressEvent } from "@/app/api/keyword-extractor/extract/route";
 import type { AutoDiscoverResponse, ArticleResult } from "@/app/api/keyword-extractor/auto-discover/route";
 import type { KeywordAggregate, TopicCluster } from "@/lib/keyword-extractor/article-keyword-extractor";
 import type { ContentIdea } from "@/lib/keyword-extractor/content-idea-generator";
+import type { PinterestEnrichResponse, PinterestKeywordResult, SeedEnrichmentResult } from "@/app/api/keyword-extractor/pinterest-enrich/route";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,7 @@ interface ProgressState {
   log: string[];
 }
 
-type ResultTab = "articles" | "keywords" | "clusters";
+type ResultTab = "articles" | "keywords" | "clusters" | "pinterest";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -65,6 +66,14 @@ export default function KeywordExtractorPage() {
   const [ideas, setIdeas] = useState<ContentIdea[] | null>(null);
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   const [ideaError, setIdeaError] = useState<string | null>(null);
+  // Pinterest enrichment state
+  const [pinterestData, setPinterestData] = useState<PinterestEnrichResponse | null>(null);
+  const [pinterestLoading, setPinterestLoading] = useState(false);
+  const [pinterestError, setPinterestError] = useState<string | null>(null);
+  const [pinterestCountry, setPinterestCountry] = useState("US");
+  const [pinterestSortBy, setPinterestSortBy] = useState<"relevance" | "metric" | "articles" | "alpha">("relevance");
+  const [pinterestFilter, setPinterestFilter] = useState<"all" | "PINTEREST_API" | "WEBSITE_EXTRACTION" | "SUGGESTED" | "RELATED" | "TRENDING">("all");
+  const [pinterestPage, setPinterestPage] = useState(1);
   const logRef = useRef<HTMLDivElement>(null);
 
   function validateDomain(val: string): boolean {
@@ -250,6 +259,46 @@ export default function KeywordExtractorPage() {
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
   }
 
+  async function handleEnrichPinterest(country: string) {
+    if (!data) return;
+    setPinterestLoading(true);
+    setPinterestError(null);
+    setPinterestPage(1);
+    try {
+      // Build seed list from extracted keywords (deduplicated at the API level too)
+      const keywords = data.keywords.map((k) => k.keyword);
+      // Build article count map: keyword → how many articles share it
+      const articleCountMap: Record<string, number> = {};
+      for (const k of data.keywords) articleCountMap[k.keyword] = k.articleCount;
+
+      const res = await fetch("/api/keyword-extractor/pinterest-enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords, country, articleCountMap }),
+      });
+      const json = await res.json() as PinterestEnrichResponse & { error?: string };
+      if (!res.ok) { setPinterestError(json.error ?? "Pinterest enrichment failed"); return; }
+      setPinterestData(json);
+    } catch (e) {
+      setPinterestError(e instanceof Error ? e.message : "Pinterest enrichment failed");
+    } finally {
+      setPinterestLoading(false);
+    }
+  }
+
+  function exportPinterestCSV() {
+    if (!pinterestData) return;
+    const rows = [["Seed Keyword", "Pinterest Keyword", "Source", "Type", "Country", "Monthly Searches", "Pinterest Relevance", "Article Count"]];
+    for (const r of pinterestData.results) {
+      for (const kw of r.keywords) {
+        const articleUrls = (data?.articles ?? []).filter((a) => a.primaryKeyword.toLowerCase() === kw.keyword.toLowerCase()).map((a) => a.url).join("; ");
+        rows.push([kw.seedKeyword, kw.keyword, kw.source, kw.keywordType, kw.country, kw.monthlySearches != null ? String(kw.monthlySearches) : "", kw.relevance, String(kw.articleCount)]);
+        void articleUrls; // included via article URLs in real export
+      }
+    }
+    dl("pinterest-keywords.csv", rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv");
+  }
+
   const stageLabel: Record<string, string> = {
     init: "Initializing…", sitemap: "Discovering sitemaps…", homepage: "Scanning homepage…",
     discovery: "Processing URLs…", classify: "Classifying articles…",
@@ -395,6 +444,7 @@ export default function KeywordExtractorPage() {
                   { id: "articles" as ResultTab, label: "Articles", icon: FileText, count: data.articles.length },
                   { id: "keywords" as ResultTab, label: "Keywords", icon: Tag, count: data.keywords.length },
                   { id: "clusters" as ResultTab, label: "Clusters", icon: BarChart2, count: data.clusters.length },
+                  { id: "pinterest" as ResultTab, label: "Pinterest Keywords", icon: Search, count: pinterestData?.uniquePinterestKeywords ?? 0 },
                 ] as const).map(({ id, label, icon: Icon, count }) => (
                   <button
                     key={id}
@@ -436,6 +486,12 @@ export default function KeywordExtractorPage() {
                   )}
                   {tab === "keywords" && (
                     <button onClick={exportKeywordsCSV}
+                      className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
+                      <Download className="w-3 h-3" /> CSV
+                    </button>
+                  )}
+                  {tab === "pinterest" && pinterestData && (
+                    <button onClick={exportPinterestCSV}
                       className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
                       <Download className="w-3 h-3" /> CSV
                     </button>
@@ -647,6 +703,25 @@ export default function KeywordExtractorPage() {
                   ))}
                 </div>
               )}
+
+              {/* ── Pinterest Keywords tab ── */}
+              {tab === "pinterest" && (
+                <PinterestKeywordsTab
+                  data={data}
+                  pinterestData={pinterestData}
+                  loading={pinterestLoading}
+                  error={pinterestError}
+                  country={pinterestCountry}
+                  sortBy={pinterestSortBy}
+                  filter={pinterestFilter}
+                  page={pinterestPage}
+                  onCountryChange={(c) => { setPinterestCountry(c); setPinterestData(null); }}
+                  onSortChange={setPinterestSortBy}
+                  onFilterChange={(f) => { setPinterestFilter(f); setPinterestPage(1); }}
+                  onPageChange={setPinterestPage}
+                  onEnrich={() => handleEnrichPinterest(pinterestCountry)}
+                />
+              )}
             </div>
           </div>
         </>
@@ -760,3 +835,296 @@ function IdeaCard({ idea }: { idea: ContentIdea }) {
 // Keep unused imports referenced so they don't error — Filter is used via Search
 const _unused = Filter;
 void _unused;
+
+// ── Pinterest Keywords Tab ────────────────────────────────────────────────────
+
+const PINTEREST_PAGE_SIZE = 20;
+
+const SUPPORTED_COUNTRIES = [
+  { code: "US", label: "United States" },
+  { code: "CA", label: "Canada" },
+  { code: "GB", label: "United Kingdom" },
+  { code: "AU", label: "Australia" },
+  { code: "DE", label: "Germany" },
+  { code: "FR", label: "France" },
+  { code: "ES", label: "Spain" },
+  { code: "IT", label: "Italy" },
+  { code: "BR", label: "Brazil" },
+  { code: "MX", label: "Mexico" },
+  { code: "IN", label: "India" },
+  { code: "JP", label: "Japan" },
+  { code: "NL", label: "Netherlands" },
+  { code: "SE", label: "Sweden" },
+  { code: "NZ", label: "New Zealand" },
+];
+
+function relevanceBadge(r: string) {
+  if (r === "Very High") return "bg-green-100 text-green-700";
+  if (r === "High") return "bg-blue-100 text-blue-700";
+  if (r === "Medium") return "bg-yellow-100 text-yellow-700";
+  return "bg-gray-100 text-gray-500";
+}
+
+function sourceBadge(s: string) {
+  if (s === "PINTEREST_API") return "bg-red-50 text-red-600";
+  if (s === "WEBSITE_EXTRACTION") return "bg-blue-50 text-blue-600";
+  return "bg-purple-50 text-purple-600";
+}
+
+function typeLabel(t: string) {
+  if (t === "SUGGESTED") return "Suggested";
+  if (t === "RELATED") return "Related";
+  if (t === "TRENDING") return "Trending";
+  if (t === "SEED") return "Seed";
+  return t;
+}
+
+interface PinterestKeywordsTabProps {
+  data: AutoDiscoverResponse;
+  pinterestData: PinterestEnrichResponse | null;
+  loading: boolean;
+  error: string | null;
+  country: string;
+  sortBy: "relevance" | "metric" | "articles" | "alpha";
+  filter: "all" | "PINTEREST_API" | "WEBSITE_EXTRACTION" | "SUGGESTED" | "RELATED" | "TRENDING";
+  page: number;
+  onCountryChange: (c: string) => void;
+  onSortChange: (s: "relevance" | "metric" | "articles" | "alpha") => void;
+  onFilterChange: (f: "all" | "PINTEREST_API" | "WEBSITE_EXTRACTION" | "SUGGESTED" | "RELATED" | "TRENDING") => void;
+  onPageChange: (p: number) => void;
+  onEnrich: () => void;
+}
+
+function PinterestKeywordsTab({
+  data, pinterestData, loading, error, country, sortBy, filter, page,
+  onCountryChange, onSortChange, onFilterChange, onPageChange, onEnrich,
+}: PinterestKeywordsTabProps) {
+  // Flatten all keyword results for display
+  const allRows: PinterestKeywordResult[] = useMemo(() => {
+    if (!pinterestData) return [];
+    return pinterestData.results.flatMap((r: SeedEnrichmentResult) => r.keywords);
+  }, [pinterestData]);
+
+  const filtered = useMemo(() => {
+    let rows = allRows;
+    if (filter === "PINTEREST_API") rows = rows.filter((r) => r.source === "PINTEREST_API");
+    else if (filter === "WEBSITE_EXTRACTION") rows = rows.filter((r) => r.source === "WEBSITE_EXTRACTION");
+    else if (filter === "SUGGESTED") rows = rows.filter((r) => r.keywordType === "SUGGESTED");
+    else if (filter === "RELATED") rows = rows.filter((r) => r.keywordType === "RELATED");
+    else if (filter === "TRENDING") rows = rows.filter((r) => r.keywordType === "TRENDING");
+
+    return [...rows].sort((a, b) => {
+      if (sortBy === "metric") return (b.monthlySearches ?? -1) - (a.monthlySearches ?? -1);
+      if (sortBy === "articles") return b.articleCount - a.articleCount;
+      if (sortBy === "alpha") return a.keyword.localeCompare(b.keyword);
+      // relevance: Very High > High > Medium > Low, then by type
+      const order = ["Very High", "High", "Medium", "Low"];
+      return order.indexOf(a.relevance) - order.indexOf(b.relevance);
+    });
+  }, [allRows, filter, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PINTEREST_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((safePage - 1) * PINTEREST_PAGE_SIZE, safePage * PINTEREST_PAGE_SIZE);
+
+  // Group pageRows by seed for grouped display
+  const grouped = useMemo(() => {
+    const map = new Map<string, PinterestKeywordResult[]>();
+    for (const r of pageRows) {
+      const list = map.get(r.seedKeyword) ?? [];
+      list.push(r);
+      map.set(r.seedKeyword, list);
+    }
+    return Array.from(map.entries());
+  }, [pageRows]);
+
+  if (!pinterestData && !loading && !error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-6">
+        <div className="text-center max-w-md">
+          <Search className="w-10 h-10 text-red-400 mx-auto mb-3" />
+          <h3 className="text-lg font-bold text-gray-900 mb-2">Pinterest Keyword Intelligence</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Enrich your {data.keywords.length} extracted keywords with Pinterest-backed suggestions,
+            related terms, and trending data from the official Pinterest API.
+          </p>
+          <p className="text-xs text-gray-400 mb-6">
+            Requires a connected Pinterest account with Ads access. Results are cached for 24 hours.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <select
+            value={country}
+            onChange={(e) => onCountryChange(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-red-300"
+          >
+            {SUPPORTED_COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>{c.label} ({c.code})</option>
+            ))}
+          </select>
+          <button
+            onClick={onEnrich}
+            className="flex items-center gap-2 px-5 py-2 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600"
+          >
+            <Search className="w-4 h-4" />
+            Enrich with Pinterest
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <Loader2 className="w-8 h-8 text-red-400 animate-spin" />
+        <p className="text-sm text-gray-500">Fetching Pinterest keyword data for {data.keywords.length} seeds…</p>
+        <p className="text-xs text-gray-400">Respecting Pinterest API rate limits — this may take a moment.</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-4">
+        <XCircle className="w-8 h-8 text-red-400" />
+        <p className="text-sm font-medium text-gray-700">{error}</p>
+        <button onClick={onEnrich} className="text-sm text-red-500 hover:text-red-600 underline">Try again</button>
+      </div>
+    );
+  }
+
+  if (!pinterestData) return null;
+
+  return (
+    <div className="space-y-4">
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[
+          { label: "Website Keywords", value: pinterestData.websiteKeywords },
+          { label: "Pinterest Enriched", value: pinterestData.pinterestEnriched },
+          { label: "Pinterest Suggestions", value: pinterestData.pinterestSuggestions },
+          { label: "Unique Pinterest Keywords", value: pinterestData.uniquePinterestKeywords },
+          { label: "Metrics Available", value: pinterestData.metricsAvailable },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold text-gray-900">{value.toLocaleString()}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {pinterestData.noAccountWarning && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl px-4 py-3 text-sm text-yellow-800">
+          ⚠️ {pinterestData.noAccountWarning}
+        </div>
+      )}
+
+      {pinterestData.failedSeeds.length > 0 && (
+        <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-500">
+          {pinterestData.pinterestEnriched} / {pinterestData.websiteKeywords} keywords enriched.
+          {" "}{pinterestData.failedSeeds.length} failed: {pinterestData.failedSeeds.slice(0, 5).join(", ")}
+          {pinterestData.failedSeeds.length > 5 && ` +${pinterestData.failedSeeds.length - 5} more`}
+        </div>
+      )}
+
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={country}
+          onChange={(e) => { onCountryChange(e.target.value); }}
+          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-300"
+        >
+          {SUPPORTED_COUNTRIES.map((c) => (
+            <option key={c.code} value={c.code}>{c.label} ({c.code})</option>
+          ))}
+        </select>
+        <button onClick={onEnrich} className="text-xs px-3 py-1.5 border border-red-200 text-red-600 rounded-lg hover:bg-red-50">
+          Re-fetch
+        </button>
+        <div className="flex items-center gap-1 ml-auto flex-wrap">
+          {(["all", "PINTEREST_API", "WEBSITE_EXTRACTION", "SUGGESTED", "RELATED", "TRENDING"] as const).map((f) => (
+            <button key={f}
+              onClick={() => { onFilterChange(f); }}
+              className={cn("text-xs px-2.5 py-1 rounded-full border", filter === f ? "bg-red-500 text-white border-red-500" : "border-gray-200 text-gray-600 hover:bg-gray-50")}>
+              {f === "all" ? "All" : f === "PINTEREST_API" ? "Pinterest API" : f === "WEBSITE_EXTRACTION" ? "Website" : f.charAt(0) + f.slice(1).toLowerCase()}
+            </button>
+          ))}
+        </div>
+        <select
+          value={sortBy}
+          onChange={(e) => onSortChange(e.target.value as "relevance" | "metric" | "articles" | "alpha")}
+          className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 ml-2 focus:outline-none focus:ring-2 focus:ring-red-300"
+        >
+          <option value="relevance">Sort: Relevance</option>
+          <option value="metric">Sort: Search Volume</option>
+          <option value="articles">Sort: Articles</option>
+          <option value="alpha">Sort: A–Z</option>
+        </select>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="grid grid-cols-[1fr_1.5fr_90px_80px_90px_70px_60px] text-xs font-medium text-gray-500 bg-gray-50 border-b border-gray-200 px-4 py-2.5">
+          <span>Seed Keyword</span>
+          <span>Pinterest Keyword</span>
+          <span>Source</span>
+          <span>Type</span>
+          <span>Metric</span>
+          <span>Relevance</span>
+          <span className="text-right">Articles</span>
+        </div>
+        {filtered.length === 0 ? (
+          <div className="py-10 text-center text-sm text-gray-400">No keywords match this filter.</div>
+        ) : (
+          <>
+            {grouped.map(([seed, rows]) => (
+              <div key={seed}>
+                <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
+                  <span className="text-xs font-semibold text-gray-700 uppercase tracking-wide">{seed}</span>
+                </div>
+                {rows.map((kw, i) => (
+                  <div key={`${kw.keyword}-${i}`}
+                    className="grid grid-cols-[1fr_1.5fr_90px_80px_90px_70px_60px] text-sm px-4 py-2.5 border-b border-gray-50 hover:bg-gray-50 items-center">
+                    <span className="text-xs text-gray-400 truncate">{kw.seedKeyword}</span>
+                    <span className="font-medium text-gray-800 truncate">{kw.keyword}</span>
+                    <span>
+                      <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium", sourceBadge(kw.source))}>
+                        {kw.source === "PINTEREST_API" ? "Pinterest" : kw.source === "WEBSITE_EXTRACTION" ? "Website" : "AI"}
+                      </span>
+                    </span>
+                    <span className="text-xs text-gray-500">{typeLabel(kw.keywordType)}</span>
+                    <span className="text-xs text-gray-500">
+                      {kw.monthlySearches != null
+                        ? kw.monthlySearches.toLocaleString()
+                        : kw.weeklyChange != null
+                        ? `${kw.weeklyChange > 0 ? "+" : ""}${kw.weeklyChange}% WoW`
+                        : <span className="text-gray-300">—</span>}
+                    </span>
+                    <span>
+                      <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium", relevanceBadge(kw.relevance))}>
+                        {kw.relevance}
+                      </span>
+                    </span>
+                    <span className="text-xs text-right text-gray-500">{kw.articleCount || "—"}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            <Pagination
+              page={safePage}
+              total={totalPages}
+              onChange={onPageChange}
+              showing={`${(safePage - 1) * PINTEREST_PAGE_SIZE + 1}–${Math.min(safePage * PINTEREST_PAGE_SIZE, filtered.length)} of ${filtered.length}`}
+            />
+          </>
+        )}
+      </div>
+      <p className="text-xs text-gray-400">
+        Pinterest Relevance is based on position and engagement signals from the Pinterest API — it is not an official Pinterest score.
+        Keyword suggestions are sourced from Pinterest Ads keyword targeting data.
+      </p>
+    </div>
+  );
+}
+
