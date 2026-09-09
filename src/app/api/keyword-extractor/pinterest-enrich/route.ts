@@ -1,19 +1,26 @@
 // Pinterest Keyword Enrichment — Keyword Extractor
 //
-// Strategy (v5):
-//   1. Autocomplete Level-1: fetch Pinterest autocomplete suggestions for the seed (up to 12).
-//   2. Autocomplete Level-2: for each top L1 suggestion (up to 5), fetch another autocomplete
-//      round to get deeper completions (up to 5 × 12 = 60 more).
-//   3. Trends: call /v5/trends/keywords/{region}/top/growing for the seed's primary interest
-//      AND up to 2 secondary interests — each returns up to 25 terms.
-//   4. Combine, deduplicate (case-insensitive), tag sources.
+// Confirmed working endpoints (tested 2026-09-09):
 //
-// Confirmed working endpoints (2026-09-09):
+//   ✓ GET /v5/terms/related?terms={seed}
+//       → { id, related_term_count, related_terms_list: [{ term, related_terms: string[] }] }
+//       → Returns up to 10 related terms per call
+//
 //   ✓ GET /v5/trends/keywords/{region}/top/growing?limit=25[&interests={slug}]
-//   ✗ GET /v5/ad_accounts/{id}/targeting/keywords/suggestions → 404 ("API method not found")
-//   ✗ GET /v5/ad_accounts/{id}/targeting_options?targeting_type=KEYWORD → 404
+//       → Returns up to 25 trending terms per interest
 //
-// ALL Pinterest API calls are server-side only — tokens never reach the browser.
+//   ~ GET /v5/terms/suggested?term={seed}&limit=10
+//       → 200 OK but returns only the seed itself — not useful for expansion
+//
+//   ✗ GET /v5/ad_accounts/{id}/targeting/keywords/suggestions → 404
+//
+// Strategy:
+//   1. L1 related: GET /v5/terms/related for seed → up to 10 terms
+//   2. L2 related: GET /v5/terms/related for each top-5 L1 term → up to 50 more
+//   3. Trends: /top/growing for primary interest + up to 2 secondary interests → up to 75
+//   4. Combine, deduplicate, tag sources, return up to 200 unique keywords
+//
+// ALL Pinterest API calls happen server-side — tokens never reach the browser.
 
 import { NextRequest } from "next/server";
 import { Redis } from "@upstash/redis";
@@ -26,13 +33,14 @@ const redis = new Redis({
 
 const BASE = "https://api.pinterest.com/v5";
 const CACHE_TTL = 60 * 60 * 24; // 24 hours
-const CACHE_VERSION = "v5";      // bumped from v4 — adds autocomplete layer
+const CACHE_VERSION = "v6";      // bumped: now uses /terms/related as primary source
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 export type KeywordSource =
-  | "PINTEREST_API"        // Trends API (backward-compatible label for trending keywords)
-  | "PINTEREST_SUGGESTED"  // Autocomplete / suggested-terms (seed-based completions)
+  | "PINTEREST_RELATED"    // /v5/terms/related — confirmed working
+  | "PINTEREST_API"        // /v5/trends — trending keywords (backward-compatible label)
+  | "PINTEREST_SUGGESTED"  // reserved / future
   | "WEBSITE_EXTRACTION"
   | "AI_GENERATED";
 
@@ -63,21 +71,19 @@ export interface PinterestEnrichResponse {
   country: string;
   websiteKeywords: number;
   pinterestEnriched: number;
-  pinterestSuggestions: number;
+  pinterestSuggestions: number;     // total PINTEREST_RELATED + PINTEREST_API keywords
   uniquePinterestKeywords: number;
   metricsAvailable: number;
-  // New metadata fields (non-breaking additions)
-  suggestedTermsCount: number;
-  trendingTermsCount: number;
+  relatedTermsCount: number;        // keywords from /v5/terms/related
+  trendingTermsCount: number;       // keywords from /v5/trends
   totalUniqueKeywords: number;
   results: SeedEnrichmentResult[];
   failedSeeds: string[];
   noAccountWarning?: string;
   _debug?: {
-    adAccountId: string | null;
-    trendsCount: number;
     interestsFetched: string[];
-    autocompleteWorking: boolean;
+    relatedApiWorking: boolean;
+    trendsCount: number;
   };
 }
 
@@ -129,55 +135,33 @@ function relevanceFromPosition(index: number, total: number): PinterestRelevance
   return "Low";
 }
 
-// ── Autocomplete (server-side) ─────────────────────────────────────────────────
-// Calls Pinterest's autocomplete JSON endpoints without touching Pinterest tokens —
-// these are the same public JSON endpoints the existing /api/pinterest-autocomplete
-// route uses, called server-side so credentials stay on the server.
+// ── Official: GET /v5/terms/related ───────────────────────────────────────────
+// Confirmed response shape (tested 2026-09-09):
+//   { id, related_term_count, related_terms_list: [{ term, related_terms: string[] }] }
+// Does NOT accept a country parameter — returns global related terms.
 
-async function fetchAutocomplete(query: string): Promise<string[]> {
-  const endpoints = [
-    `https://www.pinterest.com/resource/SearchAutocompletesResource/get/?source_url=/&data=${encodeURIComponent(JSON.stringify({ options: { query }, context: {} }))}&_=${Date.now()}`,
-    `https://www.pinterest.com/search/autocomplete/?q=${encodeURIComponent(query)}`,
-  ];
+async function fetchTermsRelated(term: string, token: string): Promise<string[]> {
+  const raw = await pinterestGetRaw(
+    `/terms/related?terms=${encodeURIComponent(term)}`,
+    token,
+  );
+  if (!raw.data) return [];
 
-  for (const url of endpoints) {
-    try {
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          Accept: "application/json, text/javascript, */*; q=0.01",
-          "Accept-Language": "en-US,en;q=0.9",
-          "X-Requested-With": "XMLHttpRequest",
-          Referer: "https://www.pinterest.com/",
-        },
-        signal: AbortSignal.timeout(4000),
-      });
-      if (!res.ok) continue;
-      const data = await res.json();
+  const data = raw.data as Record<string, unknown>;
+  const list = Array.isArray(data.related_terms_list)
+    ? (data.related_terms_list as Record<string, unknown>[])
+    : [];
 
-      const items: unknown[] =
-        data?.resource_response?.data ??
-        data?.resource_response?.data?.items ??
-        (Array.isArray(data) ? data : []) ??
-        data?.items ?? [];
+  const terms: string[] = Array.isArray(list[0]?.related_terms)
+    ? (list[0].related_terms as string[])
+    : [];
 
-      const suggestions = (items as unknown[])
-        .map((item: unknown) => {
-          if (typeof item === "string") return item;
-          const o = item as Record<string, unknown>;
-          return (o.display ?? o.query ?? o.term ?? o.name ?? "") as string;
-        })
-        .filter(Boolean)
-        .map(normalizeKeyword)
-        .filter((s) => s.length >= 3);
+  const result = terms
+    .map(normalizeKeyword)
+    .filter((t) => t.length >= 3);
 
-      if (suggestions.length > 0) {
-        console.log(`[pinterest-enrich] autocomplete "${query}" → ${suggestions.length} suggestions`);
-        return suggestions.slice(0, 12);
-      }
-    } catch { /* try next endpoint */ }
-  }
-  return [];
+  console.log(`[pinterest-enrich] /terms/related "${term}" → ${result.length} terms`);
+  return result;
 }
 
 // ── Seed → Pinterest interest mapping ─────────────────────────────────────────
@@ -253,8 +237,6 @@ const INTEREST_PATTERNS: { pattern: RegExp; interest: string }[] = [
   },
 ];
 
-// Secondary interests to call Trends for when the primary interest matches.
-// Each unique secondary adds 25 more trending keywords to the pool.
 const SECONDARY_INTERESTS: Partial<Record<string, string[]>> = {
   home_decor:        ["diy_and_crafts", "art"],
   womens_fashion:    ["beauty"],
@@ -335,7 +317,7 @@ async function getCached(seed: string, country: string): Promise<CachedSeedResul
     if (!raw) return null;
     const parsed = typeof raw === "string" ? JSON.parse(raw) : (raw as CachedSeedResult);
     const hasRealResults = (parsed as CachedSeedResult).keywords.some(
-      (k) => k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED",
+      (k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_API",
     );
     if (!hasRealResults) return null;
     return parsed as CachedSeedResult;
@@ -361,8 +343,8 @@ const POP_CULTURE_SIGNALS = new Set([
 function buildKeywordsForSeed(
   seed: string,
   country: string,
-  autocompleteL1: string[],
-  autocompleteL2: string[],
+  relatedL1: string[],       // from /v5/terms/related on the seed
+  relatedL2: string[],       // from /v5/terms/related on top L1 terms
   trendItems: TrendItem[],
   articleCountBySeed: Map<string, number>,
   hasInterest: boolean,
@@ -386,52 +368,51 @@ function buildKeywordsForSeed(
     articleCount: articleCountBySeed.get(normSeed) ?? 0,
   });
 
-  // ── Autocomplete Level-1 (PINTEREST_SUGGESTED, highest priority) ──────────
-  for (let i = 0; i < autocompleteL1.length; i++) {
-    const kw = normalizeKeyword(autocompleteL1[i]);
+  // ── Related terms Level-1 (official /v5/terms/related on seed) ────────────
+  for (let i = 0; i < relatedL1.length; i++) {
+    const kw = relatedL1[i];
     if (!kw || seen.has(kw) || POP_CULTURE_SIGNALS.has(kw)) continue;
     seen.add(kw);
     results.push({
       seedKeyword: seed,
       keyword: kw,
-      source: "PINTEREST_SUGGESTED",
-      keywordType: "SUGGESTED",
-      country,
-      monthlySearches: null,
-      weeklyChange: null,
-      monthlyChange: null,
-      relevance: relevanceFromPosition(i, autocompleteL1.length),
-      articleCount: articleCountBySeed.get(kw) ?? 0,
-    });
-  }
-
-  // ── Autocomplete Level-2 (PINTEREST_SUGGESTED, second-level completions) ──
-  for (let i = 0; i < autocompleteL2.length; i++) {
-    const kw = normalizeKeyword(autocompleteL2[i]);
-    if (!kw || seen.has(kw) || POP_CULTURE_SIGNALS.has(kw)) continue;
-    seen.add(kw);
-    results.push({
-      seedKeyword: seed,
-      keyword: kw,
-      source: "PINTEREST_SUGGESTED",
+      source: "PINTEREST_RELATED",
       keywordType: "RELATED",
       country,
       monthlySearches: null,
       weeklyChange: null,
       monthlyChange: null,
-      relevance: relevanceFromPosition(i, autocompleteL2.length),
+      relevance: relevanceFromPosition(i, relatedL1.length),
       articleCount: articleCountBySeed.get(kw) ?? 0,
     });
   }
 
-  // ── Trends (PINTEREST_API) ─────────────────────────────────────────────────
+  // ── Related terms Level-2 (official /v5/terms/related on each L1 term) ───
+  for (let i = 0; i < relatedL2.length; i++) {
+    const kw = relatedL2[i];
+    if (!kw || seen.has(kw) || POP_CULTURE_SIGNALS.has(kw)) continue;
+    seen.add(kw);
+    results.push({
+      seedKeyword: seed,
+      keyword: kw,
+      source: "PINTEREST_RELATED",
+      keywordType: "RELATED",
+      country,
+      monthlySearches: null,
+      weeklyChange: null,
+      monthlyChange: null,
+      relevance: relevanceFromPosition(i, relatedL2.length),
+      articleCount: articleCountBySeed.get(kw) ?? 0,
+    });
+  }
+
+  // ── Trending terms (country-specific, /v5/trends) ─────────────────────────
   for (let i = 0; i < trendItems.length; i++) {
     const item = trendItems[i];
     const kw = normalizeKeyword(item.keyword);
-    if (!kw || seen.has(kw)) continue;
-    if (POP_CULTURE_SIGNALS.has(kw)) continue;
+    if (!kw || seen.has(kw) || POP_CULTURE_SIGNALS.has(kw)) continue;
 
-    // For global trends (no interest match), require topical relevance to the seed
+    // Global trends (no matched interest): require at least one shared word with seed
     if (!hasInterest) {
       const kwWords = kw.split(/\s+/);
       const sharesWord = kwWords.some((w) => w.length >= 4 && seedWords.has(w));
@@ -458,8 +439,9 @@ function buildKeywordsForSeed(
 }
 
 // ── GET — diagnostic endpoint ─────────────────────────────────────────────────
-// Tests the official /v5/terms/suggested and /v5/terms/related endpoints.
 // Visit: GET /api/keyword-extractor/pinterest-enrich?q=room+decor+aesthetic
+// Tests all confirmed endpoints with real token, returns sanitised JSON.
+// Token is NEVER included in the response.
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -474,51 +456,49 @@ export async function GET(req: NextRequest) {
   const seed = (url.searchParams.get("q") ?? "room decor aesthetic").trim();
   const country = (url.searchParams.get("country") ?? "US").toUpperCase();
 
-  // ── Test 1: GET /v5/terms/suggested ──────────────────────────────────────
-  const suggestedRaw = await pinterestGetRaw(
-    `/terms/suggested?term=${encodeURIComponent(seed)}&limit=10`,
-    accessToken,
-  );
-
-  // ── Test 2: GET /v5/terms/related ────────────────────────────────────────
-  const relatedRaw = await pinterestGetRaw(
-    `/terms/related?terms=${encodeURIComponent(seed)}`,
-    accessToken,
-  );
-
-  // ── Test 3: Trends (confirmed working) ───────────────────────────────────
   const interest = seedToInterest(seed);
-  const trendsRaw = await fetchTrendsByInterest(country, interest, accessToken);
+
+  const [relatedL1Raw, trendsRaw] = await Promise.all([
+    fetchTermsRelated(seed, accessToken),
+    fetchTrendsByInterest(country, interest, accessToken),
+  ]);
+
+  // L2 expansion: related of top 3 L1 terms
+  const l2Results: Record<string, string[]> = {};
+  for (const term of relatedL1Raw.slice(0, 3)) {
+    await sleep(300);
+    l2Results[term] = await fetchTermsRelated(term, accessToken);
+  }
+  const relatedL2Flat = [...new Set(Object.values(l2Results).flat())];
 
   const diag = {
     seed,
     country,
+    detectedInterest: interest,
 
-    terms_suggested: {
-      url: `${BASE}/terms/suggested?term=${encodeURIComponent(seed)}&limit=10`,
-      httpStatus: suggestedRaw.status,
-      error: suggestedRaw.error ?? null,
-      // Sanitised response — shows structure without exposing tokens
-      responseKeys: suggestedRaw.data ? Object.keys(suggestedRaw.data as object) : null,
-      rawData: suggestedRaw.data,
+    terms_related_L1: {
+      endpoint: `/v5/terms/related?terms=${encodeURIComponent(seed)}`,
+      count: relatedL1Raw.length,
+      terms: relatedL1Raw,
+      note: "Global — no country parameter",
     },
 
-    terms_related: {
-      url: `${BASE}/terms/related?terms=${encodeURIComponent(seed)}`,
-      httpStatus: relatedRaw.status,
-      error: relatedRaw.error ?? null,
-      responseKeys: relatedRaw.data ? Object.keys(relatedRaw.data as object) : null,
-      rawData: relatedRaw.data,
+    terms_related_L2: {
+      expandedFrom: relatedL1Raw.slice(0, 3),
+      uniqueNewTerms: relatedL2Flat.filter((t) => !relatedL1Raw.includes(t)).length,
+      sample: relatedL2Flat.slice(0, 10),
     },
+
+    terms_suggested_note: "/v5/terms/suggested?term=... returns only the seed itself at limit=10 — not useful for expansion",
 
     trends_growing: {
+      country,
       interest: interest ?? "none (global)",
-      httpStatus: trendsRaw.length > 0 ? 200 : "no data",
       count: trendsRaw.length,
       sample: trendsRaw.slice(0, 5).map((t) => t.keyword),
     },
 
-    note: "Access token is NEVER logged or returned — only API response payloads are shown above.",
+    estimatedTotal: relatedL1Raw.length + relatedL2Flat.length + trendsRaw.length,
   };
 
   return new Response(JSON.stringify(diag, null, 2), {
@@ -574,7 +554,7 @@ export async function POST(req: NextRequest) {
     articleCountBySeed.set(normalizeKeyword(k), v);
   }
 
-  // ── Determine all interests to fetch trends for ────────────────────────────
+  // ── Determine all interests for trend calls ───────────────────────────────
   const seedInterest = new Map<string, string | null>();
   const allInterestsToFetch = new Set<string>();
 
@@ -583,13 +563,13 @@ export async function POST(req: NextRequest) {
     seedInterest.set(seed, primary);
     if (primary) {
       allInterestsToFetch.add(primary);
-      // Add secondary interests for richer keyword pools
-      const secondaries = SECONDARY_INTERESTS[primary] ?? [];
-      for (const sec of secondaries) allInterestsToFetch.add(sec);
+      for (const sec of SECONDARY_INTERESTS[primary] ?? []) {
+        allInterestsToFetch.add(sec);
+      }
     }
   }
 
-  // ── Fetch trends: global + all unique interests ────────────────────────────
+  // ── Fetch trends upfront: global + all unique interests ───────────────────
   const trendsByInterest = new Map<string | null, TrendItem[]>();
   const globalTrends = await fetchTrendsByInterest(country, null, accessToken);
   trendsByInterest.set(null, globalTrends);
@@ -602,106 +582,96 @@ export async function POST(req: NextRequest) {
     if (i < interestList.length - 1) await sleep(300);
   }
 
-  // Merge ALL interest trends into a single pool per primary interest
-  // (so each seed gets keywords from primary + secondary interests combined)
   function getTrendsForSeed(seed: string): TrendItem[] {
     const primary = seedInterest.get(seed) ?? null;
     const seen = new Set<string>();
     const merged: TrendItem[] = [];
-
-    const addItems = (items: TrendItem[]) => {
+    const add = (items: TrendItem[]) => {
       for (const item of items) {
         const kw = normalizeKeyword(item.keyword);
         if (kw && !seen.has(kw)) { seen.add(kw); merged.push(item); }
       }
     };
-
     if (primary) {
-      addItems(trendsByInterest.get(primary) ?? []);
+      add(trendsByInterest.get(primary) ?? []);
       for (const sec of SECONDARY_INTERESTS[primary] ?? []) {
-        addItems(trendsByInterest.get(sec) ?? []);
+        add(trendsByInterest.get(sec) ?? []);
       }
     } else {
-      addItems(trendsByInterest.get(null) ?? []);
+      add(trendsByInterest.get(null) ?? []);
     }
-
     return merged;
   }
 
-  // ── Process seeds in batches — cache, autocomplete, trends ────────────────
+  // ── Process each seed ─────────────────────────────────────────────────────
   const allResults: SeedEnrichmentResult[] = [];
   const failedSeeds: string[] = [];
-  const BATCH = 3; // smaller batch to avoid rate-limit on autocomplete
+  let relatedApiWorked = false;
 
-  let autocompleteWorked = false;
-
-  for (let i = 0; i < seeds.length; i += BATCH) {
-    const batch = seeds.slice(i, i + BATCH);
-
-    // Process sequentially within each batch (autocomplete calls need gaps)
-    for (const seed of batch) {
-      const cached = await getCached(seed, country);
-      if (cached) {
-        allResults.push({ seed, keywords: cached.keywords, status: "cached" });
-        continue;
-      }
-
-      try {
-        // Autocomplete Level-1 for this seed
-        const l1 = await fetchAutocomplete(seed);
-        if (l1.length > 0) autocompleteWorked = true;
-
-        // Autocomplete Level-2: expand top 5 L1 suggestions
-        const l2Raw: string[] = [];
-        for (const suggestion of l1.slice(0, 5)) {
-          await sleep(150);
-          const sub = await fetchAutocomplete(suggestion);
-          l2Raw.push(...sub);
-        }
-        const l2 = [...new Set(l2Raw.map(normalizeKeyword))];
-
-        if (l2.length > 0) autocompleteWorked = true;
-
-        const trendItems = getTrendsForSeed(seed);
-        const primary = seedInterest.get(seed) ?? null;
-        const hasInterest = primary !== null && (trendsByInterest.get(primary)?.length ?? 0) > 0;
-
-        const keywords = buildKeywordsForSeed(
-          seed,
-          country,
-          l1,
-          l2,
-          trendItems,
-          articleCountBySeed,
-          hasInterest,
-        );
-
-        const hasRealData = keywords.some(
-          (k) => k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED",
-        );
-        if (hasRealData) {
-          await setCached(seed, country, { keywords, cachedAt: Date.now() });
-        }
-
-        allResults.push({ seed, keywords, status: "ok" });
-      } catch (e) {
-        failedSeeds.push(seed);
-        allResults.push({ seed, keywords: [], status: "error", error: String(e) });
-      }
-
-      // Small gap between seeds to be respectful to autocomplete endpoints
-      if (batch.indexOf(seed) < batch.length - 1) await sleep(200);
+  for (const seed of seeds) {
+    const cached = await getCached(seed, country);
+    if (cached) {
+      allResults.push({ seed, keywords: cached.keywords, status: "cached" });
+      continue;
     }
+
+    try {
+      // ── Step 1: L1 related terms from /v5/terms/related ─────────────────
+      const relatedL1 = await fetchTermsRelated(seed, accessToken);
+      if (relatedL1.length > 0) relatedApiWorked = true;
+
+      // ── Step 2: L2 expansion — /v5/terms/related for each top-5 L1 term ─
+      const relatedL2Raw: string[] = [];
+      for (const l1Term of relatedL1.slice(0, 5)) {
+        await sleep(300);
+        const sub = await fetchTermsRelated(l1Term, accessToken);
+        relatedL2Raw.push(...sub);
+        if (sub.length > 0) relatedApiWorked = true;
+      }
+      // Deduplicate L2, removing anything already in L1 (done in buildKeywords via seen-set)
+      const relatedL2 = [...new Set(relatedL2Raw.map(normalizeKeyword))];
+
+      // ── Step 3: Trend items (country-specific) ───────────────────────────
+      const trendItems = getTrendsForSeed(seed);
+      const primary = seedInterest.get(seed) ?? null;
+      const hasInterest = primary !== null && (trendsByInterest.get(primary)?.length ?? 0) > 0;
+
+      // ── Step 4: Build combined keyword list ──────────────────────────────
+      const keywords = buildKeywordsForSeed(
+        seed,
+        country,
+        relatedL1,
+        relatedL2,
+        trendItems,
+        articleCountBySeed,
+        hasInterest,
+      );
+
+      const hasRealData = keywords.some(
+        (k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_API",
+      );
+      if (hasRealData) {
+        await setCached(seed, country, { keywords, cachedAt: Date.now() });
+      }
+
+      allResults.push({ seed, keywords, status: "ok" });
+    } catch (e) {
+      failedSeeds.push(seed);
+      allResults.push({ seed, keywords: [], status: "error", error: String(e) });
+    }
+
+    // Rate-limit gap between seeds
+    if (seeds.indexOf(seed) < seeds.length - 1) await sleep(300);
   }
 
   // ── Build response metrics ─────────────────────────────────────────────────
-  const allPinterestKws = allResults.flatMap((r) => r.keywords).filter(
-    (k) => k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED",
+  const allRealKws = allResults.flatMap((r) => r.keywords).filter(
+    (k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_API",
   );
-  const uniqueKwSet = new Set(allPinterestKws.map((k) => normalizeKeyword(k.keyword)));
-  const suggestedCount = allPinterestKws.filter((k) => k.source === "PINTEREST_SUGGESTED").length;
-  const trendingCount = allPinterestKws.filter((k) => k.source === "PINTEREST_API").length;
-  const withMetrics = allPinterestKws.filter(
+  const uniqueKwSet = new Set(allRealKws.map((k) => normalizeKeyword(k.keyword)));
+  const relatedCount = allRealKws.filter((k) => k.source === "PINTEREST_RELATED").length;
+  const trendingCount = allRealKws.filter((k) => k.source === "PINTEREST_API").length;
+  const withMetrics = allRealKws.filter(
     (k) => k.weeklyChange !== null || k.monthlyChange !== null,
   );
 
@@ -709,19 +679,18 @@ export async function POST(req: NextRequest) {
     country,
     websiteKeywords: seeds.length,
     pinterestEnriched: allResults.filter((r) => r.status === "ok" || r.status === "cached").length,
-    pinterestSuggestions: allPinterestKws.length,
+    pinterestSuggestions: allRealKws.length,
     uniquePinterestKeywords: uniqueKwSet.size,
     metricsAvailable: withMetrics.length,
-    suggestedTermsCount: suggestedCount,
+    relatedTermsCount: relatedCount,
     trendingTermsCount: trendingCount,
     totalUniqueKeywords: uniqueKwSet.size,
     results: allResults,
     failedSeeds,
     _debug: {
-      adAccountId: null,
-      trendsCount: globalTrends.length,
       interestsFetched: interestList,
-      autocompleteWorking: autocompleteWorked,
+      relatedApiWorking: relatedApiWorked,
+      trendsCount: globalTrends.length,
     },
   };
 

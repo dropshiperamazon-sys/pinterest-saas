@@ -827,7 +827,7 @@ export default function KeywordsPage() {
         const data = await res.json();
         const allKws: { keyword: string; weeklyChange: number | null; monthlyChange: number | null; keywordType: string }[] =
           (data.results ?? []).flatMap((r: { keywords: { keyword: string; weeklyChange: number | null; monthlyChange: number | null; keywordType: string; source: string }[] }) =>
-            r.keywords.filter((k) => k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED")
+            r.keywords.filter((k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED")
           );
         if (allKws.length > 0) {
           const matchTypes: Array<"exact"|"phrase"|"broad"> = ["exact", "phrase", "broad"];
