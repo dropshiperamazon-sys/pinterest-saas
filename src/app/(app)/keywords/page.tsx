@@ -740,6 +740,7 @@ export default function KeywordsPage() {
   const [saved, setSaved] = useState<Set<string>>(new Set());
   const [isLive, setIsLive] = useState(false);
   const [trendingOpen, setTrendingOpen] = useState(false);
+  const [searchRegion, setSearchRegion] = useState("US");
 
   // AI Intelligence state
   const [aiAnalysis, setAiAnalysis] = useState<KeywordIntelligenceResult | null>(null);
@@ -817,18 +818,25 @@ export default function KeywordsPage() {
       .catch(() => {})
       .finally(() => setLoadingSuggestions(false));
     try {
-      const res = await fetch(`/api/pinterest-keywords?q=${encodeURIComponent(q.trim())}`);
+      const res = await fetch("/api/keyword-extractor/pinterest-enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords: [q.trim()], country: searchRegion }),
+      });
       if (res.ok) {
         const data = await res.json();
-        const items: { keyword: string; monthlySearches: number | null; competition: string | null; suggestedBid: number | null }[] = data.keywords ?? [];
-        if (items.length > 0) {
+        const allKws: { keyword: string; weeklyChange: number | null; monthlyChange: number | null; keywordType: string }[] =
+          (data.results ?? []).flatMap((r: { keywords: { keyword: string; weeklyChange: number | null; monthlyChange: number | null; keywordType: string; source: string }[] }) =>
+            r.keywords.filter((k) => k.source === "PINTEREST_API")
+          );
+        if (allKws.length > 0) {
           const matchTypes: Array<"exact"|"phrase"|"broad"> = ["exact", "phrase", "broad"];
-          const mapped: KeywordResult[] = items.map((k, i) => ({
+          const mapped: KeywordResult[] = allKws.map((k, i) => ({
             keyword: k.keyword,
-            volume: k.monthlySearches ?? 0,
-            trend: Math.round((Math.random() * 60) - 15),
-            competition: (["low","medium","high"].includes(k.competition ?? "") ? k.competition as "low"|"medium"|"high" : "medium"),
-            cpc: k.suggestedBid ?? 0.5,
+            volume: 0,
+            trend: k.weeklyChange ?? k.monthlyChange ?? 0,
+            competition: "medium" as const,
+            cpc: 0,
             matchType: matchTypes[i % 3],
             category: q,
           }));
@@ -841,7 +849,7 @@ export default function KeywordsPage() {
     } catch { /* fall through */ }
     setResults(generateKeywords(q));
     setLoading(false);
-  }, [runAIAnalysis]);
+  }, [runAIAnalysis, searchRegion]);
 
   const handleCategoryClick = (catId: string, catName: string) => {
     if (expandedCategory === catId) { setExpandedCategory(null); return; }
