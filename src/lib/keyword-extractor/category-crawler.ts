@@ -203,9 +203,10 @@ function looksLikeArticle(url: string, baseDomain: string): boolean {
     if (/\/(wp-admin|wp-json|wp-content|feed|rss|api|cdn|assets|static|images|img|fonts|tag|tags|author|search|login|signup|register|cart|checkout|account|sitemap)\//i.test(path)) return false;
     if (/\/(page\/\d+|p\/\d+)\/?$/i.test(path)) return false;
     const segments = path.split("/").filter(Boolean);
-    if (segments.length < 2) return false;
+    if (segments.length < 1) return false;
     const slug = segments.at(-1) ?? "";
-    // Must have a descriptive slug (has hyphens or is long) or be a numeric ID with a parent slug
+    // WordPress flat structure: /post-title/ has 1 segment but is still an article
+    // Must have a descriptive slug (has hyphens or is long) or be a numeric ID
     return slug.includes("-") || slug.length > 12 || /^\d+$/.test(slug);
   } catch {
     return false;
