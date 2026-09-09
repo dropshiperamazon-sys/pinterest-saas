@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Loader2, XCircle, CheckCircle, AlertTriangle,
@@ -96,6 +96,14 @@ const INTENT_COLORS: Record<KeywordIntent, string> = {
 // ── Main page ────────────────────────────────────────────────────────────────
 
 export default function PinSEOAuditPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-32"><Loader2 className="w-7 h-7 animate-spin text-red-400" /></div>}>
+      <PinSEOAuditContent />
+    </Suspense>
+  );
+}
+
+function PinSEOAuditContent() {
   const router = useRouter();
   const params = useSearchParams();
   const pinId = params.get("id");

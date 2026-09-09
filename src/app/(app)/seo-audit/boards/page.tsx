@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -60,6 +60,14 @@ function ScoreBar({ score }: { score: number }) {
 }
 
 export default function BoardsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-32"><Loader2 className="w-7 h-7 animate-spin text-red-400" /></div>}>
+      <BoardsContent />
+    </Suspense>
+  );
+}
+
+function BoardsContent() {
   const router = useRouter();
   const params = useSearchParams();
   const boardId = params.get("id");

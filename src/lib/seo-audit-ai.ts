@@ -3,9 +3,6 @@
 import OpenAI from "openai";
 import type { PinSEOInput } from "./seo-audit-engine";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
-
 export interface AISEOSuggestions {
   titles: string[];
   descriptions: string[];
@@ -14,6 +11,8 @@ export interface AISEOSuggestions {
 }
 
 export async function generateSEOSuggestions(input: PinSEOInput): Promise<AISEOSuggestions> {
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
   const prompt = `You are a Pinterest SEO expert. Given the following pin data, generate optimized suggestions.
 
 Pin Data:
