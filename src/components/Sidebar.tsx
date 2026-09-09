@@ -34,12 +34,15 @@ const NAV_ITEMS = [
   { href: "/admin/keywords", icon: Database, label: "Keyword Admin" },
 ];
 
+const ADMIN_NAV_HREFS = new Set(["/admin/keywords"]);
+
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { data: session } = useSession();
   const [pinterestConnected, setPinterestConnected] = useState(false);
   const [pinterestName, setPinterestName] = useState("");
+  const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? "";
 
   useEffect(() => {
     if (!session) return;
@@ -74,7 +77,10 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 p-4 space-y-1">
-        {NAV_ITEMS.map(({ href, icon: Icon, label }) => {
+        {NAV_ITEMS.filter(({ href }) => {
+          if (!ADMIN_NAV_HREFS.has(href)) return true;
+          return session?.user?.email === adminEmail && !!adminEmail;
+        }).map(({ href, icon: Icon, label }) => {
           const active = pathname === href || (href !== "/" && pathname.startsWith(href));
           return (
             <Link
