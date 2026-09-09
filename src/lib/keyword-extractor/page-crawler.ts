@@ -8,9 +8,11 @@ export interface PageMeta {
   url: string;
   title: string;
   h1: string;
-  headings: string;      // concatenated H2/H3 text
+  headings: string;        // concatenated H2/H3 text
   metaDescription: string;
-  bodySnippet: string;   // first ~500 chars of visible body text
+  bodySnippet: string;     // first ~500 chars of visible body text
+  datePublished?: string;  // ISO date string if found
+  dateModified?: string;
 }
 
 function extractTag(html: string, pattern: RegExp): string {
@@ -30,8 +32,22 @@ function decodeEntities(str: string): string {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
 }
 
+// Extract a date field from JSON-LD blocks (datePublished / dateModified)
+function extractDate(html: string, field: string): string | undefined {
+  const regex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(html)) !== null) {
+    try {
+      const json = JSON.parse(m[1]) as Record<string, unknown>;
+      const val = json[field];
+      if (typeof val === "string" && val) return val;
+    } catch { /* */ }
+  }
+  return undefined;
+}
+
 export async function fetchPageMeta(url: string): Promise<PageMeta> {
-  const empty: PageMeta = { url, title: "", h1: "", headings: "", metaDescription: "", bodySnippet: "" };
+  const empty: PageMeta = { url, title: "", h1: "", headings: "", metaDescription: "", bodySnippet: "", datePublished: undefined, dateModified: undefined };
   try {
     const res = await fetch(url, {
       headers: {
@@ -90,7 +106,14 @@ export async function fetchPageMeta(url: string): Promise<PageMeta> {
           .slice(0, 500)
       : "";
 
-    return { url, title, h1, headings, metaDescription, bodySnippet };
+    // Extract dates — check meta tags, JSON-LD, and og tags
+    const datePublished = extractDate(html, "datePublished") ||
+      extractTag(html, /<meta[^>]*property=["']article:published_time["'][^>]*content=["']([^"']*)/i) ||
+      extractTag(html, /<meta[^>]*name=["']publish[_-]?date["'][^>]*content=["']([^"']*)/i) || undefined;
+    const dateModified = extractDate(html, "dateModified") ||
+      extractTag(html, /<meta[^>]*property=["']article:modified_time["'][^>]*content=["']([^"']*)/i) || undefined;
+
+    return { url, title, h1, headings, metaDescription, bodySnippet, datePublished, dateModified };
   } catch {
     return empty;
   }

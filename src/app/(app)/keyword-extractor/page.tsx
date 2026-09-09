@@ -6,8 +6,8 @@ import {
   Lightbulb, ExternalLink, Filter, SlidersHorizontal, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CATEGORIES, relevanceLabel } from "@/lib/keyword-extractor/relevance-engine";
-import type { ExtractedKeyword, ExtractResponse } from "@/app/api/keyword-extractor/extract/route";
+import { relevanceLabel } from "@/lib/keyword-extractor/relevance-engine";
+import type { ExtractedKeyword, ExtractResponse, DateFilter } from "@/app/api/keyword-extractor/extract/route";
 import type { ContentIdea } from "@/lib/keyword-extractor/content-idea-generator";
 
 const INTENT_COLORS: Record<string, string> = {
@@ -17,6 +17,15 @@ const INTENT_COLORS: Record<string, string> = {
   Transactional: "bg-green-100 text-green-700",
   Educational: "bg-indigo-100 text-indigo-700",
 };
+
+const DATE_FILTER_OPTIONS: { value: DateFilter; label: string }[] = [
+  { value: "all", label: "All time" },
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "90d", label: "Last 90 days" },
+  { value: "6m", label: "Last 6 months" },
+  { value: "1y", label: "Last year" },
+];
 
 function RelevanceBadge({ score }: { score: number }) {
   const { label, color } = relevanceLabel(score);
@@ -35,10 +44,10 @@ type SortField = "keyword" | "relevance" | "url";
 type SortDir = "asc" | "desc";
 
 export default function KeywordExtractorPage() {
-  const [url, setUrl] = useState("");
-  const [category, setCategory] = useState("");
-  const [customCategory, setCustomCategory] = useState("");
-  const [urlError, setUrlError] = useState<string | null>(null);
+  const [domain, setDomain] = useState("");
+  const [topic, setTopic] = useState("");
+  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+  const [domainError, setDomainError] = useState<string | null>(null);
   const [threshold, setThreshold] = useState(65);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 20;
@@ -48,8 +57,7 @@ export default function KeywordExtractorPage() {
   const [results, setResults] = useState<ExtractedKeyword[] | null>(null);
   const [stats, setStats] = useState<{
     totalUrls: number; totalArticles: number; stage1Candidates: number;
-    stage2Fetched: number; categoryPageLinks: number; paginationPagesVisited: number;
-    sitemaps: string[];
+    stage2Fetched: number; homepageLinks: number; sitemaps: string[];
   } | null>(null);
 
   const [search, setSearch] = useState("");
@@ -62,23 +70,21 @@ export default function KeywordExtractorPage() {
   const [ideaError, setIdeaError] = useState<string | null>(null);
   const [ideas, setIdeas] = useState<ContentIdea[] | null>(null);
 
-  const effectiveCategory = category === "Other" ? customCategory || "Other" : category;
-
-  function validateUrl(val: string): boolean {
+  function validateDomain(val: string): boolean {
     try {
       const u = new URL(val.startsWith("http") ? val : `https://${val}`);
-      if (!["http:", "https:"].includes(u.protocol)) { setUrlError("URL must start with http:// or https://"); return false; }
-      setUrlError(null);
+      if (!["http:", "https:"].includes(u.protocol)) { setDomainError("URL must start with http:// or https://"); return false; }
+      setDomainError(null);
       return true;
     } catch {
-      setUrlError("Please enter a valid website URL");
+      setDomainError("Please enter a valid website domain");
       return false;
     }
   }
 
   async function handleExtract() {
-    if (!validateUrl(url)) return;
-    if (!effectiveCategory) { setUrlError("Please select a category"); return; }
+    if (!validateDomain(domain)) return;
+    if (!topic.trim()) { setDomainError("Keyword / Topic is required"); return; }
 
     setExtracting(true);
     setExtractError(null);
@@ -93,7 +99,7 @@ export default function KeywordExtractorPage() {
       const res = await fetch("/api/keyword-extractor/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, category: effectiveCategory, topic: effectiveCategory }),
+        body: JSON.stringify({ domain, topic: topic.trim(), dateFilter }),
       });
       const data: ExtractResponse & { error?: string } = await res.json();
       if (data.error) {
@@ -105,13 +111,12 @@ export default function KeywordExtractorPage() {
           totalArticles: data.totalArticles,
           stage1Candidates: data.stage1Candidates ?? 0,
           stage2Fetched: data.stage2Fetched ?? 0,
-          categoryPageLinks: data.categoryPageLinks ?? 0,
-          paginationPagesVisited: data.paginationPagesVisited ?? 0,
+          homepageLinks: data.homepageLinks ?? 0,
           sitemaps: data.sitemapsFound ?? [],
         });
       }
     } catch {
-      setExtractError("Request failed. Please check the URL and try again.");
+      setExtractError("Request failed. Please check the domain and try again.");
     } finally {
       setExtracting(false);
     }
@@ -131,7 +136,7 @@ export default function KeywordExtractorPage() {
       const res = await fetch("/api/keyword-extractor/generate-ideas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywords, urls, category: effectiveCategory }),
+        body: JSON.stringify({ keywords, urls, category: topic.trim() }),
       });
       const data = await res.json();
       if (data.error) setIdeaError(data.error);
@@ -143,7 +148,6 @@ export default function KeywordExtractorPage() {
     }
   }
 
-  // All filtered+sorted rows (not paginated)
   const tableData = useMemo(() => {
     if (!results) return [];
     let data = results.filter((r) => r.relevance >= threshold);
@@ -162,7 +166,6 @@ export default function KeywordExtractorPage() {
     });
   }, [results, search, sortField, sortDir, threshold]);
 
-  // Current page slice for display
   const totalPages = Math.max(1, Math.ceil(tableData.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageData = tableData.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -192,7 +195,6 @@ export default function KeywordExtractorPage() {
   }
 
   function toggleSelectAll() {
-    // Select/deselect all on current page only
     const pageUrls = new Set(pageData.map((r) => r.url));
     const allPageSelected = pageData.every((r) => selected.has(r.url));
     setSelected((prev) => {
@@ -250,7 +252,7 @@ export default function KeywordExtractorPage() {
         <Globe className="w-7 h-7 text-red-500" />
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Keyword Extractor</h1>
-          <p className="text-sm text-gray-500">Extract keywords from any competitor website sitemap</p>
+          <p className="text-sm text-gray-500">Find relevant articles from any public website by topic</p>
         </div>
       </div>
 
@@ -275,46 +277,45 @@ export default function KeywordExtractorPage() {
       <div className="bg-white border border-gray-200 rounded-xl p-6 mb-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Competitor Website URL</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Website Domain</label>
             <input
               type="text"
-              value={url}
-              onChange={(e) => { setUrl(e.target.value); setUrlError(null); }}
+              value={domain}
+              onChange={(e) => { setDomain(e.target.value); setDomainError(null); }}
               placeholder="https://example.com"
               className={cn(
                 "w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300",
-                urlError ? "border-red-300" : "border-gray-200"
+                domainError ? "border-red-300" : "border-gray-200"
               )}
             />
-            {urlError && <p className="text-xs text-red-500 mt-1">{urlError}</p>}
+            {domainError && <p className="text-xs text-red-500 mt-1">{domainError}</p>}
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Category / Niche</label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-300"
-            >
-              <option value="">Select a category…</option>
-              {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Keyword / Topic <span className="text-red-500">*</span></label>
+            <input
+              type="text"
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              placeholder="e.g. kitchen decor, fitness, personal finance…"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+            />
+            <p className="text-xs text-gray-400 mt-1">Enter any keyword or topic. We&apos;ll analyze the public website and find relevant articles.</p>
           </div>
         </div>
 
-        {category === "Other" && (
-          <div className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Custom Topic</label>
-            <input
-              type="text"
-              value={customCategory}
-              onChange={(e) => setCustomCategory(e.target.value)}
-              placeholder="e.g. Pet Care, Photography, Finance…"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
-            />
-            <p className="text-xs text-gray-400 mt-1">The AI will understand any topic — be as specific as you like.</p>
-          </div>
-        )}
+        <div className="mb-4">
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Date Filter</label>
+          <select
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value as DateFilter)}
+            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-300"
+          >
+            {DATE_FILTER_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        </div>
 
         {/* Threshold control */}
         <div className="mb-4 flex items-center gap-4 bg-gray-50 rounded-lg px-4 py-3">
@@ -343,7 +344,7 @@ export default function KeywordExtractorPage() {
 
         <button
           onClick={handleExtract}
-          disabled={extracting || !url || !category}
+          disabled={extracting || !domain || !topic.trim()}
           className="flex items-center gap-2 px-6 py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {extracting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
@@ -363,16 +364,14 @@ export default function KeywordExtractorPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <StatCard label="URLs Found" value={stats?.totalUrls ?? 0} />
             <StatCard label="Article URLs" value={stats?.totalArticles ?? 0} />
-            <StatCard label="Relevant Articles" value={tableData.length} />
+            <StatCard label="Stage 2 Fetched" value={stats?.stage2Fetched ?? 0} />
             <StatCard label={`Shown (≥${threshold})`} value={tableData.length} highlight />
           </div>
 
-          {/* Debug / discovery details */}
           {stats && (
             <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-700 space-y-0.5">
               <div className="font-semibold mb-1">Discovery summary</div>
-              <div>Sitemaps used: {stats.sitemaps.length} · Sitemap URLs: {stats.totalUrls - stats.categoryPageLinks}</div>
-              <div>Category page article links: {stats.categoryPageLinks} · Pagination pages visited: {stats.paginationPagesVisited}</div>
+              <div>Sitemaps used: {stats.sitemaps.length} · Homepage links: {stats.homepageLinks}</div>
               <div>Stage 1 candidates (slug filter): {stats.stage1Candidates} · Stage 2 fetched: {stats.stage2Fetched}</div>
               <div>Total unique URLs: {stats.totalUrls} · Article candidates: {stats.totalArticles}</div>
             </div>
@@ -380,17 +379,21 @@ export default function KeywordExtractorPage() {
 
           {stats?.sitemaps && stats.sitemaps.length > 0 && (
             <div className="bg-gray-50 border border-gray-100 rounded-lg px-4 py-2 mb-4 text-xs text-gray-500">
-              Sitemaps: {stats.sitemaps.map((s, i) => (
-                <a key={i} href={s} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline mr-2">{new URL(s).pathname}</a>
-              ))}
+              Sitemaps: {stats.sitemaps.map((s, i) => {
+                try {
+                  return <a key={i} href={s} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline mr-2">{new URL(s).pathname}</a>;
+                } catch {
+                  return <span key={i} className="mr-2">{s}</span>;
+                }
+              })}
             </div>
           )}
 
           {tableData.length === 0 ? (
             <div className="bg-white border border-gray-200 rounded-xl p-10 text-center">
               <AlertTriangle className="w-8 h-8 text-yellow-400 mx-auto mb-3" />
-              <p className="text-gray-600 font-medium">No keywords meet the threshold of {threshold} for "{effectiveCategory}"</p>
-              <p className="text-sm text-gray-400 mt-1">Lower the threshold slider above, or try a different topic / URL.</p>
+              <p className="text-gray-600 font-medium">No keywords meet the threshold of {threshold} for &quot;{topic}&quot;</p>
+              <p className="text-sm text-gray-400 mt-1">Lower the threshold slider above, or try a different topic.</p>
             </div>
           ) : (
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
@@ -460,7 +463,6 @@ export default function KeywordExtractorPage() {
                 </table>
               </div>
 
-              {/* Pagination */}
               {totalPages > 1 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
                   <span className="text-xs text-gray-500">
@@ -472,7 +474,6 @@ export default function KeywordExtractorPage() {
                       <ChevronLeft className="w-4 h-4" />
                     </button>
                     {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                      // Show first, last, and pages around current
                       let pg: number;
                       if (totalPages <= 7) pg = i + 1;
                       else if (i === 0) pg = 1;
@@ -494,7 +495,7 @@ export default function KeywordExtractorPage() {
               )}
 
               {tableData.length === 0 && search && (
-                <div className="p-6 text-center text-sm text-gray-400">No results match "{search}"</div>
+                <div className="p-6 text-center text-sm text-gray-400">No results match &quot;{search}&quot;</div>
               )}
             </div>
           )}
