@@ -453,52 +453,91 @@ export async function GET(req: NextRequest) {
   const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
 
   const url = new URL(req.url);
-  const seed = (url.searchParams.get("q") ?? "room decor aesthetic").trim();
+  const seed = (url.searchParams.get("q") ?? "room decor").trim();
   const country = (url.searchParams.get("country") ?? "US").toUpperCase();
 
-  const interest = seedToInterest(seed);
+  // ── Look up the real ad account ID first ─────────────────────────────────
+  const accountsRaw = await pinterestGetRaw("/ad_accounts?page_size=5", accessToken);
+  const adAccountsData = accountsRaw.data as Record<string, unknown> | null;
+  const adAccounts = Array.isArray(adAccountsData?.items)
+    ? (adAccountsData!.items as Record<string, unknown>[])
+    : [];
+  const adAccountId = (adAccounts[0]?.id as string) ?? null;
 
-  const [relatedL1Raw, trendsRaw] = await Promise.all([
-    fetchTermsRelated(seed, accessToken),
-    fetchTrendsByInterest(country, interest, accessToken),
-  ]);
+  // ── Test the Ads keyword suggestion endpoints with a real query ────────────
+  const adsEndpoints: Record<string, PinterestResponse> = {};
 
-  // L2 expansion: related of top 3 L1 terms
-  const l2Results: Record<string, string[]> = {};
-  for (const term of relatedL1Raw.slice(0, 3)) {
+  if (adAccountId) {
+    const q = encodeURIComponent(seed);
+
+    // Variation 1 — the endpoint we previously tested (returned 404)
+    adsEndpoints["targeting_keywords_suggestions_GET"] = await pinterestGetRaw(
+      `/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${q}&limit=20`,
+      accessToken,
+    );
     await sleep(300);
-    l2Results[term] = await fetchTermsRelated(term, accessToken);
+
+    // Variation 2 — keywords list with query filter (previously returned empty)
+    adsEndpoints["keywords_with_query_GET"] = await pinterestGetRaw(
+      `/ad_accounts/${adAccountId}/keywords?query=${q}&page_size=20`,
+      accessToken,
+    );
+    await sleep(300);
+
+    // Variation 3 — targeting options scoped to KEYWORD type
+    adsEndpoints["targeting_options_keyword_GET"] = await pinterestGetRaw(
+      `/ad_accounts/${adAccountId}/targeting_options?targeting_type=KEYWORD&query=${q}`,
+      accessToken,
+    );
+    await sleep(300);
+
+    // Variation 4 — keyword metrics / volume lookup (batch endpoint)
+    adsEndpoints["keyword_metrics_POST_stub"] = {
+      status: 0,
+      data: null,
+      error: "POST endpoints require body — add ?test_post=1 to trigger",
+    };
   }
-  const relatedL2Flat = [...new Set(Object.values(l2Results).flat())];
+
+  // ── Also test the confirmed-working endpoints ─────────────────────────────
+  const interest = seedToInterest(seed);
+  const relatedL1 = await fetchTermsRelated(seed, accessToken);
+  await sleep(300);
+  const trendsRaw = await fetchTrendsByInterest(country, interest, accessToken);
 
   const diag = {
     seed,
     country,
-    detectedInterest: interest,
+    adAccountId,
+    adAccountsHttpStatus: accountsRaw.status,
 
-    terms_related_L1: {
-      endpoint: `/v5/terms/related?terms=${encodeURIComponent(seed)}`,
-      count: relatedL1Raw.length,
-      terms: relatedL1Raw,
-      note: "Global — no country parameter",
+    ads_keyword_endpoints: Object.fromEntries(
+      Object.entries(adsEndpoints).map(([key, res]) => [
+        key,
+        {
+          httpStatus: res.status,
+          error: res.error ?? null,
+          responseKeys: res.data ? Object.keys(res.data as object) : null,
+          // Full response so we can see the exact shape (no tokens in API responses)
+          rawData: res.data,
+        },
+      ]),
+    ),
+
+    confirmed_working: {
+      terms_related: {
+        endpoint: `/v5/terms/related?terms=${encodeURIComponent(seed)}`,
+        count: relatedL1.length,
+        terms: relatedL1,
+      },
+      trends_growing: {
+        interest: interest ?? "none",
+        count: trendsRaw.length,
+        sample: trendsRaw.slice(0, 5).map((t) => t.keyword),
+      },
     },
 
-    terms_related_L2: {
-      expandedFrom: relatedL1Raw.slice(0, 3),
-      uniqueNewTerms: relatedL2Flat.filter((t) => !relatedL1Raw.includes(t)).length,
-      sample: relatedL2Flat.slice(0, 10),
-    },
-
-    terms_suggested_note: "/v5/terms/suggested?term=... returns only the seed itself at limit=10 — not useful for expansion",
-
-    trends_growing: {
-      country,
-      interest: interest ?? "none (global)",
-      count: trendsRaw.length,
-      sample: trendsRaw.slice(0, 5).map((t) => t.keyword),
-    },
-
-    estimatedTotal: relatedL1Raw.length + relatedL2Flat.length + trendsRaw.length,
+    note: "Token is never returned. This diagnostic is for identifying which ads keyword endpoint is accessible at this API tier.",
   };
 
   return new Response(JSON.stringify(diag, null, 2), {
