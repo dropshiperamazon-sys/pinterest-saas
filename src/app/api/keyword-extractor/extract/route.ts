@@ -8,9 +8,8 @@ import { buildTopicProfile } from "@/lib/keyword-extractor/topic-profiler";
 import { fetchPageMetaBatch } from "@/lib/keyword-extractor/page-crawler";
 import type { SitemapURL } from "@/lib/keyword-extractor/sitemap-service";
 
-const STAGE1_THRESHOLD = 5;   // very low — full-page scoring decides relevance
 const STAGE2_CONCURRENCY = 5;
-const MAX_STAGE2_URLS = 300;  // max page fetches per request
+const MAX_STAGE2_URLS = 500;  // max page fetches per request
 
 export type DateFilter = "all" | "7d" | "30d" | "90d" | "6m" | "1y";
 
@@ -156,9 +155,12 @@ export async function POST(req: NextRequest) {
     : articleUrls;
   console.log(`[keyword-extractor] After date filter: ${dateFiltered.length}`);
 
-  // ── Stage 1: URL slug score ──────────────────────────────────────────────────
-  const stage1Passed = dateFiltered.filter((u) => scoreUrlOnly(u.loc, profile) >= STAGE1_THRESHOLD);
-  console.log(`[keyword-extractor] Stage 1 passed: ${stage1Passed.length} | Rejected: ${dateFiltered.length - stage1Passed.length}`);
+  // ── Stage 1: URL slug pre-score (boost, not filter) ─────────────────────────
+  // Sort by slug relevance so the most promising URLs are fetched first when capped.
+  const withSlugScore = dateFiltered.map((u) => ({ u, s: scoreUrlOnly(u.loc, profile) }));
+  withSlugScore.sort((a, b) => b.s - a.s);
+  const stage1Passed = withSlugScore.map((x) => x.u);
+  console.log(`[keyword-extractor] Stage 1 candidates (sorted by slug score): ${stage1Passed.length}`);
 
   // ── Stage 2: Fetch page meta ─────────────────────────────────────────────────
   const candidateUrls = stage1Passed.slice(0, MAX_STAGE2_URLS).map((u) => u.loc);
