@@ -33,7 +33,7 @@ const redis = new Redis({
 
 const BASE = "https://api.pinterest.com/v5";
 const CACHE_TTL = 60 * 60 * 24; // 24 hours
-const CACHE_VERSION = "v6";      // bumped: now uses /terms/related as primary source
+const CACHE_VERSION = "v7";      // bumped: removed secondary interests (cross-interest trending)
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -237,22 +237,10 @@ const INTEREST_PATTERNS: { pattern: RegExp; interest: string }[] = [
   },
 ];
 
-const SECONDARY_INTERESTS: Partial<Record<string, string[]>> = {
-  home_decor:        ["diy_and_crafts", "art"],
-  womens_fashion:    ["beauty"],
-  beauty:            ["womens_fashion"],
-  food_and_drinks:   ["parenting"],
-  diy_and_crafts:    ["home_decor"],
-  wedding:           ["beauty", "womens_fashion"],
-  sport:             [],
-  travel:            [],
-  parenting:         [],
-  animals:           [],
-  electronics:       [],
-  business_strategy: ["education"],
-  education:         [],
-  entertainment:     [],
-};
+// Secondary interests removed — cross-interest trend fetching caused off-topic
+// keywords (e.g. "diy_and_crafts" added "grandparents day crafts" and "art"
+// added "dolly parton drawing" to a "room decor" seed). Using only the primary
+// matched interest keeps trending results topically relevant.
 
 function seedToInterest(seed: string): string | null {
   const lower = seed.toLowerCase();
@@ -602,9 +590,6 @@ export async function POST(req: NextRequest) {
     seedInterest.set(seed, primary);
     if (primary) {
       allInterestsToFetch.add(primary);
-      for (const sec of SECONDARY_INTERESTS[primary] ?? []) {
-        allInterestsToFetch.add(sec);
-      }
     }
   }
 
@@ -633,9 +618,6 @@ export async function POST(req: NextRequest) {
     };
     if (primary) {
       add(trendsByInterest.get(primary) ?? []);
-      for (const sec of SECONDARY_INTERESTS[primary] ?? []) {
-        add(trendsByInterest.get(sec) ?? []);
-      }
     } else {
       add(trendsByInterest.get(null) ?? []);
     }
