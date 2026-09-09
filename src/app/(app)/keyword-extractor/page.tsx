@@ -372,7 +372,7 @@ export default function KeywordExtractorPage() {
                   >
                     All clusters
                   </button>
-                  {data.clusters.map((c) => (
+                  {data.clusters.filter((c) => c.totalArticles >= 2).map((c) => (
                     <button
                       key={c.name}
                       onClick={() => { setClusterFilter(c.name === clusterFilter ? null : c.name); setArticlePage(1); setKwPage(1); }}
@@ -707,19 +707,26 @@ function Pagination({ page, total, onChange, showing }: { page: number; total: n
           className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40">
           <ChevronLeft className="w-4 h-4" />
         </button>
-        {Array.from({ length: Math.min(total, 7) }, (_, i) => {
-          let pg: number;
-          if (total <= 7) pg = i + 1;
-          else if (i === 0) pg = 1;
-          else if (i === 6) pg = total;
-          else pg = Math.max(2, Math.min(total - 1, page - 2 + i));
-          return (
-            <button key={pg} onClick={() => onChange(pg)}
-              className={cn("w-7 h-7 text-xs rounded", pg === page ? "bg-red-500 text-white" : "hover:bg-gray-100 text-gray-600")}>
-              {pg}
-            </button>
+        {(() => {
+          const pages: (number | "…")[] =
+            total <= 7
+              ? Array.from({ length: total }, (_, i) => i + 1)
+              : page <= 4
+              ? [1, 2, 3, 4, 5, "…", total]
+              : page >= total - 3
+              ? [1, "…", total - 4, total - 3, total - 2, total - 1, total]
+              : [1, "…", page - 1, page, page + 1, "…", total];
+          return pages.map((pg, i) =>
+            pg === "…" ? (
+              <span key={`ellipsis-${i}`} className="w-7 h-7 flex items-center justify-center text-xs text-gray-400">…</span>
+            ) : (
+              <button key={pg} onClick={() => onChange(pg as number)}
+                className={cn("w-7 h-7 text-xs rounded", pg === page ? "bg-red-500 text-white" : "hover:bg-gray-100 text-gray-600")}>
+                {pg}
+              </button>
+            )
           );
-        })}
+        })()}
         <button onClick={() => onChange(Math.min(total, page + 1))} disabled={page === total}
           className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40">
           <ChevronRight className="w-4 h-4" />

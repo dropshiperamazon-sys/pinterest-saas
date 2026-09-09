@@ -15,6 +15,15 @@ const FILLER_WORDS = new Set([
   "would","could","should","may","might","shall","is","are","was","were","be",
   "been","have","has","had","and","or","but","for","nor","so","yet",
   "a","an","the","of","in","on","at","to","by","as","it","up","out","into",
+  // common verbs/prepositions/quantifiers that slip through stop-word filtering
+  "much","many","move","moved","moving","choose","chosen","pick","keep","work",
+  "works","working","look","looks","looking","help","helps","start","starts",
+  "add","adds","turn","turns","become","makes","take","takes","show","shows",
+  "give","gives","avoid","check","create","build","bring","feel","feel",
+  "need","needs","want","wants","help","helps","tell","tells","let","lets",
+  "come","goes","stay","stays","gone","done","said","seen","made","gave",
+  "just","also","even","still","never","always","really","very","quite",
+  "well","much","less","more","some","any","few","only","then","than",
 ]);
 
 const STOP_WORDS = new Set([
@@ -147,14 +156,14 @@ function extractSecondaryFromHeadings(headings: string, primary: string): string
 
 function deriveCluster(primary: string): string {
   const words = primary.toLowerCase().split(/\s+/).filter(Boolean);
-  // Find the most informative non-filler word
-  // Prefer nouns in the middle (not "ideas", "tips", "guide" etc. at the end)
+  // Pick the longest non-filler, non-stop word — longer words are more specific nouns
+  let best = "";
   for (const w of words) {
     if (!FILLER_WORDS.has(w) && !STOP_WORDS.has(w) && w.length >= 4) {
-      // Capitalize
-      return w.charAt(0).toUpperCase() + w.slice(1);
+      if (w.length > best.length) best = w;
     }
   }
+  if (best) return best.charAt(0).toUpperCase() + best.slice(1);
   return words[0]
     ? words[0].charAt(0).toUpperCase() + words[0].slice(1)
     : "General";
