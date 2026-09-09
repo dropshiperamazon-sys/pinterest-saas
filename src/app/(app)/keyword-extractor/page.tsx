@@ -69,6 +69,8 @@ export default function KeywordExtractorPage() {
     candidateArticles: number;
     stage2Fetched: number;
     homepageLinks: number;
+    urlsFromSitemaps: number;
+    sitemapsProcessed: number;
     sitemaps: string[];
   } | null>(null);
 
@@ -157,6 +159,8 @@ export default function KeywordExtractorPage() {
                 candidateArticles: data.candidateArticles ?? data.stage2Fetched ?? 0,
                 stage2Fetched: data.stage2Fetched ?? 0,
                 homepageLinks: data.homepageLinks ?? 0,
+                urlsFromSitemaps: data.urlsFromSitemaps ?? 0,
+                sitemapsProcessed: data.sitemapsProcessed ?? 0,
                 sitemaps: data.sitemapsFound ?? [],
               });
               setProgress(null);
@@ -459,8 +463,8 @@ export default function KeywordExtractorPage() {
           {stats && (
             <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-700 space-y-0.5">
               <div className="font-semibold mb-1">Discovery summary</div>
-              <div>Sitemaps used: {stats.sitemaps.length} · Sitemap URLs: {(stats.totalUrls - stats.homepageLinks).toLocaleString()} · Homepage supplemental links: {stats.homepageLinks}</div>
-              <div>Total unique URLs: {stats.totalUrls.toLocaleString()} · Article candidates: {stats.totalArticles.toLocaleString()} · Analyzed: {stats.stage2Fetched}</div>
+              <div>Sitemap Files Discovered: <strong>{stats.sitemaps.length}</strong> · Sitemap Files Processed: <strong>{stats.sitemapsProcessed}</strong> · URLs From Sitemaps: <strong>{stats.urlsFromSitemaps.toLocaleString()}</strong></div>
+              <div>Homepage/Internal Links: <strong>{stats.homepageLinks}</strong> · Total Unique URLs: <strong>{stats.totalUrls.toLocaleString()}</strong> · Article Candidates: <strong>{stats.totalArticles.toLocaleString()}</strong></div>
             </div>
           )}
 

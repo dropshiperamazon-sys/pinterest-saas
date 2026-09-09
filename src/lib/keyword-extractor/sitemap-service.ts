@@ -7,65 +7,133 @@ export interface SitemapURL {
 }
 
 export interface SitemapProgress {
-  sitemapsFound: number;
-  urlsCollected: number;
+  sitemapsDiscovered: number;
+  sitemapsProcessed: number;
+  urlsFromSitemaps: number;
   message: string;
 }
 
-const FETCH_TIMEOUT = 10_000;
-const MAX_CHILD_SITEMAPS = 60;
-const MAX_URLS_PER_SITEMAP = 10_000;
-const MAX_TOTAL_URLS = 30_000;
+const FETCH_TIMEOUT = 12_000;
+const MAX_SITEMAPS_TO_PROCESS = 100;   // max sitemap files to fetch
+const MAX_URLS_PER_SITEMAP = 15_000;   // per individual sitemap file
+const MAX_TOTAL_URLS = 50_000;         // hard ceiling across all sitemaps
 
-async function fetchText(url: string): Promise<string | null> {
+async function fetchText(url: string): Promise<{ text: string; finalUrl: string } | null> {
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; KeywordExtractorBot/1.0; +https://mypinpro.com/bot)" },
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; KeywordExtractorBot/1.0; +https://mypinpro.com/bot)",
+        "Accept": "application/xml, text/xml, */*",
+      },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
+      redirect: "follow",
     });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
+    if (!res.ok) {
+      console.log(`[sitemap] SKIP ${url} → HTTP ${res.status}`);
+      return null;
+    }
+    const text = await res.text();
+    // Strip UTF-8 BOM if present
+    const cleaned = text.startsWith("﻿") ? text.slice(1) : text;
+    const trimmed = cleaned.trim();
+    if (!trimmed.startsWith("<") && !trimmed.startsWith("<?")) {
+      console.log(`[sitemap] SKIP ${url} → not XML (starts with: ${JSON.stringify(trimmed.slice(0, 30))})`);
+      return null;
+    }
+    return { text: cleaned, finalUrl: res.url ?? url };
+  } catch (err) {
+    console.log(`[sitemap] SKIP ${url} → ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
 
-function parseLocTags(xml: string): string[] {
+// Parse <loc> tags from either a sitemapindex or a urlset
+function parseLocEntries(xml: string): string[] {
   const locs: string[] = [];
-  const regex = /<loc>\s*(.*?)\s*<\/loc>/gi;
+  // Use multiline-safe regex: \s* handles newlines around the URL
+  const regex = /<loc[\s>][^<]*>([\s\S]*?)<\/loc>/gi;
   let m: RegExpExecArray | null;
   while ((m = regex.exec(xml)) !== null) {
-    const url = m[1].trim().replace(/&amp;/g, "&");
-    if (url) locs.push(url);
+    const url = m[1].trim().replace(/&amp;/g, "&").replace(/\s+/g, "");
+    if (url && url.startsWith("http")) locs.push(url);
   }
   return locs;
 }
 
-function isSitemapIndex(xml: string): boolean {
-  return /<sitemapindex/i.test(xml);
+// Is this XML document a sitemapindex (vs a urlset)?
+function detectSitemapType(xml: string): "index" | "urlset" | "unknown" {
+  const head = xml.slice(0, 2000).toLowerCase();
+  if (/<sitemapindex[\s>]/i.test(head)) return "index";
+  if (/<urlset[\s>]/i.test(head)) return "urlset";
+  // Fallback: if it has <sitemap> children it's an index, if <url> children it's a urlset
+  if (/<sitemap[\s>]/i.test(head)) return "index";
+  if (/<url[\s>]/i.test(head)) return "urlset";
+  return "unknown";
 }
 
+// Parse full URL entries from a urlset (with lastmod/priority)
+function parseUrlsetEntries(xml: string): SitemapURL[] {
+  const urls: SitemapURL[] = [];
+  const urlBlocks = xml.split(/<\/url>/i);
+  let count = 0;
+  for (const block of urlBlocks) {
+    if (count >= MAX_URLS_PER_SITEMAP) break;
+    const locMatch = block.match(/<loc[\s>][^<]*>([\s\S]*?)<\/loc>/i);
+    if (!locMatch) continue;
+    const loc = locMatch[1].trim().replace(/&amp;/g, "&").replace(/\s+/g, "");
+    if (!loc || !loc.startsWith("http")) continue;
+    const lastmodMatch = block.match(/<lastmod[\s>][^<]*>([\s\S]*?)<\/lastmod>/i);
+    const priorityMatch = block.match(/<priority[\s>][^<]*>([\s\S]*?)<\/priority>/i);
+    urls.push({
+      loc,
+      lastmod: lastmodMatch?.[1]?.trim(),
+      priority: priorityMatch?.[1]?.trim(),
+    });
+    count++;
+  }
+  return urls;
+}
+
+// Read robots.txt and extract Sitemap: directives
 async function getSitemapsFromRobots(domain: string): Promise<string[]> {
   const robotsUrl = `${domain}/robots.txt`;
-  const text = await fetchText(robotsUrl);
-  if (!text) return [];
+  console.log(`[sitemap] Fetching robots.txt: ${robotsUrl}`);
+  const result = await fetchText(robotsUrl);
+  if (!result) return [];
   const found: string[] = [];
-  for (const line of text.split("\n")) {
+  for (const line of result.text.split("\n")) {
     const m = line.match(/^Sitemap:\s*(.+)/i);
-    if (m) found.push(m[1].trim());
+    if (m) {
+      const sitemapUrl = m[1].trim();
+      console.log(`[sitemap] robots.txt → Sitemap: ${sitemapUrl}`);
+      found.push(sitemapUrl);
+    }
   }
   return found;
 }
 
-async function discoverSitemaps(domain: string): Promise<string[]> {
-  const candidates = new Set<string>();
+// Build the initial list of sitemap candidates to try
+async function buildSitemapQueue(domain: string): Promise<string[]> {
+  const seen = new Set<string>();
+  const queue: string[] = [];
 
+  const add = (url: string) => {
+    const normalized = url.split("?")[0].replace(/\/$/, "");
+    if (!seen.has(normalized)) {
+      seen.add(normalized);
+      queue.push(url);
+    }
+  };
+
+  // 1. robots.txt — highest priority
   const fromRobots = await getSitemapsFromRobots(domain);
-  for (const s of fromRobots) candidates.add(s);
+  for (const s of fromRobots) add(s);
 
+  // 2. Common well-known locations
   const commonPaths = [
     "/sitemap.xml",
     "/sitemap_index.xml",
+    "/sitemap-index.xml",
     "/sitemap/sitemap.xml",
     "/sitemap/index.xml",
     "/post-sitemap.xml",
@@ -74,103 +142,126 @@ async function discoverSitemaps(domain: string): Promise<string[]> {
     "/news-sitemap.xml",
     "/sitemap-articles.xml",
     "/sitemap-posts.xml",
-    "/sitemaps/articles-sitemap.xml",
     "/sitemap-1.xml",
     "/sitemap-2.xml",
     "/sitemap/articles/",
     "/sitemap/sitemap-index.xml",
     "/sitemap_post.xml",
+    "/sitemaps/sitemap.xml",
   ];
-  for (const path of commonPaths) {
-    candidates.add(`${domain}${path}`);
-  }
+  for (const path of commonPaths) add(`${domain}${path}`);
 
-  return Array.from(candidates);
-}
-
-// Recursively collect all leaf article URLs from a sitemap or sitemap index.
-// `seenSitemaps` tracks which sitemap URLs have been fetched to prevent loops.
-async function collectFromSitemap(
-  sitemapUrl: string,
-  seenSitemaps: Set<string>,
-  allUrls: SitemapURL[],
-  sitemapsFound: string[],
-  onProgress?: (p: SitemapProgress) => void,
-  depth = 0
-): Promise<void> {
-  if (depth > 4) return;
-  if (seenSitemaps.has(sitemapUrl)) return;
-  seenSitemaps.add(sitemapUrl);
-  if (allUrls.length >= MAX_TOTAL_URLS) return;
-
-  const text = await fetchText(sitemapUrl);
-  if (!text || !text.trim().startsWith("<")) return;
-
-  if (isSitemapIndex(text)) {
-    sitemapsFound.push(sitemapUrl);
-    onProgress?.({
-      sitemapsFound: sitemapsFound.length,
-      urlsCollected: allUrls.length,
-      message: `Sitemap index: ${sitemapUrl}`,
-    });
-
-    const childUrls = parseLocTags(text);
-    for (const childUrl of childUrls.slice(0, MAX_CHILD_SITEMAPS)) {
-      if (allUrls.length >= MAX_TOTAL_URLS) break;
-      await collectFromSitemap(childUrl, seenSitemaps, allUrls, sitemapsFound, onProgress, depth + 1);
-    }
-    return;
-  }
-
-  // Leaf urlset sitemap
-  sitemapsFound.push(sitemapUrl);
-
-  const seenLocs = new Set(allUrls.map((u) => u.loc));
-  const urlBlocks = text.split(/<\/url>/i);
-  let added = 0;
-  for (const block of urlBlocks.slice(0, MAX_URLS_PER_SITEMAP)) {
-    if (allUrls.length >= MAX_TOTAL_URLS) break;
-    const locMatch = block.match(/<loc>\s*(.*?)\s*<\/loc>/i);
-    if (!locMatch) continue;
-    const loc = locMatch[1].trim().replace(/&amp;/g, "&");
-    if (!loc || seenLocs.has(loc)) continue;
-    seenLocs.add(loc);
-    const lastmodMatch = block.match(/<lastmod>\s*(.*?)\s*<\/lastmod>/i);
-    const priorityMatch = block.match(/<priority>\s*(.*?)\s*<\/priority>/i);
-    allUrls.push({ loc, lastmod: lastmodMatch?.[1], priority: priorityMatch?.[1] });
-    added++;
-  }
-
-  onProgress?.({
-    sitemapsFound: sitemapsFound.length,
-    urlsCollected: allUrls.length,
-    message: `${sitemapUrl} → ${added} URLs`,
-  });
+  return queue;
 }
 
 export async function crawlSitemap(
   inputUrl: string,
   onProgress?: (p: SitemapProgress) => void
-): Promise<{ urls: SitemapURL[]; sitemapsFound: string[]; error?: string }> {
+): Promise<{
+  urls: SitemapURL[];
+  sitemapsFound: string[];
+  sitemapsProcessed: number;
+  error?: string;
+}> {
   let domain: string;
   try {
     const parsed = new URL(inputUrl);
     domain = `${parsed.protocol}//${parsed.hostname}`;
   } catch {
-    return { urls: [], sitemapsFound: [], error: "Invalid URL" };
+    return { urls: [], sitemapsFound: [], sitemapsProcessed: 0, error: "Invalid URL" };
   }
 
-  const candidateSitemapUrls = await discoverSitemaps(domain);
-  onProgress?.({ sitemapsFound: 0, urlsCollected: 0, message: `Checking ${candidateSitemapUrls.length} sitemap candidates…` });
+  console.log(`[sitemap] ══ Starting sitemap crawl for ${domain} ══`);
 
-  const seenSitemaps = new Set<string>();
+  const initialQueue = await buildSitemapQueue(domain);
+  console.log(`[sitemap] Initial candidates: ${initialQueue.length}`);
+
+  // BFS queue — starts with candidates, grows as indexes are discovered
+  const queue: string[] = [...initialQueue];
+  const visitedSitemaps = new Set<string>(); // prevent fetching same sitemap twice
   const allUrls: SitemapURL[] = [];
-  const sitemapsFound: string[] = [];
+  const urlLocsSeen = new Set<string>(); // dedup article URLs
+  const sitemapsFound: string[] = []; // all sitemap files that returned valid XML
+  let sitemapsProcessed = 0;
 
-  for (const candidateUrl of candidateSitemapUrls) {
-    if (allUrls.length >= MAX_TOTAL_URLS) break;
-    await collectFromSitemap(candidateUrl, seenSitemaps, allUrls, sitemapsFound, onProgress, 0);
+  const report = () => {
+    onProgress?.({
+      sitemapsDiscovered: sitemapsFound.length,
+      sitemapsProcessed,
+      urlsFromSitemaps: allUrls.length,
+      message: `${sitemapsFound.length} sitemaps · ${allUrls.length.toLocaleString()} URLs`,
+    });
+  };
+
+  while (queue.length > 0 && sitemapsProcessed < MAX_SITEMAPS_TO_PROCESS && allUrls.length < MAX_TOTAL_URLS) {
+    const sitemapUrl = queue.shift()!;
+
+    // Normalize to prevent fetching the same URL twice
+    const normalizedUrl = sitemapUrl.split("?")[0].replace(/\/$/, "");
+    if (visitedSitemaps.has(normalizedUrl)) {
+      console.log(`[sitemap] ALREADY SEEN: ${sitemapUrl}`);
+      continue;
+    }
+    visitedSitemaps.add(normalizedUrl);
+
+    console.log(`[sitemap] Fetching [${sitemapsProcessed + 1}]: ${sitemapUrl}`);
+    onProgress?.({
+      sitemapsDiscovered: sitemapsFound.length,
+      sitemapsProcessed,
+      urlsFromSitemaps: allUrls.length,
+      message: `Fetching sitemap [${sitemapsProcessed + 1}]: ${sitemapUrl}`,
+    });
+
+    const result = await fetchText(sitemapUrl);
+    if (!result) continue;
+
+    const { text } = result;
+    const docType = detectSitemapType(text);
+    console.log(`[sitemap] → type=${docType}, length=${text.length}`);
+
+    if (docType === "index") {
+      // Extract child sitemap URLs and add to queue
+      const childSitemapUrls = parseLocEntries(text);
+      sitemapsFound.push(sitemapUrl);
+      sitemapsProcessed++;
+
+      console.log(`[sitemap] Index has ${childSitemapUrls.length} child sitemaps:`);
+      let newChildren = 0;
+      for (const childUrl of childSitemapUrls) {
+        const normChild = childUrl.split("?")[0].replace(/\/$/, "");
+        if (!visitedSitemaps.has(normChild)) {
+          console.log(`[sitemap]   → queuing child: ${childUrl}`);
+          queue.push(childUrl);
+          newChildren++;
+        } else {
+          console.log(`[sitemap]   → already seen: ${childUrl}`);
+        }
+      }
+      console.log(`[sitemap] Queued ${newChildren} new child sitemaps (queue size: ${queue.length})`);
+      report();
+
+    } else if (docType === "urlset" || docType === "unknown") {
+      // Extract article URLs
+      const entries = parseUrlsetEntries(text);
+      sitemapsFound.push(sitemapUrl);
+      sitemapsProcessed++;
+
+      let added = 0;
+      for (const entry of entries) {
+        if (allUrls.length >= MAX_TOTAL_URLS) break;
+        if (!urlLocsSeen.has(entry.loc)) {
+          urlLocsSeen.add(entry.loc);
+          allUrls.push(entry);
+          added++;
+        }
+      }
+      console.log(`[sitemap] Urlset: ${entries.length} entries, ${added} new (total: ${allUrls.length})`);
+      report();
+    }
   }
 
-  return { urls: allUrls, sitemapsFound };
+  console.log(`[sitemap] ══ Complete: ${sitemapsFound.length} sitemaps processed, ${allUrls.length} URLs ══`);
+  console.log(`[sitemap] Sitemaps: ${sitemapsFound.join(", ")}`);
+
+  return { urls: allUrls, sitemapsFound, sitemapsProcessed };
 }

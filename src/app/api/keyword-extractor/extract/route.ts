@@ -32,6 +32,8 @@ export interface ExtractResponse {
   stage2Fetched: number;
   relevant: ExtractedKeyword[];
   sitemapsFound: string[];
+  sitemapsProcessed: number;
+  urlsFromSitemaps: number;
   homepageLinks: number;
   error?: string;
 }
@@ -135,7 +137,11 @@ export async function POST(req: NextRequest) {
             type: "progress",
             stage: "sitemap",
             message: p.message,
-            counts: { sitemapsFound: p.sitemapsFound, urlsCollected: p.urlsCollected },
+            counts: {
+              sitemapsDiscovered: p.sitemapsDiscovered,
+              sitemapsProcessed: p.sitemapsProcessed,
+              urlsFromSitemaps: p.urlsFromSitemaps,
+            },
           });
         });
 
@@ -283,6 +289,8 @@ export async function POST(req: NextRequest) {
           stage2Fetched: pageMetas.length,
           relevant: scored.slice(0, 1000),
           sitemapsFound: sitemapResult.sitemapsFound,
+          sitemapsProcessed: sitemapResult.sitemapsProcessed,
+          urlsFromSitemaps: sitemapResult.urls.length,
           homepageLinks: homepageResult.articleLinks.length,
         };
 
