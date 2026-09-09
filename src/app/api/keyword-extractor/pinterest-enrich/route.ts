@@ -1,6 +1,8 @@
 // Pinterest Keyword Enrichment for Keyword Extractor
-// Takes extracted website keywords, deduplicates, looks up cache, then calls
-// Pinterest API (ad keyword suggestions + trends) with rate-limit awareness.
+// Correct endpoint discovered from pinterest-autocomplete/route.ts:
+//   GET /v5/ad_accounts/{id}/targeting/keywords/suggestions?query=...
+// NOT the non-existent POST /keywords/suggestions endpoint.
+//
 // ALL Pinterest API calls happen here on the server — tokens never reach the browser.
 
 import { NextRequest } from "next/server";
@@ -14,8 +16,9 @@ const redis = new Redis({
 
 const BASE = "https://api.pinterest.com/v5";
 const CACHE_TTL = 60 * 60 * 24; // 24 hours
-const CONCURRENCY = 3;           // concurrent Pinterest API calls — stay well within rate limits
-const BATCH_DELAY_MS = 350;      // pause between batches
+const CACHE_VERSION = "v3";      // bump to invalidate stale entries
+const CONCURRENCY = 3;           // concurrent Pinterest API calls
+const BATCH_DELAY_MS = 400;      // ms between batches
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -41,6 +44,15 @@ export interface SeedEnrichmentResult {
   keywords: PinterestKeywordResult[];
   status: "ok" | "error" | "cached" | "no_account";
   error?: string;
+  // Diagnostic fields (only populated in GET /debug requests)
+  _debug?: {
+    suggestStatus?: number | "error" | "null";
+    suggestCount?: number;
+    suggestRawKeys?: string[];
+    targetStatus?: number | "error" | "null";
+    targetCount?: number;
+    targetRawKeys?: string[];
+  };
 }
 
 export interface PinterestEnrichResponse {
@@ -53,38 +65,49 @@ export interface PinterestEnrichResponse {
   results: SeedEnrichmentResult[];
   failedSeeds: string[];
   noAccountWarning?: string;
+  // Diagnostic only
+  _debug?: {
+    adAccountId: string | null;
+    trendsCount: number;
+    trendsFetchStatus: string;
+    endpointsUsed: string[];
+  };
 }
 
 // ── Pinterest API helpers ──────────────────────────────────────────────────────
 
-async function pinterestGet(path: string, token: string): Promise<unknown> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(8000),
-  });
-  if (res.status === 429) throw new RateLimitError(res.headers.get("Retry-After"));
-  const text = await res.text();
-  if (!res.ok) {
-    console.error(`[pinterest-enrich] GET ${path} → ${res.status}: ${text.slice(0, 200)}`);
-    return null;
-  }
-  try { return JSON.parse(text); } catch { return null; }
+interface PinterestResponse {
+  status: number;
+  data: unknown;
+  error?: string;
 }
 
-async function pinterestPost(path: string, token: string, body: unknown): Promise<unknown> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(8000),
-  });
-  if (res.status === 429) throw new RateLimitError(res.headers.get("Retry-After"));
-  const text = await res.text();
-  if (!res.ok) {
-    console.error(`[pinterest-enrich] POST ${path} → ${res.status}: ${text.slice(0, 200)}`);
-    return null;
+async function pinterestGetRaw(path: string, token: string): Promise<PinterestResponse> {
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status === 429) throw new RateLimitError(res.headers.get("Retry-After"));
+    const text = await res.text();
+    if (!res.ok) {
+      console.error(`[pinterest-enrich] GET ${path.split("?")[0]} → ${res.status}: ${text.slice(0, 300)}`);
+      return { status: res.status, data: null, error: text.slice(0, 200) };
+    }
+    try {
+      return { status: res.status, data: JSON.parse(text) };
+    } catch {
+      return { status: res.status, data: null, error: "JSON parse failed" };
+    }
+  } catch (e) {
+    if (e instanceof RateLimitError) throw e;
+    return { status: 0, data: null, error: String(e) };
   }
-  try { return JSON.parse(text); } catch { return null; }
+}
+
+async function pinterestGet(path: string, token: string): Promise<unknown> {
+  const r = await pinterestGetRaw(path, token);
+  return r.data;
 }
 
 class RateLimitError extends Error {
@@ -106,6 +129,7 @@ function normalizeKeyword(kw: string): string {
 }
 
 function relevanceFromPosition(index: number, total: number): PinterestRelevance {
+  if (total <= 0) return "Medium";
   const pct = total <= 1 ? 0 : index / (total - 1);
   if (pct < 0.25) return "Very High";
   if (pct < 0.50) return "High";
@@ -121,14 +145,21 @@ interface CachedSeedResult {
 }
 
 function cacheKey(seed: string, country: string): string {
-  return `kex_pinterest_v2:${country}:${normalizeKeyword(seed)}`;
+  return `kex_pinterest_${CACHE_VERSION}:${country}:${normalizeKeyword(seed)}`;
 }
 
 async function getCached(seed: string, country: string): Promise<CachedSeedResult | null> {
   try {
     const raw = await redis.get(cacheKey(seed, country));
     if (!raw) return null;
-    return typeof raw === "string" ? JSON.parse(raw) : (raw as CachedSeedResult);
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : (raw as CachedSeedResult);
+    // Don't return a cached result that has only SEED keywords (means the API returned empty last time)
+    const hasApiResults = (parsed as CachedSeedResult).keywords.some((k) => k.source === "PINTEREST_API");
+    if (!hasApiResults) {
+      console.log(`[pinterest-enrich] Cache hit for "${seed}" but only SEED keywords — will re-fetch from API`);
+      return null;
+    }
+    return parsed as CachedSeedResult;
   } catch { return null; }
 }
 
@@ -138,8 +169,46 @@ async function setCached(seed: string, country: string, data: CachedSeedResult):
   } catch { /* non-fatal */ }
 }
 
-// Words that are too generic to count as niche overlap when matching trending keywords.
-// "september nails ideas 2026" shares "ideas" with almost every seed — that's noise.
+// ── Response shape helpers ─────────────────────────────────────────────────────
+
+// Extract items from ANY Pinterest API response shape.
+// Checks for non-empty arrays in priority order matching observed API responses.
+function extractItems(data: unknown): Record<string, unknown>[] {
+  if (!data) return [];
+  if (Array.isArray(data) && data.length > 0) return data as Record<string, unknown>[];
+
+  const d = data as Record<string, unknown>;
+
+  // Check each candidate field — skip empty arrays (don't stop on [])
+  const candidates = ["suggestions", "keywords", "items", "value", "trends", "data"] as const;
+  for (const key of candidates) {
+    if (Array.isArray(d[key]) && (d[key] as unknown[]).length > 0) {
+      return d[key] as Record<string, unknown>[];
+    }
+  }
+  return [];
+}
+
+function itemKeyword(item: Record<string, unknown>): string {
+  // Try all known Pinterest API keyword field names
+  return String(item.keyword ?? item.term ?? item.name ?? item.query ?? item.display ?? "");
+}
+
+function itemMetric(item: Record<string, unknown>, ...fields: string[]): number | null {
+  for (const f of fields) {
+    const v = item[f];
+    if (typeof v === "number" && v > 0) return v;
+    // Sometimes metrics are nested: { metrics: { monthly_searches: 1200 } }
+    if (item.metrics && typeof item.metrics === "object") {
+      const mv = (item.metrics as Record<string, unknown>)[f];
+      if (typeof mv === "number" && mv > 0) return mv;
+    }
+  }
+  return null;
+}
+
+// ── Generic overlap words — excluded from niche-word trend matching ─────────────
+
 const GENERIC_OVERLAP_WORDS = new Set([
   "ideas","tips","inspiration","inspo","aesthetic","design","style","tutorial",
   "guide","simple","modern","cute","best","good","great","easy","free","diy",
@@ -157,13 +226,15 @@ async function enrichSeed(
   token: string,
   adAccountId: string,
   articleCountBySeed: Map<string, number>,
-  prefetchedTrendItems: Record<string, unknown>[],  // fetched once, passed in
-): Promise<{ keywords: PinterestKeywordResult[]; error?: string }> {
+  prefetchedTrendItems: Record<string, unknown>[],
+  debug = false,
+): Promise<{ keywords: PinterestKeywordResult[]; _debug?: SeedEnrichmentResult["_debug"] }> {
   const results: PinterestKeywordResult[] = [];
   const seen = new Set<string>([normalizeKeyword(seed)]);
   const articleCount = articleCountBySeed.get(normalizeKeyword(seed)) ?? 0;
+  const dbg: SeedEnrichmentResult["_debug"] = {};
 
-  // Include the seed itself as a WEBSITE_EXTRACTION keyword
+  // Always include the seed itself as WEBSITE_EXTRACTION
   results.push({
     seedKeyword: seed,
     keyword: seed,
@@ -177,21 +248,29 @@ async function enrichSeed(
     articleCount,
   });
 
-  // ── 1. Ad keyword suggestions (POST) ─────────────────────────────────────────
-  // POST /v5/ad_accounts/{id}/keywords/suggestions
-  // Scopes: ads:read — included in our OAuth scope list
-  let suggestData: unknown = null;
-  try {
-    suggestData = await pinterestPost(
-      `/ad_accounts/${adAccountId}/keywords/suggestions`,
-      token,
-      { keyword: seed, country_code: country, targeting_strategy: "SUGGESTED" },
-    );
-  } catch (e) {
-    if (e instanceof RateLimitError) throw e;
+  // ── 1. Keyword suggestions ───────────────────────────────────────────────────
+  // Correct endpoint: GET /v5/ad_accounts/{id}/targeting/keywords/suggestions?query=...
+  // (NOT the non-existent POST /keywords/suggestions)
+  // Also try GET /v5/ad_accounts/{id}/targeting_options?targeting_type=KEYWORD&query=...
+  // as a second source of suggestions.
+
+  const suggestRaw = await pinterestGetRaw(
+    `/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${encodeURIComponent(seed)}&limit=20`,
+    token,
+  );
+
+  if (debug) {
+    dbg.suggestStatus = suggestRaw.status || "null";
+    dbg.suggestRawKeys = suggestRaw.data && typeof suggestRaw.data === "object"
+      ? Object.keys(suggestRaw.data as object).slice(0, 10)
+      : [];
   }
 
-  const suggestItems = extractItems(suggestData);
+  const suggestItems = extractItems(suggestRaw.data);
+  if (debug) dbg.suggestCount = suggestItems.length;
+
+  console.log(`[pinterest-enrich] seed="${seed}" suggest → HTTP ${suggestRaw.status}, items=${suggestItems.length}, keys=${dbg.suggestRawKeys?.join(",") ?? "null"}`);
+
   for (let i = 0; i < suggestItems.length; i++) {
     const item = suggestItems[i];
     const kw = normalizeKeyword(itemKeyword(item));
@@ -203,7 +282,7 @@ async function enrichSeed(
       source: "PINTEREST_API",
       keywordType: "SUGGESTED",
       country,
-      monthlySearches: itemMetric(item, "monthly_searches") ?? itemMetric(item, "search_volume") ?? null,
+      monthlySearches: itemMetric(item, "monthly_searches", "search_volume", "volume"),
       weeklyChange: null,
       monthlyChange: null,
       relevance: relevanceFromPosition(i, suggestItems.length),
@@ -211,20 +290,25 @@ async function enrichSeed(
     });
   }
 
-  // ── 2. Targeting keyword options (GET) ────────────────────────────────────────
+  // ── 2. Related / targeting options ──────────────────────────────────────────
   // GET /v5/ad_accounts/{id}/targeting_options?targeting_type=KEYWORD&query=...
-  // Scopes: ads:read
-  let targetData: unknown = null;
-  try {
-    targetData = await pinterestGet(
-      `/ad_accounts/${adAccountId}/targeting_options?targeting_type=KEYWORD&query=${encodeURIComponent(seed)}`,
-      token,
-    );
-  } catch (e) {
-    if (e instanceof RateLimitError) throw e;
+  const targetRaw = await pinterestGetRaw(
+    `/ad_accounts/${adAccountId}/targeting_options?targeting_type=KEYWORD&query=${encodeURIComponent(seed)}`,
+    token,
+  );
+
+  if (debug) {
+    dbg.targetStatus = targetRaw.status || "null";
+    dbg.targetRawKeys = targetRaw.data && typeof targetRaw.data === "object"
+      ? Object.keys(targetRaw.data as object).slice(0, 10)
+      : [];
   }
 
-  const targetItems = extractItems(targetData);
+  const targetItems = extractItems(targetRaw.data);
+  if (debug) dbg.targetCount = targetItems.length;
+
+  console.log(`[pinterest-enrich] seed="${seed}" target → HTTP ${targetRaw.status}, items=${targetItems.length}, keys=${dbg.targetRawKeys?.join(",") ?? "null"}`);
+
   for (let i = 0; i < targetItems.length; i++) {
     const item = targetItems[i];
     const kw = normalizeKeyword(itemKeyword(item));
@@ -236,7 +320,7 @@ async function enrichSeed(
       source: "PINTEREST_API",
       keywordType: "RELATED",
       country,
-      monthlySearches: itemMetric(item, "monthly_searches") ?? itemMetric(item, "impressions_organic") ?? null,
+      monthlySearches: itemMetric(item, "monthly_searches", "impressions_organic", "search_volume"),
       weeklyChange: null,
       monthlyChange: null,
       relevance: relevanceFromPosition(i, targetItems.length),
@@ -244,11 +328,7 @@ async function enrichSeed(
     });
   }
 
-  // ── 3. Trends — match pre-fetched trending keywords against this seed ───────────
-  // Trends are fetched ONCE per request (not per seed) to avoid redundant API calls.
-  // Only include a trending keyword if it shares a non-generic niche word with the seed.
-  // "september nails ideas 2026" shares "ideas" with every seed → excluded (generic word).
-  // "living room aesthetic" shares "living" with seed "living room decor" → included.
+  // ── 3. Trending — match pre-fetched list against this seed ──────────────────
   const seedNicheWords = new Set(
     normalizeKeyword(seed).split(/\s+/).filter(
       (w) => w.length >= 4 && !GENERIC_OVERLAP_WORDS.has(w)
@@ -261,10 +341,6 @@ async function enrichSeed(
     const kw = normalizeKeyword(itemKeyword(item));
     if (!kw || kw.length < 3 || seen.has(kw)) continue;
 
-    // A trending keyword is relevant to this seed only if:
-    // (a) the full normalised seed appears as a substring in the trending keyword, OR
-    // (b) the trending keyword appears as a substring in the seed, OR
-    // (c) they share at least one non-generic niche word (length ≥ 5 to avoid "room" etc.)
     const kwWords = kw.split(/\s+/);
     const sharesNicheWord = seedNicheWords.size > 0 &&
       kwWords.some((w) => w.length >= 5 && seedNicheWords.has(w));
@@ -287,30 +363,108 @@ async function enrichSeed(
     });
   }
 
-  return { keywords: results };
+  return { keywords: results, _debug: debug ? dbg : undefined };
 }
 
-// ── Response shape helpers ─────────────────────────────────────────────────────
+// ── GET /debug — single-keyword diagnostic (no tokens in response) ─────────────
 
-function extractItems(data: unknown): Record<string, unknown>[] {
-  if (!data) return [];
-  if (Array.isArray(data)) return data as Record<string, unknown>[];
-  const d = data as Record<string, unknown>;
-  if (Array.isArray(d.items)) return d.items as Record<string, unknown>[];
-  if (Array.isArray(d.keywords)) return d.keywords as Record<string, unknown>[];
-  if (Array.isArray(d.suggestions)) return d.suggestions as Record<string, unknown>[];
-  if (Array.isArray(d.value)) return d.value as Record<string, unknown>[];
-  if (Array.isArray(d.trends)) return d.trends as Record<string, unknown>[];
-  return [];
-}
+export async function GET(req: NextRequest) {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return new Response(JSON.stringify({ error: "Not authenticated" }), { status: 401 });
 
-function itemKeyword(item: Record<string, unknown>): string {
-  return String(item.keyword ?? item.term ?? item.name ?? item.query ?? "");
-}
+  const raw = await redis.get(`pinterest_connection:${email}`);
+  if (!raw) return new Response(JSON.stringify({ error: "Pinterest not connected" }), { status: 400 });
+  const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
 
-function itemMetric(item: Record<string, unknown>, field: string): number | null {
-  const v = item[field];
-  return typeof v === "number" ? v : null;
+  const url = new URL(req.url);
+  const seed = (url.searchParams.get("q") ?? "living room").trim();
+  const country = (url.searchParams.get("country") ?? "US").toUpperCase();
+
+  // ── Ad account lookup ──
+  const accountsRaw = await pinterestGetRaw("/ad_accounts?page_size=5", accessToken);
+  const adAccountsData = accountsRaw.data as Record<string, unknown> | null;
+  const adAccounts = Array.isArray(adAccountsData?.items) ? (adAccountsData!.items as Record<string, unknown>[]) : [];
+  const adAccountId: string | null = adAccounts[0]?.id as string ?? null;
+
+  // ── Trending keywords (once) ──
+  const trendsRaw = await pinterestGetRaw(`/trends/keywords/${country}/top/growing?limit=25`, accessToken);
+  const trendItems = extractItems(trendsRaw.data);
+
+  // ── Suggest endpoint ──
+  const suggestRaw = adAccountId
+    ? await pinterestGetRaw(
+        `/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${encodeURIComponent(seed)}&limit=20`,
+        accessToken,
+      )
+    : { status: 0, data: null, error: "no_ad_account" };
+
+  const suggestItems = extractItems(suggestRaw.data);
+
+  // ── Targeting options endpoint ──
+  const targetRaw = adAccountId
+    ? await pinterestGetRaw(
+        `/ad_accounts/${adAccountId}/targeting_options?targeting_type=KEYWORD&query=${encodeURIComponent(seed)}`,
+        accessToken,
+      )
+    : { status: 0, data: null, error: "no_ad_account" };
+
+  const targetItems = extractItems(targetRaw.data);
+
+  // ── Diagnose ──
+  const diag = {
+    seed,
+    country,
+    adAccountId,
+    adAccountsHttpStatus: accountsRaw.status,
+    adAccountCount: adAccounts.length,
+    // Suggestions endpoint
+    suggestEndpoint: adAccountId
+      ? `/v5/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${encodeURIComponent(seed)}&limit=20`
+      : "skipped (no ad account)",
+    suggestHttpStatus: suggestRaw.status,
+    suggestError: suggestRaw.error,
+    suggestResponseTopLevelKeys: suggestRaw.data && typeof suggestRaw.data === "object"
+      ? Object.keys(suggestRaw.data as object)
+      : null,
+    suggestItemsFound: suggestItems.length,
+    suggestFirstItem: suggestItems[0] ?? null,
+    // Targeting options endpoint
+    targetEndpoint: adAccountId
+      ? `/v5/ad_accounts/${adAccountId}/targeting_options?targeting_type=KEYWORD&query=${encodeURIComponent(seed)}`
+      : "skipped (no ad account)",
+    targetHttpStatus: targetRaw.status,
+    targetError: targetRaw.error,
+    targetResponseTopLevelKeys: targetRaw.data && typeof targetRaw.data === "object"
+      ? Object.keys(targetRaw.data as object)
+      : null,
+    targetItemsFound: targetItems.length,
+    targetFirstItem: targetItems[0] ?? null,
+    // Trends
+    trendsEndpoint: `/v5/trends/keywords/${country}/top/growing?limit=25`,
+    trendsHttpStatus: trendsRaw.status,
+    trendsError: trendsRaw.error,
+    trendsItemsFound: trendItems.length,
+    trendsFirstItem: trendItems[0] ?? null,
+    // Summary
+    totalApiKeywordsExpected: suggestItems.length + targetItems.length + trendItems.length,
+    diagnosis: (() => {
+      const issues: string[] = [];
+      if (!adAccountId) issues.push("No Pinterest Ads account — targeting/keywords endpoints require ads:read scope AND an active Ads account");
+      if (suggestRaw.status === 404) issues.push("Suggest endpoint returned 404 — endpoint path may be wrong for this account");
+      if (suggestRaw.status === 403 || suggestRaw.status === 401) issues.push("Suggest endpoint: authentication/scope error");
+      if (targetRaw.status === 404) issues.push("Targeting options endpoint returned 404");
+      if (suggestItems.length === 0 && targetItems.length === 0) {
+        issues.push("Both keyword endpoints returned 0 items — either no Ads account or API access not available at this tier");
+      }
+      if (trendsRaw.status === 403) issues.push("Trends endpoint requires elevated access or scope");
+      return issues.length === 0 ? ["No issues detected — API should return results"] : issues;
+    })(),
+  };
+
+  return new Response(JSON.stringify(diag, null, 2), {
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 // ── POST handler ───────────────────────────────────────────────────────────────
@@ -322,7 +476,6 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: "Not authenticated" }), { status: 401 });
   }
 
-  // Get Pinterest token
   const raw = await redis.get(`pinterest_connection:${email}`);
   if (!raw) {
     return new Response(
@@ -333,9 +486,9 @@ export async function POST(req: NextRequest) {
   const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
 
   const body = await req.json() as {
-    keywords: string[];   // extracted primary keywords from the website
+    keywords: string[];
     country?: string;
-    articleCountMap?: Record<string, number>;  // keyword → article count from website extraction
+    articleCountMap?: Record<string, number>;
   };
 
   const country = (body.country ?? "US").toUpperCase();
@@ -347,43 +500,49 @@ export async function POST(req: NextRequest) {
   }
 
   // Deduplicate + normalise seed keywords
-  const seen = new Set<string>();
+  const seenNorm = new Set<string>();
   const seeds: string[] = [];
   for (const kw of rawKeywords) {
     const norm = normalizeKeyword(kw);
-    if (norm && norm.length >= 3 && !seen.has(norm)) {
-      seen.add(norm);
+    if (norm && norm.length >= 3 && !seenNorm.has(norm)) {
+      seenNorm.add(norm);
       seeds.push(norm);
     }
   }
 
-  // Build article-count lookup (by normalised keyword)
+  // Build article-count lookup
   const articleCountBySeed = new Map<string, number>();
   for (const [k, v] of Object.entries(articleCountMap)) {
     articleCountBySeed.set(normalizeKeyword(k), v);
   }
 
-  // Get the user's ad account ID (required for keyword suggestion endpoints)
+  // Get the user's ad account ID
   let adAccountId: string | null = null;
   let noAccountWarning: string | undefined;
+  let adAccountsFetchStatus = 0;
   try {
-    const accountsData = await pinterestGet("/ad_accounts?page_size=5", accessToken) as Record<string, unknown> | null;
+    const accountsRaw = await pinterestGetRaw("/ad_accounts?page_size=5", accessToken);
+    adAccountsFetchStatus = accountsRaw.status;
+    const accountsData = accountsRaw.data as Record<string, unknown> | null;
     adAccountId = (accountsData?.items as Record<string, unknown>[] | undefined)?.[0]?.id as string ?? null;
+    console.log(`[pinterest-enrich] ad_accounts → HTTP ${accountsRaw.status}, adAccountId=${adAccountId ?? "none"}`);
   } catch { /* no ad account */ }
 
   if (!adAccountId) {
-    noAccountWarning =
-      "No Pinterest Ads account found. Keyword suggestions require a Pinterest Ads account. " +
-      "Only trending keyword data may be available.";
+    noAccountWarning = adAccountsFetchStatus === 403 || adAccountsFetchStatus === 401
+      ? "Pinterest Ads access denied (scope or permissions issue). Keyword suggestions require the ads:read scope and an active Pinterest Ads account."
+      : "No Pinterest Ads account found. Keyword suggestions (Suggested / Related) require an active Pinterest Ads account. Reconnect Pinterest if you have one.";
   }
 
-  // Fetch trending keywords ONCE for the whole request — same 25 results for every seed,
-  // so calling per-seed is wasteful and just adds latency / rate-limit pressure.
+  // Fetch trending keywords ONCE (same 25 results for every seed, no need to call per-seed)
   let prefetchedTrendItems: Record<string, unknown>[] = [];
+  let trendsFetchStatus = 0;
   try {
-    const trendsData = await pinterestGet(`/trends/keywords/${country}/top/growing?limit=25`, accessToken);
-    prefetchedTrendItems = extractItems(trendsData);
-  } catch { /* non-fatal — trends won't be included */ }
+    const trendsRaw = await pinterestGetRaw(`/trends/keywords/${country}/top/growing?limit=25`, accessToken);
+    trendsFetchStatus = trendsRaw.status;
+    prefetchedTrendItems = extractItems(trendsRaw.data);
+    console.log(`[pinterest-enrich] trends → HTTP ${trendsRaw.status}, items=${prefetchedTrendItems.length}`);
+  } catch { /* non-fatal */ }
 
   // Process seeds in batches with caching
   const allResults: SeedEnrichmentResult[] = [];
@@ -391,20 +550,20 @@ export async function POST(req: NextRequest) {
   let rateLimitHit = false;
 
   for (let i = 0; i < seeds.length; i += CONCURRENCY) {
-    if (rateLimitHit) break; // stop on rate limit — return what we have
+    if (rateLimitHit) break;
 
     const batch = seeds.slice(i, i + CONCURRENCY);
 
     const batchResults = await Promise.all(
       batch.map(async (seed): Promise<SeedEnrichmentResult> => {
-        // Cache lookup
+        // Cache lookup — only returns cached results that have actual Pinterest API keywords
         const cached = await getCached(seed, country);
         if (cached) {
           return { seed, keywords: cached.keywords, status: "cached" };
         }
 
         if (!adAccountId) {
-          // No ad account — include seed keyword + any relevant trending matches
+          // No ad account — seed + relevant trending only
           const seedNicheWords = new Set(
             normalizeKeyword(seed).split(/\s+/).filter(
               (w) => w.length >= 4 && !GENERIC_OVERLAP_WORDS.has(w)
@@ -412,16 +571,9 @@ export async function POST(req: NextRequest) {
           );
           const normSeed = normalizeKeyword(seed);
           const results: PinterestKeywordResult[] = [{
-            seedKeyword: seed,
-            keyword: seed,
-            source: "WEBSITE_EXTRACTION",
-            keywordType: "SEED",
-            country,
-            monthlySearches: null,
-            weeklyChange: null,
-            monthlyChange: null,
-            relevance: "Very High",
-            articleCount: articleCountBySeed.get(normSeed) ?? 0,
+            seedKeyword: seed, keyword: seed, source: "WEBSITE_EXTRACTION", keywordType: "SEED",
+            country, monthlySearches: null, weeklyChange: null, monthlyChange: null,
+            relevance: "Very High", articleCount: articleCountBySeed.get(normSeed) ?? 0,
           }];
           const seenLocal = new Set<string>([normSeed]);
           for (const item of prefetchedTrendItems) {
@@ -440,14 +592,22 @@ export async function POST(req: NextRequest) {
               relevance: "Medium", articleCount: articleCountBySeed.get(kw) ?? 0,
             });
           }
-          await setCached(seed, country, { keywords: results, cachedAt: Date.now() });
+          // Only cache if we got some Pinterest API results
+          if (results.some((k) => k.source === "PINTEREST_API")) {
+            await setCached(seed, country, { keywords: results, cachedAt: Date.now() });
+          }
           return { seed, keywords: results, status: "no_account" };
         }
 
         try {
-          const { keywords } = await enrichSeed(seed, country, accessToken, adAccountId, articleCountBySeed, prefetchedTrendItems);
-          await setCached(seed, country, { keywords, cachedAt: Date.now() });
-          return { seed, keywords, status: "ok" };
+          const { keywords, _debug } = await enrichSeed(
+            seed, country, accessToken, adAccountId, articleCountBySeed, prefetchedTrendItems,
+          );
+          // Only cache if we got some Pinterest API results
+          if (keywords.some((k) => k.source === "PINTEREST_API")) {
+            await setCached(seed, country, { keywords, cachedAt: Date.now() });
+          }
+          return { seed, keywords, status: "ok", _debug };
         } catch (e) {
           if (e instanceof RateLimitError) {
             rateLimitHit = true;
@@ -459,17 +619,12 @@ export async function POST(req: NextRequest) {
     );
 
     for (const r of batchResults) {
-      if (r.status === "error") {
-        failedSeeds.push(r.seed);
-      }
-      if (r.keywords.length > 0) {
-        allResults.push(r);
-      } else if (r.status === "error") {
+      if (r.status === "error") failedSeeds.push(r.seed);
+      if (r.keywords.length > 0 || r.status === "error") {
         allResults.push(r);
       }
     }
 
-    // Polite delay between batches
     if (i + CONCURRENCY < seeds.length && !rateLimitHit) {
       await sleep(BATCH_DELAY_MS);
     }
@@ -481,18 +636,32 @@ export async function POST(req: NextRequest) {
     .filter((k) => k.source === "PINTEREST_API");
 
   const uniquePinterestKws = new Set(pinterestApiResults.map((k) => normalizeKeyword(k.keyword)));
-  const withMetrics = pinterestApiResults.filter((k) => k.monthlySearches !== null || k.weeklyChange !== null);
+  const withMetrics = pinterestApiResults.filter(
+    (k) => k.monthlySearches !== null || k.weeklyChange !== null || k.monthlyChange !== null
+  );
 
   const response: PinterestEnrichResponse = {
     country,
     websiteKeywords: seeds.length,
-    pinterestEnriched: allResults.filter((r) => r.status === "ok" || r.status === "cached").length,
+    pinterestEnriched: allResults.filter((r) => r.status === "ok" || r.status === "cached" || r.status === "no_account").length,
     pinterestSuggestions: pinterestApiResults.length,
     uniquePinterestKeywords: uniquePinterestKws.size,
     metricsAvailable: withMetrics.length,
     results: allResults,
     failedSeeds,
     noAccountWarning,
+    _debug: {
+      adAccountId,
+      trendsCount: prefetchedTrendItems.length,
+      trendsFetchStatus: String(trendsFetchStatus),
+      endpointsUsed: adAccountId
+        ? [
+            `/v5/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=...`,
+            `/v5/ad_accounts/${adAccountId}/targeting_options?targeting_type=KEYWORD&query=...`,
+            `/v5/trends/keywords/${country}/top/growing?limit=25`,
+          ]
+        : [`/v5/trends/keywords/${country}/top/growing?limit=25`],
+    },
   };
 
   return new Response(JSON.stringify(response), {
