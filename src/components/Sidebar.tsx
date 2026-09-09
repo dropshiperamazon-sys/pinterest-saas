@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   LogIn,
   LogOut,
+  ScanSearch,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
   { href: "/analytics", icon: BarChart2, label: "Analytics" },
   { href: "/keywords", icon: Search, label: "Keyword Research" },
   { href: "/pin-analysis", icon: LineChart, label: "Pin Analysis" },
+  { href: "/seo-audit", icon: ScanSearch, label: "Pinterest SEO Audit" },
   { href: "/scheduler", icon: Calendar, label: "Pin Scheduler" },
   { href: "/account-audit", icon: ShieldCheck, label: "Account Audit" },
   { href: "/ads", icon: Megaphone, label: "Pinterest Ads" },
