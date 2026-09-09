@@ -190,21 +190,12 @@ export function scoreUrlOnly(url: string, profile: TopicProfile): number {
   return scoreUrlSlug(url, profile);
 }
 
-// ── Article URL detection (unchanged) ────────────────────────────────────────
+// ── Article URL detection ────────────────────────────────────────────────────
+
+import { classifyUrl } from "./article-classifier";
 
 export function isArticleUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    const path = parsed.pathname;
-    if (path === "/" || path === "") return false;
-    if (/\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|css|js|ico|xml|json)$/i.test(path)) return false;
-    if (/\/(wp-admin|wp-json|feed|rss|api|cdn|assets|static|images|img|js|css|fonts)\//i.test(path)) return false;
-    if (/\/(author|tag|tags|search|page\/\d+)\/?$/i.test(path)) return false;
-    const slug = path.split("/").filter(Boolean).at(-1) ?? "";
-    return slug.includes("-") || slug.length > 15;
-  } catch {
-    return false;
-  }
+  return classifyUrl(url).pass;
 }
 
 // ── Label helpers ─────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import { crawlSitemap } from "@/lib/keyword-extractor/sitemap-service";
 import { crawlCategoryPage } from "@/lib/keyword-extractor/category-crawler";
 import { isArticleUrl } from "@/lib/keyword-extractor/relevance-engine";
 import { fetchPageMeta } from "@/lib/keyword-extractor/page-crawler";
+import { classifyPage } from "@/lib/keyword-extractor/article-classifier";
 import {
   extractArticleKeyword,
   aggregateKeywords,
@@ -48,6 +49,11 @@ export interface AutoDiscoverResponse {
   sitemapsProcessed: number;
   uniquePrimaryKeywords: number;
   totalClusters: number;
+  // Exclusion breakdown
+  excludedLegal: number;
+  excludedUtility: number;
+  excludedLowConfidence: number;
+  excludedProduct: number;
 }
 
 function normalizeForDedup(url: string): string {
@@ -212,9 +218,14 @@ export async function POST(req: NextRequest) {
 
         // ── Step 6 (Phase 2): Page-fetch enrichment for top ENRICH_MAX articles ─
         // Higher-quality keywords (title, H1, headings) override slug-only results.
+        // classifyPage() removes false positives (legal/utility pages).
         // CONCURRENCY=20 and 5s timeout → ~100 articles in ~25s, well within 60s.
 
         const toEnrich = sorted.slice(0, ENRICH_MAX).map((u) => u.loc);
+        let excludedLegal = 0;
+        let excludedUtility = 0;
+        let excludedLowConfidence = 0;
+        let excludedProduct = 0;
 
         for (let i = 0; i < toEnrich.length; i += CONCURRENCY) {
           const batch = toEnrich.slice(i, i + CONCURRENCY);
@@ -222,6 +233,19 @@ export async function POST(req: NextRequest) {
 
           for (const meta of metas) {
             if (!meta.title && !meta.h1) continue; // page fetch failed or blocked
+
+            // Content-based classification — removes legal/utility/product pages
+            const pageClass = classifyPage(meta);
+            if (!pageClass.isArticle) {
+              const key = normalizeForDedup(meta.url);
+              articleMap.delete(key); // remove slug-only entry if it exists
+              if (pageClass.contentType === "LEGAL_PAGE") excludedLegal++;
+              else if (pageClass.contentType === "PRODUCT") excludedProduct++;
+              else if (pageClass.articleConfidence < 20) excludedLowConfidence++;
+              else excludedUtility++;
+              continue;
+            }
+
             const kw = extractArticleKeyword(meta);
             if (!kw.primary || kw.primary.length < 3) continue;
 
@@ -242,7 +266,7 @@ export async function POST(req: NextRequest) {
           send({
             type: "progress",
             stage: "analysis",
-            message: `Page enrichment: ${done} / ${toEnrich.length} fetched, ${articleMap.size} total articles`,
+            message: `Page enrichment: ${done} / ${toEnrich.length} fetched, ${articleMap.size} articles (excluded: ${excludedLegal + excludedUtility + excludedProduct + excludedLowConfidence} non-articles)`,
             counts: { analyzing: done, total: toEnrich.length },
           });
         }
@@ -276,6 +300,10 @@ export async function POST(req: NextRequest) {
           sitemapsProcessed: sitemapResult.sitemapsProcessed,
           uniquePrimaryKeywords: aggregated.length,
           totalClusters: clusters.length,
+          excludedLegal,
+          excludedUtility,
+          excludedLowConfidence,
+          excludedProduct,
         };
 
         send({ type: "complete", data: response as never });

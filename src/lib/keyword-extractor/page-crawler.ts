@@ -16,6 +16,7 @@ export interface PageMeta {
   bodySnippet: string;     // first ~800 chars of article body text
   datePublished?: string;  // ISO date string if found
   dateModified?: string;
+  schemaTypes?: string[];  // JSON-LD @type values found on the page
 }
 
 function extractTag(html: string, pattern: RegExp): string {
@@ -50,7 +51,7 @@ function extractDate(html: string, field: string): string | undefined {
 }
 
 export async function fetchPageMeta(url: string): Promise<PageMeta> {
-  const empty: PageMeta = { url, title: "", ogTitle: "", canonical: "", h1: "", headings: "", metaDescription: "", breadcrumbs: "", bodySnippet: "", datePublished: undefined, dateModified: undefined };
+  const empty: PageMeta = { url, title: "", ogTitle: "", canonical: "", h1: "", headings: "", metaDescription: "", breadcrumbs: "", bodySnippet: "", datePublished: undefined, dateModified: undefined, schemaTypes: [] };
   try {
     const res = await fetch(url, {
       headers: {
@@ -140,7 +141,20 @@ export async function fetchPageMeta(url: string): Promise<PageMeta> {
     const dateModified = extractDate(html, "dateModified") ||
       extractTag(html, /<meta[^>]*property=["']article:modified_time["'][^>]*content=["']([^"']*)/i) || undefined;
 
-    return { url, title, ogTitle, canonical, h1, headings, metaDescription, breadcrumbs, bodySnippet, datePublished, dateModified };
+    // Extract all @type values from JSON-LD blocks
+    const schemaTypes: string[] = [];
+    const schemaRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    let sm: RegExpExecArray | null;
+    while ((sm = schemaRegex.exec(html)) !== null) {
+      try {
+        const json = JSON.parse(sm[1]) as Record<string, unknown>;
+        const typeVal = json["@type"];
+        if (typeof typeVal === "string" && typeVal) schemaTypes.push(typeVal);
+        else if (Array.isArray(typeVal)) typeVal.forEach((t) => typeof t === "string" && t && schemaTypes.push(t));
+      } catch { /* */ }
+    }
+
+    return { url, title, ogTitle, canonical, h1, headings, metaDescription, breadcrumbs, bodySnippet, datePublished, dateModified, schemaTypes };
   } catch {
     return empty;
   }
