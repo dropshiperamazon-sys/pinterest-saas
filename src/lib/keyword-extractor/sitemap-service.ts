@@ -31,13 +31,14 @@ async function fetchText(url: string): Promise<{ text: string; finalUrl: string 
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
       redirect: "follow",
     });
+    const contentType = res.headers.get("content-type") ?? "";
+    const finalUrl = res.url ?? url;
+    console.log(`[sitemap] HTTP ${res.status} | Content-Type: ${contentType} | URL: ${url}`);
+
     if (!res.ok) {
       console.log(`[sitemap] SKIP ${url} → HTTP ${res.status}`);
       return null;
     }
-
-    const contentType = res.headers.get("content-type") ?? "";
-    const finalUrl = res.url ?? url;
 
     // Reject HTML responses (bot challenge pages, redirected pages, etc.)
     if (contentType.startsWith("text/html")) {
@@ -94,8 +95,8 @@ async function fetchText(url: string): Promise<{ text: string; finalUrl: string 
 // Parse <loc> tags from either a sitemapindex or a urlset
 function parseLocEntries(xml: string): string[] {
   const locs: string[] = [];
-  // Use multiline-safe regex: \s* handles newlines around the URL
-  const regex = /<loc[\s>][^<]*>([\s\S]*?)<\/loc>/gi;
+  // <loc[^>]*> handles plain <loc> and namespace-prefixed variants like <loc xmlns:...>
+  const regex = /<loc[^>]*>([\s\S]*?)<\/loc>/gi;
   let m: RegExpExecArray | null;
   while ((m = regex.exec(xml)) !== null) {
     const url = m[1].trim().replace(/&amp;/g, "&").replace(/\s+/g, "");
@@ -122,12 +123,12 @@ function parseUrlsetEntries(xml: string): SitemapURL[] {
   let count = 0;
   for (const block of urlBlocks) {
     if (count >= MAX_URLS_PER_SITEMAP) break;
-    const locMatch = block.match(/<loc[\s>][^<]*>([\s\S]*?)<\/loc>/i);
+    const locMatch = block.match(/<loc[^>]*>([\s\S]*?)<\/loc>/i);
     if (!locMatch) continue;
     const loc = locMatch[1].trim().replace(/&amp;/g, "&").replace(/\s+/g, "");
     if (!loc || !loc.startsWith("http")) continue;
-    const lastmodMatch = block.match(/<lastmod[\s>][^<]*>([\s\S]*?)<\/lastmod>/i);
-    const priorityMatch = block.match(/<priority[\s>][^<]*>([\s\S]*?)<\/priority>/i);
+    const lastmodMatch = block.match(/<lastmod[^>]*>([\s\S]*?)<\/lastmod>/i);
+    const priorityMatch = block.match(/<priority[^>]*>([\s\S]*?)<\/priority>/i);
     urls.push({
       loc,
       lastmod: lastmodMatch?.[1]?.trim(),
@@ -261,7 +262,7 @@ export async function crawlSitemap(
 
     const { text } = result;
     const docType = detectSitemapType(text);
-    console.log(`[sitemap] → type=${docType}, length=${text.length}`);
+    console.log(`[sitemap] ─ type=${docType} | size=${text.length}B | url=${sitemapUrl}`);
 
     if (docType === "index") {
       // Extract child sitemap URLs and add to queue
@@ -269,7 +270,7 @@ export async function crawlSitemap(
       sitemapsFound.push(sitemapUrl);
       sitemapsProcessed++;
 
-      console.log(`[sitemap] Index has ${childSitemapUrls.length} child sitemaps:`);
+      console.log(`[sitemap] Index: ${childSitemapUrls.length} child sitemaps found`);
       let newChildren = 0;
       for (const childUrl of childSitemapUrls) {
         const normChild = childUrl.split("?")[0].replace(/\/$/, "");
