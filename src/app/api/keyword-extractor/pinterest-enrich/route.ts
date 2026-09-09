@@ -119,26 +119,88 @@ function relevanceFromPosition(index: number, total: number): PinterestRelevance
 // Maps keywords to Pinterest interest slugs used by the Trends API.
 
 const INTEREST_PATTERNS: { pattern: RegExp; interest: string }[] = [
-  { pattern: /living room|sofa|couch|lounge|tv stand|coffee table/i, interest: "home_decor" },
-  { pattern: /bedroom|bed frame|nightstand|mattress|pillow|duvet|comforter/i, interest: "home_decor" },
-  { pattern: /bathroom|toilet|shower|bathtub|vanity|tile|faucet/i, interest: "home_decor" },
-  { pattern: /kitchen|cabinet|countertop|backsplash|sink|fridge|appliance/i, interest: "home_decor" },
-  { pattern: /home decor|interior|room decor|furniture|rug|curtain|lamp|shelf/i, interest: "home_decor" },
-  { pattern: /garden|plant|flower|outdoor|backyard|patio|landscape/i, interest: "home_decor" },
-  { pattern: /outfit|fashion|dress|clothing|jeans|jacket|shoes|accessories|style/i, interest: "womens_fashion" },
-  { pattern: /makeup|beauty|skincare|lipstick|foundation|eyeshadow|nail|hair/i, interest: "beauty" },
-  { pattern: /recipe|food|meal|dinner|lunch|breakfast|dessert|cake|cookie|healthy eating/i, interest: "food_and_drinks" },
-  { pattern: /travel|vacation|trip|destination|hotel|flight|backpack|adventure/i, interest: "travel" },
-  { pattern: /workout|fitness|gym|exercise|yoga|running|weight loss|muscle/i, interest: "sport" },
-  { pattern: /craft|diy|handmade|sewing|knit|crochet|art|drawing|painting/i, interest: "diy_and_crafts" },
-  { pattern: /wedding|bride|bridal|engagement|ceremony|reception/i, interest: "wedding" },
-  { pattern: /baby|toddler|parenting|kids|children|nursery|pregnancy/i, interest: "parenting" },
-  { pattern: /dog|cat|pet|puppy|kitten|animal/i, interest: "animals" },
-  { pattern: /tech|phone|laptop|gadget|app|software|computer|iphone|android/i, interest: "electronics" },
-  { pattern: /business|marketing|finance|money|invest|entrepreneur|startup/i, interest: "business_strategy" },
-  { pattern: /study|education|school|college|learn|course|book|reading/i, interest: "education" },
-  { pattern: /quote|motivation|inspiration|mindset|mental health|wellness/i, interest: "education" },
-  { pattern: /entertainment|movie|music|game|anime|netflix|celebrity/i, interest: "entertainment" },
+  // Home & Decor — broad catch for any room or home-related seed
+  {
+    pattern: /living room|dining room|bedroom|bathroom|kitchen|laundry|garage|basement|attic|hallway|entryway|mudroom|nursery room|home office|study room|playroom|sunroom|porch|balcony|terrace/i,
+    interest: "home_decor",
+  },
+  {
+    pattern: /sofa|couch|lounge|tv stand|coffee table|bed frame|nightstand|mattress|pillow|duvet|comforter|vanity|tile|faucet|cabinet|countertop|backsplash|sink|fridge|appliance/i,
+    interest: "home_decor",
+  },
+  {
+    pattern: /home decor|interior design|room decor|furniture|rug|curtain|drape|lamp|shelf|mirror|wall art|wallpaper|paint color|accent wall|open shelving|floating shelf/i,
+    interest: "home_decor",
+  },
+  {
+    pattern: /garden|plant|flower|outdoor|backyard|patio|landscape|lawn|deck|pergola|raised bed|planter|succulent|houseplant/i,
+    interest: "home_decor",
+  },
+  // Fashion
+  {
+    pattern: /outfit|fashion|dress|clothing|jeans|jacket|coat|blouse|skirt|shoes|boots|sneakers|accessories|handbag|purse|style|wardrobe|capsule wardrobe/i,
+    interest: "womens_fashion",
+  },
+  // Beauty
+  {
+    pattern: /makeup|beauty|skincare|lipstick|foundation|eyeshadow|blush|mascara|nail|hair color|hair style|haircut|braid|curly hair|straight hair|eyelash|serum|moisturizer/i,
+    interest: "beauty",
+  },
+  // Food
+  {
+    pattern: /recipe|food|meal|dinner|lunch|breakfast|dessert|cake|cookie|bread|smoothie|salad|soup|pasta|healthy eating|meal prep|baking|cooking|snack|appetizer/i,
+    interest: "food_and_drinks",
+  },
+  // Travel
+  {
+    pattern: /travel|vacation|trip|destination|hotel|flight|backpack|adventure|itinerary|road trip|beach|mountain|europe|asia|bucket list/i,
+    interest: "travel",
+  },
+  // Fitness
+  {
+    pattern: /workout|fitness|gym|exercise|yoga|pilates|running|weight loss|muscle|abs|glutes|cardio|strength training|home workout/i,
+    interest: "sport",
+  },
+  // DIY & Crafts
+  {
+    pattern: /craft|diy|handmade|sewing|knitting|crochet|embroidery|macrame|scrapbook|drawing|painting|watercolor|resin|upcycle/i,
+    interest: "diy_and_crafts",
+  },
+  // Wedding
+  {
+    pattern: /wedding|bride|bridal|engagement|ceremony|reception|bridesmaid|wedding dress|wedding cake|wedding decor|wedding flowers/i,
+    interest: "wedding",
+  },
+  // Parenting
+  {
+    pattern: /baby|toddler|parenting|kids|children|nursery|pregnancy|newborn|postpartum|homeschool|school lunch|back to school/i,
+    interest: "parenting",
+  },
+  // Pets
+  {
+    pattern: /dog|cat|pet|puppy|kitten|animal|bunny|hamster|fish tank|bird|reptile/i,
+    interest: "animals",
+  },
+  // Tech
+  {
+    pattern: /tech|phone|laptop|gadget|app|software|computer|iphone|android|tablet|smart home|gaming setup/i,
+    interest: "electronics",
+  },
+  // Business
+  {
+    pattern: /business|marketing|finance|money|invest|entrepreneur|startup|freelance|passive income|side hustle|social media marketing/i,
+    interest: "business_strategy",
+  },
+  // Education
+  {
+    pattern: /study|education|school|college|learn|course|book|reading|study tips|productivity|journal|planner|note taking/i,
+    interest: "education",
+  },
+  // Entertainment
+  {
+    pattern: /movie|music|game|anime|netflix|celebrity|tv show|series|concert|festival/i,
+    interest: "entertainment",
+  },
 ];
 
 function seedToInterest(seed: string): string | null {
@@ -217,13 +279,23 @@ async function setCached(seed: string, country: string, data: CachedSeedResult):
 
 // ── Build keyword results for one seed ────────────────────────────────────────
 
+// Words that indicate a trending keyword is a pop-culture/viral topic unrelated to home/lifestyle niches.
+// Used to filter out clearly off-topic global trends when interest-specific fetch also returns noise.
+const POP_CULTURE_SIGNALS = new Set([
+  "la place", "willow tsp", "lesbian space princess", "asmr", "mukbang",
+  "fnaf", "stranger things", "taylor swift", "beyonce", "drake", "skibidi",
+  "rizz", "gyatt", "sigma", "ohio", "sussy", "among us", "minecraft",
+]);
+
 function buildSeedKeywords(
   seed: string,
   country: string,
   trendItems: TrendItem[],
   articleCountBySeed: Map<string, number>,
+  hasInterest: boolean,
 ): PinterestKeywordResult[] {
   const normSeed = normalizeKeyword(seed);
+  const seedWords = new Set(normSeed.split(/\s+/).filter((w) => w.length >= 4));
   const results: PinterestKeywordResult[] = [];
   const seen = new Set<string>([normSeed]);
 
@@ -241,12 +313,24 @@ function buildSeedKeywords(
     articleCount: articleCountBySeed.get(normSeed) ?? 0,
   });
 
-  // All trending keywords in this interest category are relevant — no niche-word filtering needed
-  // because we already fetched the interest-specific trends list.
   for (let i = 0; i < trendItems.length; i++) {
     const item = trendItems[i];
     const kw = normalizeKeyword(item.keyword);
     if (!kw || seen.has(kw)) continue;
+
+    // When using global trends (no interest match), skip obvious pop-culture/viral noise
+    if (!hasInterest) {
+      if (POP_CULTURE_SIGNALS.has(kw)) continue;
+      // Require at least one shared word with the seed (min 4 chars)
+      const kwWords = kw.split(/\s+/);
+      const sharesWord = kwWords.some((w) => w.length >= 4 && seedWords.has(w));
+      const isSubstring = kw.includes(normSeed) || normSeed.includes(kw);
+      if (!sharesWord && !isSubstring) continue;
+    } else {
+      // For interest-specific trends, still skip obvious viral non-topic keywords
+      if (POP_CULTURE_SIGNALS.has(kw)) continue;
+    }
+
     seen.add(kw);
     results.push({
       seedKeyword: seed,
@@ -404,7 +488,7 @@ export async function POST(req: NextRequest) {
             ? trendsByInterest.get(interest)!
             : trendsByInterest.get(null)!;
 
-          const keywords = buildSeedKeywords(seed, country, trends, articleCountBySeed);
+          const keywords = buildSeedKeywords(seed, country, trends, articleCountBySeed, !!interest && trends === trendsByInterest.get(interest));
 
           if (keywords.some((k) => k.source === "PINTEREST_API")) {
             await setCached(seed, country, { keywords, cachedAt: Date.now() });
