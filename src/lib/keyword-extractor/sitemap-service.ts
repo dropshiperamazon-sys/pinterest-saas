@@ -6,10 +6,16 @@ export interface SitemapURL {
   priority?: string;
 }
 
-const FETCH_TIMEOUT = 8000;
-const MAX_CHILD_SITEMAPS = 30;          // process up to 30 child sitemaps per index
-const MAX_URLS_PER_SITEMAP = 5000;      // per individual sitemap file
-const MAX_TOTAL_URLS = 10_000;          // hard ceiling across all sitemaps
+export interface SitemapProgress {
+  sitemapsFound: number;
+  urlsCollected: number;
+  message: string;
+}
+
+const FETCH_TIMEOUT = 10_000;
+const MAX_CHILD_SITEMAPS = 60;
+const MAX_URLS_PER_SITEMAP = 10_000;
+const MAX_TOTAL_URLS = 30_000;
 
 async function fetchText(url: string): Promise<string | null> {
   try {
@@ -24,7 +30,6 @@ async function fetchText(url: string): Promise<string | null> {
   }
 }
 
-// Parse <loc> entries from any sitemap XML (both index and urlset)
 function parseLocTags(xml: string): string[] {
   const locs: string[] = [];
   const regex = /<loc>\s*(.*?)\s*<\/loc>/gi;
@@ -40,7 +45,6 @@ function isSitemapIndex(xml: string): boolean {
   return /<sitemapindex/i.test(xml);
 }
 
-// Read robots.txt and extract Sitemap: directives
 async function getSitemapsFromRobots(domain: string): Promise<string[]> {
   const robotsUrl = `${domain}/robots.txt`;
   const text = await fetchText(robotsUrl);
@@ -53,32 +57,26 @@ async function getSitemapsFromRobots(domain: string): Promise<string[]> {
   return found;
 }
 
-// Discover all sitemap URLs for a domain
 async function discoverSitemaps(domain: string): Promise<string[]> {
   const candidates = new Set<string>();
 
-  // 1. robots.txt
   const fromRobots = await getSitemapsFromRobots(domain);
   for (const s of fromRobots) candidates.add(s);
 
-  // 2. Common locations — try many patterns; invalid ones return 404 and are skipped
   const commonPaths = [
     "/sitemap.xml",
     "/sitemap_index.xml",
     "/sitemap/sitemap.xml",
     "/sitemap/index.xml",
-    // WordPress common sitemaps
     "/post-sitemap.xml",
     "/page-sitemap.xml",
     "/category-sitemap.xml",
     "/news-sitemap.xml",
-    // Numbered article sitemaps
     "/sitemap-articles.xml",
     "/sitemap-posts.xml",
     "/sitemaps/articles-sitemap.xml",
     "/sitemap-1.xml",
     "/sitemap-2.xml",
-    // Hearst / major publisher patterns
     "/sitemap/articles/",
     "/sitemap/sitemap-index.xml",
     "/sitemap_post.xml",
@@ -90,48 +88,70 @@ async function discoverSitemaps(domain: string): Promise<string[]> {
   return Array.from(candidates);
 }
 
-// Fetch and collect all leaf URLs from a sitemap (handles index recursion)
-async function collectFromSitemap(sitemapUrl: string, depth = 0, seen = new Set<string>()): Promise<SitemapURL[]> {
-  if (depth > 3) return [];
-  if (seen.has(sitemapUrl)) return [];
-  seen.add(sitemapUrl);
+// Recursively collect all leaf article URLs from a sitemap or sitemap index.
+// `seenSitemaps` tracks which sitemap URLs have been fetched to prevent loops.
+async function collectFromSitemap(
+  sitemapUrl: string,
+  seenSitemaps: Set<string>,
+  allUrls: SitemapURL[],
+  sitemapsFound: string[],
+  onProgress?: (p: SitemapProgress) => void,
+  depth = 0
+): Promise<void> {
+  if (depth > 4) return;
+  if (seenSitemaps.has(sitemapUrl)) return;
+  seenSitemaps.add(sitemapUrl);
+  if (allUrls.length >= MAX_TOTAL_URLS) return;
 
   const text = await fetchText(sitemapUrl);
-  if (!text) return [];
-
-  const locs = parseLocTags(text);
+  if (!text || !text.trim().startsWith("<")) return;
 
   if (isSitemapIndex(text)) {
-    // It's an index — each loc is a child sitemap; process all (up to MAX_CHILD_SITEMAPS)
-    const results: SitemapURL[] = [];
-    for (const childUrl of locs.slice(0, MAX_CHILD_SITEMAPS)) {
-      const childResults = await collectFromSitemap(childUrl, depth + 1, seen);
-      results.push(...childResults);
-      if (results.length >= MAX_TOTAL_URLS) break;
+    sitemapsFound.push(sitemapUrl);
+    onProgress?.({
+      sitemapsFound: sitemapsFound.length,
+      urlsCollected: allUrls.length,
+      message: `Sitemap index: ${sitemapUrl}`,
+    });
+
+    const childUrls = parseLocTags(text);
+    for (const childUrl of childUrls.slice(0, MAX_CHILD_SITEMAPS)) {
+      if (allUrls.length >= MAX_TOTAL_URLS) break;
+      await collectFromSitemap(childUrl, seenSitemaps, allUrls, sitemapsFound, onProgress, depth + 1);
     }
-    return results;
+    return;
   }
 
-  // It's a urlset — extract lastmod and priority too
-  const urls: SitemapURL[] = [];
+  // Leaf urlset sitemap
+  sitemapsFound.push(sitemapUrl);
+
+  const seenLocs = new Set(allUrls.map((u) => u.loc));
   const urlBlocks = text.split(/<\/url>/i);
+  let added = 0;
   for (const block of urlBlocks.slice(0, MAX_URLS_PER_SITEMAP)) {
+    if (allUrls.length >= MAX_TOTAL_URLS) break;
     const locMatch = block.match(/<loc>\s*(.*?)\s*<\/loc>/i);
     if (!locMatch) continue;
     const loc = locMatch[1].trim().replace(/&amp;/g, "&");
+    if (!loc || seenLocs.has(loc)) continue;
+    seenLocs.add(loc);
     const lastmodMatch = block.match(/<lastmod>\s*(.*?)\s*<\/lastmod>/i);
     const priorityMatch = block.match(/<priority>\s*(.*?)\s*<\/priority>/i);
-    urls.push({
-      loc,
-      lastmod: lastmodMatch?.[1],
-      priority: priorityMatch?.[1],
-    });
+    allUrls.push({ loc, lastmod: lastmodMatch?.[1], priority: priorityMatch?.[1] });
+    added++;
   }
 
-  return urls;
+  onProgress?.({
+    sitemapsFound: sitemapsFound.length,
+    urlsCollected: allUrls.length,
+    message: `${sitemapUrl} → ${added} URLs`,
+  });
 }
 
-export async function crawlSitemap(inputUrl: string): Promise<{ urls: SitemapURL[]; sitemapsFound: string[]; error?: string }> {
+export async function crawlSitemap(
+  inputUrl: string,
+  onProgress?: (p: SitemapProgress) => void
+): Promise<{ urls: SitemapURL[]; sitemapsFound: string[]; error?: string }> {
   let domain: string;
   try {
     const parsed = new URL(inputUrl);
@@ -140,24 +160,16 @@ export async function crawlSitemap(inputUrl: string): Promise<{ urls: SitemapURL
     return { urls: [], sitemapsFound: [], error: "Invalid URL" };
   }
 
-  const sitemapUrls = await discoverSitemaps(domain);
-  const sitemapsFound: string[] = [];
-  const seen = new Set<string>();
+  const candidateSitemapUrls = await discoverSitemaps(domain);
+  onProgress?.({ sitemapsFound: 0, urlsCollected: 0, message: `Checking ${candidateSitemapUrls.length} sitemap candidates…` });
+
+  const seenSitemaps = new Set<string>();
   const allUrls: SitemapURL[] = [];
+  const sitemapsFound: string[] = [];
 
-  for (const sitemapUrl of sitemapUrls) {
-    const text = await fetchText(sitemapUrl);
-    if (!text || !text.trim().startsWith("<")) continue;
-    sitemapsFound.push(sitemapUrl);
-
-    const collected = await collectFromSitemap(sitemapUrl, 0, new Set([sitemapUrl]));
-    for (const u of collected) {
-      if (!seen.has(u.loc)) {
-        seen.add(u.loc);
-        allUrls.push(u);
-      }
-    }
+  for (const candidateUrl of candidateSitemapUrls) {
     if (allUrls.length >= MAX_TOTAL_URLS) break;
+    await collectFromSitemap(candidateUrl, seenSitemaps, allUrls, sitemapsFound, onProgress, 0);
   }
 
   return { urls: allUrls, sitemapsFound };

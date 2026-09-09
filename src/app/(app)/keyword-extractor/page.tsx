@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { relevanceLabel } from "@/lib/keyword-extractor/relevance-engine";
-import type { ExtractedKeyword, ExtractResponse, DateFilter } from "@/app/api/keyword-extractor/extract/route";
+import type { ExtractedKeyword, ExtractResponse, DateFilter, ProgressEvent } from "@/app/api/keyword-extractor/extract/route";
 import type { ContentIdea } from "@/lib/keyword-extractor/content-idea-generator";
 
 const INTENT_COLORS: Record<string, string> = {
@@ -26,6 +26,13 @@ const DATE_FILTER_OPTIONS: { value: DateFilter; label: string }[] = [
   { value: "6m", label: "Last 6 months" },
   { value: "1y", label: "Last year" },
 ];
+
+interface ProgressState {
+  stage: string;
+  message: string;
+  counts?: Record<string, number>;
+  log: string[];
+}
 
 function RelevanceBadge({ score }: { score: number }) {
   const { label, color } = relevanceLabel(score);
@@ -53,11 +60,16 @@ export default function KeywordExtractorPage() {
   const PAGE_SIZE = 20;
 
   const [extracting, setExtracting] = useState(false);
+  const [progress, setProgress] = useState<ProgressState | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [results, setResults] = useState<ExtractedKeyword[] | null>(null);
   const [stats, setStats] = useState<{
-    totalUrls: number; totalArticles: number; stage1Candidates: number;
-    stage2Fetched: number; homepageLinks: number; sitemaps: string[];
+    totalUrls: number;
+    totalArticles: number;
+    candidateArticles: number;
+    stage2Fetched: number;
+    homepageLinks: number;
+    sitemaps: string[];
   } | null>(null);
 
   const [search, setSearch] = useState("");
@@ -94,6 +106,7 @@ export default function KeywordExtractorPage() {
     setIdeas(null);
     setSearch("");
     setPage(1);
+    setProgress({ stage: "init", message: "Starting…", log: [] });
 
     try {
       const res = await fetch("/api/keyword-extractor/extract", {
@@ -101,22 +114,62 @@ export default function KeywordExtractorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ domain, topic: topic.trim(), dateFilter }),
       });
-      const data: ExtractResponse & { error?: string } = await res.json();
-      if (data.error) {
-        setExtractError(data.error);
-      } else {
-        setResults(data.relevant ?? []);
-        setStats({
-          totalUrls: data.totalUrlsFound,
-          totalArticles: data.totalArticles,
-          stage1Candidates: data.stage1Candidates ?? 0,
-          stage2Fetched: data.stage2Fetched ?? 0,
-          homepageLinks: data.homepageLinks ?? 0,
-          sitemaps: data.sitemapsFound ?? [],
-        });
+
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => "Request failed");
+        setExtractError(text);
+        setExtracting(false);
+        setProgress(null);
+        return;
       }
-    } catch {
-      setExtractError("Request failed. Please check the domain and try again.");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE lines
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6)) as ProgressEvent;
+
+            if (event.type === "progress") {
+              setProgress((prev) => ({
+                stage: event.stage,
+                message: event.message,
+                counts: event.counts,
+                log: [...(prev?.log ?? []), event.message].slice(-20),
+              }));
+            } else if (event.type === "complete") {
+              const data = event.data;
+              setResults(data.relevant ?? []);
+              setStats({
+                totalUrls: data.totalUrlsFound,
+                totalArticles: data.totalArticles,
+                candidateArticles: data.candidateArticles ?? data.stage2Fetched ?? 0,
+                stage2Fetched: data.stage2Fetched ?? 0,
+                homepageLinks: data.homepageLinks ?? 0,
+                sitemaps: data.sitemapsFound ?? [],
+              });
+              setProgress(null);
+            } else if (event.type === "error") {
+              setExtractError(event.message);
+              setProgress(null);
+            }
+          } catch { /* malformed SSE line */ }
+        }
+      }
+    } catch (err) {
+      setExtractError(err instanceof Error ? err.message : "Request failed. Please check the domain and try again.");
+      setProgress(null);
     } finally {
       setExtracting(false);
     }
@@ -176,15 +229,8 @@ export default function KeywordExtractorPage() {
     setPage(1);
   }
 
-  function handleSearchChange(val: string) {
-    setSearch(val);
-    setPage(1);
-  }
-
-  function handleThresholdChange(val: number) {
-    setThreshold(val);
-    setPage(1);
-  }
+  function handleSearchChange(val: string) { setSearch(val); setPage(1); }
+  function handleThresholdChange(val: number) { setThreshold(val); setPage(1); }
 
   function toggleSelect(url: string) {
     setSelected((prev) => {
@@ -213,16 +259,15 @@ export default function KeywordExtractorPage() {
     const rows = [["Source URL", "Page Title", "Keyword", "Relevance", "Match Reason"]];
     for (const r of tableData) rows.push([r.url, r.pageTitle ?? "", r.keyword, String(r.relevance), r.matchReason ?? ""]);
     const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
-    download("keywords.csv", csv, "text/csv");
+    dl("keywords.csv", csv, "text/csv");
   }
 
   function exportTXT() {
     if (!tableData.length) return;
-    const text = tableData.map((r) => r.keyword).join("\n");
-    download("keywords.txt", text, "text/plain");
+    dl("keywords.txt", tableData.map((r) => r.keyword).join("\n"), "text/plain");
   }
 
-  function download(name: string, content: string, type: string) {
+  function dl(name: string, content: string, type: string) {
     const blob = new Blob([content], { type });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -231,20 +276,26 @@ export default function KeywordExtractorPage() {
   }
 
   function copyAllKeywords() {
-    const text = tableData.map((r) => r.keyword).join("\n");
-    copyToClipboard(text);
+    copyToClipboard(tableData.map((r) => r.keyword).join("\n"));
     setCopiedAll(true);
     setTimeout(() => setCopiedAll(false), 2000);
   }
 
   const SortIcon = ({ field }: { field: SortField }) =>
     sortField === field
-      ? sortDir === "asc"
-        ? <ChevronUp className="w-3 h-3" />
-        : <ChevronDown className="w-3 h-3" />
+      ? sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
       : <ChevronDown className="w-3 h-3 text-gray-300" />;
 
   const step = !results ? 1 : ideas ? 3 : 2;
+
+  const stageLabel: Record<string, string> = {
+    init: "Initializing…",
+    sitemap: "Discovering sitemaps…",
+    homepage: "Scanning homepage…",
+    discovery: "Processing URLs…",
+    filter: "Filtering articles…",
+    analysis: "Analyzing pages…",
+  };
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -292,7 +343,9 @@ export default function KeywordExtractorPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Keyword / Topic <span className="text-red-500">*</span></label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+              Keyword / Topic <span className="text-red-500">*</span>
+            </label>
             <input
               type="text"
               value={topic}
@@ -317,7 +370,6 @@ export default function KeywordExtractorPage() {
           </select>
         </div>
 
-        {/* Threshold control */}
         <div className="mb-4 flex items-center gap-4 bg-gray-50 rounded-lg px-4 py-3">
           <SlidersHorizontal className="w-4 h-4 text-gray-400 shrink-0" />
           <div className="flex-1">
@@ -325,11 +377,7 @@ export default function KeywordExtractorPage() {
               Min. Relevance Threshold: <span className="text-red-500 font-bold">{threshold}</span>
             </label>
             <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={threshold}
+              type="range" min={0} max={100} step={5} value={threshold}
               onChange={(e) => handleThresholdChange(Number(e.target.value))}
               className="w-full mt-1 accent-red-500"
             />
@@ -358,34 +406,75 @@ export default function KeywordExtractorPage() {
         )}
       </div>
 
+      {/* Progress panel */}
+      {extracting && progress && (
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 mb-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Loader2 className="w-4 h-4 text-blue-500 animate-spin shrink-0" />
+            <span className="text-sm font-semibold text-blue-800">{stageLabel[progress.stage] ?? progress.stage}</span>
+          </div>
+          {progress.counts && (
+            <div className="flex flex-wrap gap-4 mb-3">
+              {progress.counts.sitemapsFound !== undefined && (
+                <Chip label="Sitemaps" value={progress.counts.sitemapsFound} />
+              )}
+              {progress.counts.urlsCollected !== undefined && (
+                <Chip label="URLs collected" value={progress.counts.urlsCollected} />
+              )}
+              {progress.counts.totalUrls !== undefined && (
+                <Chip label="Total URLs" value={progress.counts.totalUrls} />
+              )}
+              {progress.counts.articleUrls !== undefined && (
+                <Chip label="Articles" value={progress.counts.articleUrls} />
+              )}
+              {progress.counts.candidateArticles !== undefined && (
+                <Chip label="Candidates" value={progress.counts.candidateArticles} />
+              )}
+              {progress.counts.analyzed !== undefined && progress.counts.total !== undefined && (
+                <Chip label="Analyzed" value={`${progress.counts.analyzed} / ${progress.counts.total}`} />
+              )}
+            </div>
+          )}
+          <div className="bg-white border border-blue-100 rounded-lg p-3 max-h-36 overflow-y-auto font-mono text-xs text-gray-500 space-y-0.5">
+            {progress.log.map((line, i) => (
+              <div key={i} className="truncate">{line}</div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Step 2: Results */}
       {results && (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <StatCard label="URLs Found" value={stats?.totalUrls ?? 0} />
+          {/* Metrics row */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+            <StatCard label="Total URLs" value={stats?.totalUrls ?? 0} />
             <StatCard label="Article URLs" value={stats?.totalArticles ?? 0} />
-            <StatCard label="Stage 2 Fetched" value={stats?.stage2Fetched ?? 0} />
+            <StatCard label="Candidates" value={stats?.candidateArticles ?? 0} />
+            <StatCard label="Analyzed" value={stats?.stage2Fetched ?? 0} />
+            <StatCard label="Scored" value={results.length} />
             <StatCard label={`Shown (≥${threshold})`} value={tableData.length} highlight />
           </div>
 
           {stats && (
             <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-700 space-y-0.5">
               <div className="font-semibold mb-1">Discovery summary</div>
-              <div>Sitemaps used: {stats.sitemaps.length} · Homepage links: {stats.homepageLinks}</div>
-              <div>Stage 1 candidates (slug filter): {stats.stage1Candidates} · Stage 2 fetched: {stats.stage2Fetched}</div>
-              <div>Total unique URLs: {stats.totalUrls} · Article candidates: {stats.totalArticles}</div>
+              <div>Sitemaps used: {stats.sitemaps.length} · Sitemap URLs: {(stats.totalUrls - stats.homepageLinks).toLocaleString()} · Homepage supplemental links: {stats.homepageLinks}</div>
+              <div>Total unique URLs: {stats.totalUrls.toLocaleString()} · Article candidates: {stats.totalArticles.toLocaleString()} · Analyzed: {stats.stage2Fetched}</div>
             </div>
           )}
 
           {stats?.sitemaps && stats.sitemaps.length > 0 && (
-            <div className="bg-gray-50 border border-gray-100 rounded-lg px-4 py-2 mb-4 text-xs text-gray-500">
-              Sitemaps: {stats.sitemaps.map((s, i) => {
+            <div className="bg-gray-50 border border-gray-100 rounded-lg px-4 py-2 mb-4 text-xs text-gray-500 flex flex-wrap gap-x-2 gap-y-1 items-center">
+              <span className="font-medium text-gray-600">Sitemaps:</span>
+              {stats.sitemaps.slice(0, 20).map((s, i) => {
                 try {
-                  return <a key={i} href={s} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline mr-2">{new URL(s).pathname}</a>;
+                  return <a key={i} href={s} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{new URL(s).pathname}</a>;
                 } catch {
-                  return <span key={i} className="mr-2">{s}</span>;
+                  return <span key={i}>{s}</span>;
                 }
               })}
+              {stats.sitemaps.length > 20 && <span className="text-gray-400">+{stats.sitemaps.length - 20} more</span>}
             </div>
           )}
 
@@ -401,14 +490,12 @@ export default function KeywordExtractorPage() {
                 <div className="flex items-center gap-2 flex-1 min-w-48">
                   <Filter className="w-4 h-4 text-gray-300" />
                   <input
-                    type="text"
-                    value={search}
+                    type="text" value={search}
                     onChange={(e) => handleSearchChange(e.target.value)}
                     placeholder="Filter keywords…"
                     className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-300"
                   />
                 </div>
-
                 <div className="flex items-center gap-2 ml-auto flex-wrap">
                   <span className="text-xs text-gray-400">{selected.size} selected</span>
                   <button onClick={copyAllKeywords}
@@ -452,12 +539,7 @@ export default function KeywordExtractorPage() {
                   </thead>
                   <tbody className="divide-y divide-gray-50">
                     {pageData.map((row) => (
-                      <TableRow
-                        key={row.url}
-                        row={row}
-                        selected={selected.has(row.url)}
-                        onToggle={() => toggleSelect(row.url)}
-                      />
+                      <TableRow key={row.url} row={row} selected={selected.has(row.url)} onToggle={() => toggleSelect(row.url)} />
                     ))}
                   </tbody>
                 </table>
@@ -549,6 +631,15 @@ export default function KeywordExtractorPage() {
   );
 }
 
+function Chip({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-white border border-blue-100 rounded-lg px-3 py-1.5 text-center min-w-16">
+      <div className="text-sm font-bold text-blue-800">{typeof value === "number" ? value.toLocaleString() : value}</div>
+      <div className="text-xs text-blue-500">{label}</div>
+    </div>
+  );
+}
+
 function StatCard({ label, value, highlight = false }: { label: string; value: number; highlight?: boolean }) {
   return (
     <div className={cn("rounded-xl border p-4", highlight ? "bg-red-50 border-red-100" : "bg-white border-gray-200")}>
@@ -569,10 +660,7 @@ function TableRow({ row, selected, onToggle }: { row: ExtractedKeyword; selected
   }
 
   return (
-    <tr
-      className={cn("hover:bg-gray-50 cursor-pointer transition-colors", selected && "bg-red-50")}
-      onClick={onToggle}
-    >
+    <tr className={cn("hover:bg-gray-50 cursor-pointer transition-colors", selected && "bg-red-50")} onClick={onToggle}>
       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
         <input type="checkbox" checked={selected} onChange={onToggle}
           className="rounded border-gray-300 text-red-500 focus:ring-red-300" />
@@ -594,8 +682,7 @@ function TableRow({ row, selected, onToggle }: { row: ExtractedKeyword; selected
         <span className="truncate block" title={row.matchReason}>{row.matchReason ?? ""}</span>
       </td>
       <td className="px-4 py-3">
-        <button onClick={handleCopy}
-          className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600">
+        <button onClick={handleCopy} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600">
           {copied ? <CheckCircle className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
         </button>
       </td>
@@ -617,16 +704,13 @@ function IdeaCard({ idea }: { idea: ContentIdea }) {
             {copied ? <CheckCircle className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-400" />}
           </button>
         </div>
-
         <div className="flex flex-wrap gap-1.5 mb-3">
           <span className={cn("text-xs rounded px-2 py-0.5 font-medium", INTENT_COLORS[idea.searchIntent] ?? "bg-gray-100 text-gray-600")}>
             {idea.searchIntent}
           </span>
           <span className="text-xs bg-gray-100 text-gray-600 rounded px-2 py-0.5">{idea.primaryKeyword}</span>
         </div>
-
         <p className="text-sm text-gray-600 mb-3">{idea.angle}</p>
-
         {idea.subtopics?.length > 0 && (
           <div className="mb-3">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Subtopics</p>
@@ -639,7 +723,6 @@ function IdeaCard({ idea }: { idea: ContentIdea }) {
             </ul>
           </div>
         )}
-
         <button onClick={() => setExpanded((v) => !v)}
           className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium mt-1">
           <Sparkles className="w-3 h-3" />
@@ -647,19 +730,12 @@ function IdeaCard({ idea }: { idea: ContentIdea }) {
           {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
         </button>
       </div>
-
       {expanded && (
         <div className="border-t border-purple-50 bg-purple-50 p-5">
           <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-3">Pinterest Opportunity</p>
           <div className="space-y-2">
-            <div>
-              <p className="text-xs text-gray-500 mb-0.5">Pin Title</p>
-              <p className="text-sm font-medium text-gray-800">{idea.pinterestTitle}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-0.5">Pin Angle</p>
-              <p className="text-sm text-gray-700">{idea.pinterestAngle}</p>
-            </div>
+            <div><p className="text-xs text-gray-500 mb-0.5">Pin Title</p><p className="text-sm font-medium text-gray-800">{idea.pinterestTitle}</p></div>
+            <div><p className="text-xs text-gray-500 mb-0.5">Pin Angle</p><p className="text-sm text-gray-700">{idea.pinterestAngle}</p></div>
             <div>
               <p className="text-xs text-gray-500 mb-1">Related Keywords</p>
               <div className="flex flex-wrap gap-1.5">
@@ -673,9 +749,7 @@ function IdeaCard({ idea }: { idea: ContentIdea }) {
               <span className="text-xs bg-white border border-purple-100 text-purple-700 rounded px-2 py-0.5">{idea.suggestedBoard}</span>
             </div>
           </div>
-          <p className="text-xs text-gray-400 mt-3">
-            Pinterest keyword data shown is AI-estimated. Not official Pinterest search volume.
-          </p>
+          <p className="text-xs text-gray-400 mt-3">Pinterest keyword data shown is AI-estimated. Not official Pinterest search volume.</p>
         </div>
       )}
     </div>

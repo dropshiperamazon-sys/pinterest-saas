@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { crawlSitemap } from "@/lib/keyword-extractor/sitemap-service";
 import { crawlCategoryPage } from "@/lib/keyword-extractor/category-crawler";
@@ -9,7 +9,7 @@ import { fetchPageMetaBatch } from "@/lib/keyword-extractor/page-crawler";
 import type { SitemapURL } from "@/lib/keyword-extractor/sitemap-service";
 
 const STAGE2_CONCURRENCY = 5;
-const MAX_STAGE2_URLS = 500;  // max page fetches per request
+const MAX_STAGE2_URLS = 500;
 
 export type DateFilter = "all" | "7d" | "30d" | "90d" | "6m" | "1y";
 
@@ -28,7 +28,7 @@ export interface ExtractedKeyword {
 export interface ExtractResponse {
   totalUrlsFound: number;
   totalArticles: number;
-  stage1Candidates: number;
+  candidateArticles: number;
   stage2Fetched: number;
   relevant: ExtractedKeyword[];
   sitemapsFound: string[];
@@ -36,7 +36,12 @@ export interface ExtractResponse {
   error?: string;
 }
 
-// Normalize a URL for deduplication
+// SSE progress event types (sent during streaming)
+export type ProgressEvent =
+  | { type: "progress"; stage: string; message: string; counts?: Record<string, number> }
+  | { type: "complete"; data: ExtractResponse }
+  | { type: "error"; message: string };
+
 function normalizeForDedup(url: string): string {
   try {
     const u = new URL(url);
@@ -50,14 +55,14 @@ function normalizeForDedup(url: string): string {
   }
 }
 
-// Strip a URL (or domain string) down to just https://hostname
 function extractRootDomain(input: string): string {
   const withProtocol = input.startsWith("http") ? input : `https://${input}`;
   const parsed = new URL(withProtocol);
   return `${parsed.protocol}//${parsed.hostname}`;
 }
 
-// Convert a DateFilter to a cutoff Date
+export type DateFilterType = DateFilter;
+
 function dateCutoff(filter: DateFilter): Date | null {
   if (filter === "all") return null;
   const now = new Date();
@@ -76,13 +81,12 @@ function parseDate(str?: string): Date | null {
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.email) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    return new Response(JSON.stringify({ error: "Not authenticated" }), { status: 401 });
   }
 
   const body = await req.json() as {
     domain?: string;
     topic?: string;
-    // backward compat
     url?: string;
     category?: string;
     dateFilter?: DateFilter;
@@ -92,143 +96,212 @@ export async function POST(req: NextRequest) {
   const topic = (body.topic || body.category || "").trim();
 
   if (!rawInput) {
-    return NextResponse.json({ error: "Website domain is required" }, { status: 400 });
+    return new Response(JSON.stringify({ error: "Website domain is required" }), { status: 400 });
   }
   if (!topic) {
-    return NextResponse.json({ error: "Keyword / Topic is required" }, { status: 400 });
+    return new Response(JSON.stringify({ error: "Keyword / Topic is required" }), { status: 400 });
   }
 
   let rootDomain: string;
   try {
     rootDomain = extractRootDomain(rawInput);
   } catch {
-    return NextResponse.json({ error: "Invalid domain" }, { status: 400 });
+    return new Response(JSON.stringify({ error: "Invalid domain" }), { status: 400 });
   }
 
   const dateFilter: DateFilter = body.dateFilter ?? "all";
   const cutoff = dateCutoff(dateFilter);
 
-  console.log(`[keyword-extractor] Domain: ${rootDomain} | Topic: ${topic} | Date filter: ${dateFilter}`);
+  const encoder = new TextEncoder();
 
-  // ── Build topic profile ──────────────────────────────────────────────────────
-  const profile = await buildTopicProfile(topic);
-  console.log(`[keyword-extractor] Profile primaryTerms: ${profile.primaryTerms.join(", ")}`);
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: ProgressEvent) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        } catch { /* client disconnected */ }
+      };
 
-  // ── Source A: Sitemap crawl (always from root domain) ────────────────────────
-  const sitemapPromise = crawlSitemap(rootDomain);
+      try {
+        // ── Build topic profile ──────────────────────────────────────────
+        send({ type: "progress", stage: "init", message: `Building topic profile for "${topic}"…` });
+        const profile = await buildTopicProfile(topic);
 
-  // ── Source B: Homepage crawl to pick up links not in sitemaps ───────────────
-  const homepagePromise = crawlCategoryPage(rootDomain);
+        // ── Source A: Full sitemap crawl ─────────────────────────────────
+        send({ type: "progress", stage: "sitemap", message: "Reading robots.txt and discovering sitemaps…" });
 
-  const [sitemapResult, homepageResult] = await Promise.all([sitemapPromise, homepagePromise]);
+        const sitemapResult = await crawlSitemap(rootDomain, (p) => {
+          send({
+            type: "progress",
+            stage: "sitemap",
+            message: p.message,
+            counts: { sitemapsFound: p.sitemapsFound, urlsCollected: p.urlsCollected },
+          });
+        });
 
-  console.log(`[keyword-extractor] Sitemaps found: ${sitemapResult.sitemapsFound.length} — ${sitemapResult.sitemapsFound.join(", ")}`);
-  console.log(`[keyword-extractor] Sitemap URLs: ${sitemapResult.urls.length}`);
-  console.log(`[keyword-extractor] Homepage article links: ${homepageResult.articleLinks.length} (total links: ${homepageResult.totalLinksFound})`);
+        console.log(`[keyword-extractor] Sitemaps found: ${sitemapResult.sitemapsFound.length} — URLs: ${sitemapResult.urls.length}`);
 
-  // ── Merge + deduplicate ──────────────────────────────────────────────────────
-  const dedupMap = new Map<string, SitemapURL>();
+        // ── Source B: Homepage crawl (supplemental) ──────────────────────
+        send({
+          type: "progress",
+          stage: "homepage",
+          message: "Crawling homepage for supplemental links…",
+          counts: { sitemapUrls: sitemapResult.urls.length, sitemapsFound: sitemapResult.sitemapsFound.length },
+        });
 
-  for (const u of sitemapResult.urls) {
-    const key = normalizeForDedup(u.loc);
-    if (!dedupMap.has(key)) dedupMap.set(key, u);
-  }
-  for (const link of homepageResult.articleLinks) {
-    const key = normalizeForDedup(link);
-    if (!dedupMap.has(key)) dedupMap.set(key, { loc: link });
-  }
+        const homepageResult = await crawlCategoryPage(rootDomain);
+        console.log(`[keyword-extractor] Homepage article links: ${homepageResult.articleLinks.length}`);
 
-  const allUrls = Array.from(dedupMap.values());
-  console.log(`[keyword-extractor] Unique URLs after dedup: ${allUrls.length}`);
+        // ── Merge + deduplicate ──────────────────────────────────────────
+        const dedupMap = new Map<string, SitemapURL>();
+        for (const u of sitemapResult.urls) {
+          const key = normalizeForDedup(u.loc);
+          if (!dedupMap.has(key)) dedupMap.set(key, u);
+        }
+        for (const link of homepageResult.articleLinks) {
+          const key = normalizeForDedup(link);
+          if (!dedupMap.has(key)) dedupMap.set(key, { loc: link });
+        }
 
-  // ── Filter: article-like only ────────────────────────────────────────────────
-  const articleUrls = allUrls.filter((u) => isArticleUrl(u.loc));
-  console.log(`[keyword-extractor] Article candidates: ${articleUrls.length}`);
+        const allUrls = Array.from(dedupMap.values());
+        console.log(`[keyword-extractor] Unique URLs after dedup: ${allUrls.length}`);
 
-  // ── Date pre-filter (sitemap lastmod, if filter is set) ──────────────────────
-  const dateFiltered = cutoff
-    ? articleUrls.filter((u) => {
-        if (!u.lastmod) return true; // no date = include by default
-        const d = parseDate(u.lastmod);
-        return d ? d >= cutoff : true;
-      })
-    : articleUrls;
-  console.log(`[keyword-extractor] After date filter: ${dateFiltered.length}`);
+        send({
+          type: "progress",
+          stage: "discovery",
+          message: `Discovered ${allUrls.length.toLocaleString()} unique URLs (${sitemapResult.sitemapsFound.length} sitemaps + ${homepageResult.articleLinks.length} homepage links)`,
+          counts: { totalUrls: allUrls.length, sitemapUrls: sitemapResult.urls.length, homepageLinks: homepageResult.articleLinks.length },
+        });
 
-  // ── Stage 1: URL slug pre-score (boost, not filter) ─────────────────────────
-  // Sort by slug relevance so the most promising URLs are fetched first when capped.
-  const withSlugScore = dateFiltered.map((u) => ({ u, s: scoreUrlOnly(u.loc, profile) }));
-  withSlugScore.sort((a, b) => b.s - a.s);
-  const stage1Passed = withSlugScore.map((x) => x.u);
-  console.log(`[keyword-extractor] Stage 1 candidates (sorted by slug score): ${stage1Passed.length}`);
+        // ── Filter: article-like only ────────────────────────────────────
+        const articleUrls = allUrls.filter((u) => isArticleUrl(u.loc));
+        console.log(`[keyword-extractor] Article candidates: ${articleUrls.length}`);
 
-  // ── Stage 2: Fetch page meta ─────────────────────────────────────────────────
-  const candidateUrls = stage1Passed.slice(0, MAX_STAGE2_URLS).map((u) => u.loc);
-  console.log(`[keyword-extractor] Stage 2 fetching: ${candidateUrls.length}`);
+        // ── Date pre-filter ──────────────────────────────────────────────
+        const dateFiltered = cutoff
+          ? articleUrls.filter((u) => {
+              if (!u.lastmod) return true;
+              const d = parseDate(u.lastmod);
+              return d ? d >= cutoff : true;
+            })
+          : articleUrls;
 
-  const pageMetas = await fetchPageMetaBatch(candidateUrls, STAGE2_CONCURRENCY);
+        send({
+          type: "progress",
+          stage: "filter",
+          message: `${articleUrls.length.toLocaleString()} article URLs identified${cutoff ? `, ${dateFiltered.length.toLocaleString()} within date range` : ""}`,
+          counts: { totalUrls: allUrls.length, articleUrls: articleUrls.length, dateFiltered: dateFiltered.length },
+        });
 
-  // ── Date filter pass 2: use page-level dates if more accurate ────────────────
-  const seenKeywords = new Set<string>();
-  const scored: ExtractedKeyword[] = [];
+        // ── Candidate selection: sort by slug score, cap at MAX_STAGE2_URLS ─
+        const withScore = dateFiltered.map((u) => ({ u, s: scoreUrlOnly(u.loc, profile) }));
+        withScore.sort((a, b) => b.s - a.s);
+        const candidates = withScore.map((x) => x.u);
+        const candidateUrls = candidates.slice(0, MAX_STAGE2_URLS).map((u) => u.loc);
 
-  for (const meta of pageMetas) {
-    // Date gate using page-level date (more accurate than lastmod)
-    if (cutoff) {
-      const articleDate = parseDate(meta.datePublished) ?? parseDate(meta.dateModified);
-      const sitemapEntry = stage1Passed.find((u) => normalizeForDedup(u.loc) === normalizeForDedup(meta.url));
-      const lastmodDate = parseDate(sitemapEntry?.lastmod);
-      const bestDate = articleDate ?? lastmodDate;
-      if (bestDate && bestDate < cutoff) continue;
-    }
+        console.log(`[keyword-extractor] Stage 2 candidates: ${candidateUrls.length} (cap: ${MAX_STAGE2_URLS})`);
 
-    const keyword = extractKeywordFromUrl(meta.url);
-    if (!keyword || keyword.length < 3) continue;
+        send({
+          type: "progress",
+          stage: "analysis",
+          message: `Analyzing ${candidateUrls.length.toLocaleString()} pages for relevance…`,
+          counts: { totalUrls: allUrls.length, articleUrls: articleUrls.length, candidateArticles: candidateUrls.length, analyzed: 0 },
+        });
 
-    const normalized = keyword.toLowerCase();
-    if (seenKeywords.has(normalized)) continue;
-    seenKeywords.add(normalized);
+        // ── Stage 2: Fetch page meta in batches with progress ────────────
+        const pageMetas = [];
+        for (let i = 0; i < candidateUrls.length; i += STAGE2_CONCURRENCY) {
+          const batch = candidateUrls.slice(i, i + STAGE2_CONCURRENCY);
+          const batchResults = await fetchPageMetaBatch(batch, batch.length);
+          pageMetas.push(...batchResults);
 
-    const sitemapEntry = stage1Passed.find((u) => normalizeForDedup(u.loc) === normalizeForDedup(meta.url));
+          if ((i + STAGE2_CONCURRENCY) % 25 === 0 || i + STAGE2_CONCURRENCY >= candidateUrls.length) {
+            send({
+              type: "progress",
+              stage: "analysis",
+              message: `Analyzing pages… ${Math.min(i + STAGE2_CONCURRENCY, candidateUrls.length)} / ${candidateUrls.length}`,
+              counts: { analyzed: Math.min(i + STAGE2_CONCURRENCY, candidateUrls.length), total: candidateUrls.length },
+            });
+          }
+        }
 
-    const result = scoreRelevanceFull(
-      {
-        url: meta.url,
-        title: meta.title,
-        h1: meta.h1,
-        headings: meta.headings,
-        metaDescription: meta.metaDescription,
-        bodySnippet: meta.bodySnippet,
-      },
-      profile
-    );
+        // ── Score results ────────────────────────────────────────────────
+        const seenKeywords = new Set<string>();
+        const scored: ExtractedKeyword[] = [];
 
-    scored.push({
-      url: meta.url,
-      keyword,
-      category: topic,
-      relevance: result.score,
-      matchReason: result.matchReason,
-      pageTitle: meta.title || undefined,
-      lastmod: sitemapEntry?.lastmod,
-      datePublished: meta.datePublished,
-      dateModified: meta.dateModified,
-    });
-  }
+        for (const meta of pageMetas) {
+          if (cutoff) {
+            const articleDate = parseDate(meta.datePublished) ?? parseDate(meta.dateModified);
+            const sitemapEntry = candidates.find((u) => normalizeForDedup(u.loc) === normalizeForDedup(meta.url));
+            const lastmodDate = parseDate(sitemapEntry?.lastmod);
+            const bestDate = articleDate ?? lastmodDate;
+            if (bestDate && bestDate < cutoff) continue;
+          }
 
-  scored.sort((a, b) => b.relevance - a.relevance);
+          const keyword = extractKeywordFromUrl(meta.url);
+          if (!keyword || keyword.length < 3) continue;
 
-  console.log(`[keyword-extractor] Scored: ${scored.length} | >=65: ${scored.filter(s => s.relevance >= 65).length} | >=50: ${scored.filter(s => s.relevance >= 50).length}`);
+          const normalized = keyword.toLowerCase();
+          if (seenKeywords.has(normalized)) continue;
+          seenKeywords.add(normalized);
 
-  const response: ExtractResponse = {
-    totalUrlsFound: allUrls.length,
-    totalArticles: articleUrls.length,
-    stage1Candidates: stage1Passed.length,
-    stage2Fetched: candidateUrls.length,
-    relevant: scored.slice(0, 1000),
-    sitemapsFound: sitemapResult.sitemapsFound,
-    homepageLinks: homepageResult.articleLinks.length,
-  };
+          const sitemapEntry = candidates.find((u) => normalizeForDedup(u.loc) === normalizeForDedup(meta.url));
 
-  return NextResponse.json(response);
+          const result = scoreRelevanceFull(
+            {
+              url: meta.url,
+              title: meta.title,
+              h1: meta.h1,
+              headings: meta.headings,
+              metaDescription: meta.metaDescription,
+              bodySnippet: meta.bodySnippet,
+            },
+            profile
+          );
+
+          scored.push({
+            url: meta.url,
+            keyword,
+            category: topic,
+            relevance: result.score,
+            matchReason: result.matchReason,
+            pageTitle: meta.title || undefined,
+            lastmod: sitemapEntry?.lastmod,
+            datePublished: meta.datePublished,
+            dateModified: meta.dateModified,
+          });
+        }
+
+        scored.sort((a, b) => b.relevance - a.relevance);
+
+        console.log(`[keyword-extractor] Scored: ${scored.length} | >=65: ${scored.filter((s) => s.relevance >= 65).length}`);
+
+        const response: ExtractResponse = {
+          totalUrlsFound: allUrls.length,
+          totalArticles: articleUrls.length,
+          candidateArticles: candidateUrls.length,
+          stage2Fetched: pageMetas.length,
+          relevant: scored.slice(0, 1000),
+          sitemapsFound: sitemapResult.sitemapsFound,
+          homepageLinks: homepageResult.articleLinks.length,
+        };
+
+        send({ type: "complete", data: response });
+      } catch (err) {
+        console.error("[keyword-extractor] Error:", err);
+        send({ type: "error", message: String(err) });
+      } finally {
+        try { controller.close(); } catch { /* already closed */ }
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
