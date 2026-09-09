@@ -1,15 +1,19 @@
-// Pinterest Keyword Enrichment for Keyword Extractor
+// Pinterest Keyword Enrichment — Keyword Extractor
 //
-// Confirmed working endpoints (from diagnostic run 2026-09-09):
-//   ✓ GET /v5/trends/keywords/{region}/top/growing?limit=25[&interests={interest}]
-//   ✗ GET /v5/ad_accounts/{id}/targeting/keywords/suggestions  → 404 "API method not found"
+// Strategy (v5):
+//   1. Autocomplete Level-1: fetch Pinterest autocomplete suggestions for the seed (up to 12).
+//   2. Autocomplete Level-2: for each top L1 suggestion (up to 5), fetch another autocomplete
+//      round to get deeper completions (up to 5 × 12 = 60 more).
+//   3. Trends: call /v5/trends/keywords/{region}/top/growing for the seed's primary interest
+//      AND up to 2 secondary interests — each returns up to 25 terms.
+//   4. Combine, deduplicate (case-insensitive), tag sources.
+//
+// Confirmed working endpoints (2026-09-09):
+//   ✓ GET /v5/trends/keywords/{region}/top/growing?limit=25[&interests={slug}]
+//   ✗ GET /v5/ad_accounts/{id}/targeting/keywords/suggestions → 404 ("API method not found")
 //   ✗ GET /v5/ad_accounts/{id}/targeting_options?targeting_type=KEYWORD → 404
-//   ✓ GET /v5/ad_accounts/{id}/keywords (returns saved campaign keywords only, usually empty)
 //
-// Strategy: map each seed to a Pinterest interest category, fetch interest-filtered
-// trending keywords once per unique interest, return matching trends per seed.
-//
-// ALL Pinterest API calls happen on the server — tokens never reach the browser.
+// ALL Pinterest API calls are server-side only — tokens never reach the browser.
 
 import { NextRequest } from "next/server";
 import { Redis } from "@upstash/redis";
@@ -22,11 +26,16 @@ const redis = new Redis({
 
 const BASE = "https://api.pinterest.com/v5";
 const CACHE_TTL = 60 * 60 * 24; // 24 hours
-const CACHE_VERSION = "v4";      // bump to invalidate stale entries
+const CACHE_VERSION = "v5";      // bumped from v4 — adds autocomplete layer
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type KeywordSource = "PINTEREST_API" | "WEBSITE_EXTRACTION" | "AI_GENERATED";
+export type KeywordSource =
+  | "PINTEREST_API"        // Trends API (backward-compatible label for trending keywords)
+  | "PINTEREST_SUGGESTED"  // Autocomplete / suggested-terms (seed-based completions)
+  | "WEBSITE_EXTRACTION"
+  | "AI_GENERATED";
+
 export type KeywordType = "SUGGESTED" | "RELATED" | "TRENDING" | "SEED";
 export type PinterestRelevance = "Very High" | "High" | "Medium" | "Low";
 
@@ -57,6 +66,10 @@ export interface PinterestEnrichResponse {
   pinterestSuggestions: number;
   uniquePinterestKeywords: number;
   metricsAvailable: number;
+  // New metadata fields (non-breaking additions)
+  suggestedTermsCount: number;
+  trendingTermsCount: number;
+  totalUniqueKeywords: number;
   results: SeedEnrichmentResult[];
   failedSeeds: string[];
   noAccountWarning?: string;
@@ -64,6 +77,7 @@ export interface PinterestEnrichResponse {
     adAccountId: string | null;
     trendsCount: number;
     interestsFetched: string[];
+    autocompleteWorking: boolean;
   };
 }
 
@@ -115,11 +129,60 @@ function relevanceFromPosition(index: number, total: number): PinterestRelevance
   return "Low";
 }
 
+// ── Autocomplete (server-side) ─────────────────────────────────────────────────
+// Calls Pinterest's autocomplete JSON endpoints without touching Pinterest tokens —
+// these are the same public JSON endpoints the existing /api/pinterest-autocomplete
+// route uses, called server-side so credentials stay on the server.
+
+async function fetchAutocomplete(query: string): Promise<string[]> {
+  const endpoints = [
+    `https://www.pinterest.com/resource/SearchAutocompletesResource/get/?source_url=/&data=${encodeURIComponent(JSON.stringify({ options: { query }, context: {} }))}&_=${Date.now()}`,
+    `https://www.pinterest.com/search/autocomplete/?q=${encodeURIComponent(query)}`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          Accept: "application/json, text/javascript, */*; q=0.01",
+          "Accept-Language": "en-US,en;q=0.9",
+          "X-Requested-With": "XMLHttpRequest",
+          Referer: "https://www.pinterest.com/",
+        },
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) continue;
+      const data = await res.json();
+
+      const items: unknown[] =
+        data?.resource_response?.data ??
+        data?.resource_response?.data?.items ??
+        (Array.isArray(data) ? data : []) ??
+        data?.items ?? [];
+
+      const suggestions = (items as unknown[])
+        .map((item: unknown) => {
+          if (typeof item === "string") return item;
+          const o = item as Record<string, unknown>;
+          return (o.display ?? o.query ?? o.term ?? o.name ?? "") as string;
+        })
+        .filter(Boolean)
+        .map(normalizeKeyword)
+        .filter((s) => s.length >= 3);
+
+      if (suggestions.length > 0) {
+        console.log(`[pinterest-enrich] autocomplete "${query}" → ${suggestions.length} suggestions`);
+        return suggestions.slice(0, 12);
+      }
+    } catch { /* try next endpoint */ }
+  }
+  return [];
+}
+
 // ── Seed → Pinterest interest mapping ─────────────────────────────────────────
-// Maps keywords to Pinterest interest slugs used by the Trends API.
 
 const INTEREST_PATTERNS: { pattern: RegExp; interest: string }[] = [
-  // Home & Decor — broad catch for any room or home-related seed
   {
     pattern: /living room|dining room|bedroom|bathroom|kitchen|laundry|garage|basement|attic|hallway|entryway|mudroom|nursery room|home office|study room|playroom|sunroom|porch|balcony|terrace/i,
     interest: "home_decor",
@@ -136,72 +199,78 @@ const INTEREST_PATTERNS: { pattern: RegExp; interest: string }[] = [
     pattern: /garden|plant|flower|outdoor|backyard|patio|landscape|lawn|deck|pergola|raised bed|planter|succulent|houseplant/i,
     interest: "home_decor",
   },
-  // Fashion
   {
     pattern: /outfit|fashion|dress|clothing|jeans|jacket|coat|blouse|skirt|shoes|boots|sneakers|accessories|handbag|purse|style|wardrobe|capsule wardrobe/i,
     interest: "womens_fashion",
   },
-  // Beauty
   {
     pattern: /makeup|beauty|skincare|lipstick|foundation|eyeshadow|blush|mascara|nail|hair color|hair style|haircut|braid|curly hair|straight hair|eyelash|serum|moisturizer/i,
     interest: "beauty",
   },
-  // Food
   {
     pattern: /recipe|food|meal|dinner|lunch|breakfast|dessert|cake|cookie|bread|smoothie|salad|soup|pasta|healthy eating|meal prep|baking|cooking|snack|appetizer/i,
     interest: "food_and_drinks",
   },
-  // Travel
   {
     pattern: /travel|vacation|trip|destination|hotel|flight|backpack|adventure|itinerary|road trip|beach|mountain|europe|asia|bucket list/i,
     interest: "travel",
   },
-  // Fitness
   {
     pattern: /workout|fitness|gym|exercise|yoga|pilates|running|weight loss|muscle|abs|glutes|cardio|strength training|home workout/i,
     interest: "sport",
   },
-  // DIY & Crafts
   {
     pattern: /craft|diy|handmade|sewing|knitting|crochet|embroidery|macrame|scrapbook|drawing|painting|watercolor|resin|upcycle/i,
     interest: "diy_and_crafts",
   },
-  // Wedding
   {
     pattern: /wedding|bride|bridal|engagement|ceremony|reception|bridesmaid|wedding dress|wedding cake|wedding decor|wedding flowers/i,
     interest: "wedding",
   },
-  // Parenting
   {
     pattern: /baby|toddler|parenting|kids|children|nursery|pregnancy|newborn|postpartum|homeschool|school lunch|back to school/i,
     interest: "parenting",
   },
-  // Pets
   {
     pattern: /dog|cat|pet|puppy|kitten|animal|bunny|hamster|fish tank|bird|reptile/i,
     interest: "animals",
   },
-  // Tech
   {
     pattern: /tech|phone|laptop|gadget|app|software|computer|iphone|android|tablet|smart home|gaming setup/i,
     interest: "electronics",
   },
-  // Business
   {
     pattern: /business|marketing|finance|money|invest|entrepreneur|startup|freelance|passive income|side hustle|social media marketing/i,
     interest: "business_strategy",
   },
-  // Education
   {
     pattern: /study|education|school|college|learn|course|book|reading|study tips|productivity|journal|planner|note taking/i,
     interest: "education",
   },
-  // Entertainment
   {
     pattern: /movie|music|game|anime|netflix|celebrity|tv show|series|concert|festival/i,
     interest: "entertainment",
   },
 ];
+
+// Secondary interests to call Trends for when the primary interest matches.
+// Each unique secondary adds 25 more trending keywords to the pool.
+const SECONDARY_INTERESTS: Partial<Record<string, string[]>> = {
+  home_decor:        ["diy_and_crafts", "art"],
+  womens_fashion:    ["beauty"],
+  beauty:            ["womens_fashion"],
+  food_and_drinks:   ["parenting"],
+  diy_and_crafts:    ["home_decor"],
+  wedding:           ["beauty", "womens_fashion"],
+  sport:             [],
+  travel:            [],
+  parenting:         [],
+  animals:           [],
+  electronics:       [],
+  business_strategy: ["education"],
+  education:         [],
+  entertainment:     [],
+};
 
 function seedToInterest(seed: string): string | null {
   const lower = seed.toLowerCase();
@@ -265,8 +334,10 @@ async function getCached(seed: string, country: string): Promise<CachedSeedResul
     const raw = await redis.get(cacheKey(seed, country));
     if (!raw) return null;
     const parsed = typeof raw === "string" ? JSON.parse(raw) : (raw as CachedSeedResult);
-    const hasApiResults = (parsed as CachedSeedResult).keywords.some((k) => k.source === "PINTEREST_API");
-    if (!hasApiResults) return null;
+    const hasRealResults = (parsed as CachedSeedResult).keywords.some(
+      (k) => k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED",
+    );
+    if (!hasRealResults) return null;
     return parsed as CachedSeedResult;
   } catch { return null; }
 }
@@ -277,19 +348,21 @@ async function setCached(seed: string, country: string, data: CachedSeedResult):
   } catch { /* non-fatal */ }
 }
 
-// ── Build keyword results for one seed ────────────────────────────────────────
+// ── Pop-culture noise filter ────────────────────────────────────────────────────
 
-// Words that indicate a trending keyword is a pop-culture/viral topic unrelated to home/lifestyle niches.
-// Used to filter out clearly off-topic global trends when interest-specific fetch also returns noise.
 const POP_CULTURE_SIGNALS = new Set([
   "la place", "willow tsp", "lesbian space princess", "asmr", "mukbang",
   "fnaf", "stranger things", "taylor swift", "beyonce", "drake", "skibidi",
   "rizz", "gyatt", "sigma", "ohio", "sussy", "among us", "minecraft",
 ]);
 
-function buildSeedKeywords(
+// ── Build keyword results for one seed ────────────────────────────────────────
+
+function buildKeywordsForSeed(
   seed: string,
   country: string,
+  autocompleteL1: string[],
+  autocompleteL2: string[],
   trendItems: TrendItem[],
   articleCountBySeed: Map<string, number>,
   hasInterest: boolean,
@@ -313,22 +386,57 @@ function buildSeedKeywords(
     articleCount: articleCountBySeed.get(normSeed) ?? 0,
   });
 
+  // ── Autocomplete Level-1 (PINTEREST_SUGGESTED, highest priority) ──────────
+  for (let i = 0; i < autocompleteL1.length; i++) {
+    const kw = normalizeKeyword(autocompleteL1[i]);
+    if (!kw || seen.has(kw) || POP_CULTURE_SIGNALS.has(kw)) continue;
+    seen.add(kw);
+    results.push({
+      seedKeyword: seed,
+      keyword: kw,
+      source: "PINTEREST_SUGGESTED",
+      keywordType: "SUGGESTED",
+      country,
+      monthlySearches: null,
+      weeklyChange: null,
+      monthlyChange: null,
+      relevance: relevanceFromPosition(i, autocompleteL1.length),
+      articleCount: articleCountBySeed.get(kw) ?? 0,
+    });
+  }
+
+  // ── Autocomplete Level-2 (PINTEREST_SUGGESTED, second-level completions) ──
+  for (let i = 0; i < autocompleteL2.length; i++) {
+    const kw = normalizeKeyword(autocompleteL2[i]);
+    if (!kw || seen.has(kw) || POP_CULTURE_SIGNALS.has(kw)) continue;
+    seen.add(kw);
+    results.push({
+      seedKeyword: seed,
+      keyword: kw,
+      source: "PINTEREST_SUGGESTED",
+      keywordType: "RELATED",
+      country,
+      monthlySearches: null,
+      weeklyChange: null,
+      monthlyChange: null,
+      relevance: relevanceFromPosition(i, autocompleteL2.length),
+      articleCount: articleCountBySeed.get(kw) ?? 0,
+    });
+  }
+
+  // ── Trends (PINTEREST_API) ─────────────────────────────────────────────────
   for (let i = 0; i < trendItems.length; i++) {
     const item = trendItems[i];
     const kw = normalizeKeyword(item.keyword);
     if (!kw || seen.has(kw)) continue;
+    if (POP_CULTURE_SIGNALS.has(kw)) continue;
 
-    // When using global trends (no interest match), skip obvious pop-culture/viral noise
+    // For global trends (no interest match), require topical relevance to the seed
     if (!hasInterest) {
-      if (POP_CULTURE_SIGNALS.has(kw)) continue;
-      // Require at least one shared word with the seed (min 4 chars)
       const kwWords = kw.split(/\s+/);
       const sharesWord = kwWords.some((w) => w.length >= 4 && seedWords.has(w));
       const isSubstring = kw.includes(normSeed) || normSeed.includes(kw);
       if (!sharesWord && !isSubstring) continue;
-    } else {
-      // For interest-specific trends, still skip obvious viral non-topic keywords
-      if (POP_CULTURE_SIGNALS.has(kw)) continue;
     }
 
     seen.add(kw);
@@ -365,29 +473,36 @@ export async function GET(req: NextRequest) {
   const country = (url.searchParams.get("country") ?? "US").toUpperCase();
 
   const interest = seedToInterest(seed);
+  const secondaryInterests = (interest ? SECONDARY_INTERESTS[interest] : undefined) ?? [];
 
-  // Ad account lookup
   const accountsRaw = await pinterestGetRaw("/ad_accounts?page_size=5", accessToken);
   const adAccountsData = accountsRaw.data as Record<string, unknown> | null;
   const adAccounts = Array.isArray(adAccountsData?.items) ? adAccountsData!.items as Record<string, unknown>[] : [];
   const adAccountId = adAccounts[0]?.id as string ?? null;
 
-  // Fetch global trends + interest-specific trends
   const globalTrends = await fetchTrendsByInterest(country, null, accessToken);
   const interestTrends = interest ? await fetchTrendsByInterest(country, interest, accessToken) : [];
+  const autocompleteL1 = await fetchAutocomplete(seed);
+  const autocompleteL2: string[] = [];
+  for (const s of autocompleteL1.slice(0, 3)) {
+    await sleep(150);
+    const sub = await fetchAutocomplete(s);
+    autocompleteL2.push(...sub);
+  }
 
   const diag = {
     seed,
     country,
     detectedInterest: interest,
+    secondaryInterests,
     adAccountId,
-    adAccountsHttpStatus: accountsRaw.status,
     globalTrendsCount: globalTrends.length,
-    globalTrendsSample: globalTrends.slice(0, 5).map((t) => t.keyword),
     interestTrendsCount: interestTrends.length,
-    interestTrendsSample: interestTrends.slice(0, 10).map((t) => t.keyword),
-    note: "Keyword suggestion endpoints (/targeting/keywords/suggestions, /targeting_options) return 404 for this account. Using interest-filtered Trends API instead.",
-    keywordsExpected: interestTrends.length > 0 ? interestTrends.length : globalTrends.length,
+    autocompleteL1Count: autocompleteL1.length,
+    autocompleteL1Sample: autocompleteL1.slice(0, 8),
+    autocompleteL2Count: [...new Set(autocompleteL2)].length,
+    autocompleteL2Sample: [...new Set(autocompleteL2)].slice(0, 8),
+    note: "Keyword suggestion endpoints (/targeting/keywords/suggestions) return 404 for this API tier. Using autocomplete + interest-filtered Trends API.",
   };
 
   return new Response(JSON.stringify(diag, null, 2), {
@@ -443,75 +558,134 @@ export async function POST(req: NextRequest) {
     articleCountBySeed.set(normalizeKeyword(k), v);
   }
 
-  // Map each seed to its interest, collect unique interests
+  // ── Determine all interests to fetch trends for ────────────────────────────
   const seedInterest = new Map<string, string | null>();
-  const uniqueInterests = new Set<string>();
+  const allInterestsToFetch = new Set<string>();
+
   for (const seed of seeds) {
-    const interest = seedToInterest(seed);
-    seedInterest.set(seed, interest);
-    if (interest) uniqueInterests.add(interest);
+    const primary = seedToInterest(seed);
+    seedInterest.set(seed, primary);
+    if (primary) {
+      allInterestsToFetch.add(primary);
+      // Add secondary interests for richer keyword pools
+      const secondaries = SECONDARY_INTERESTS[primary] ?? [];
+      for (const sec of secondaries) allInterestsToFetch.add(sec);
+    }
   }
 
-  // Fetch trends per unique interest (+ global fallback once)
+  // ── Fetch trends: global + all unique interests ────────────────────────────
   const trendsByInterest = new Map<string | null, TrendItem[]>();
-
-  // Global trends (used as fallback for seeds with no matched interest)
   const globalTrends = await fetchTrendsByInterest(country, null, accessToken);
   trendsByInterest.set(null, globalTrends);
 
-  // Interest-specific trends (one API call per unique interest, with 400ms gap)
-  const interestList = Array.from(uniqueInterests);
+  const interestList = Array.from(allInterestsToFetch);
   for (let i = 0; i < interestList.length; i++) {
     const interest = interestList[i];
     const items = await fetchTrendsByInterest(country, interest, accessToken);
     trendsByInterest.set(interest, items);
-    if (i < interestList.length - 1) await sleep(400);
+    if (i < interestList.length - 1) await sleep(300);
   }
 
-  // Process seeds — check cache first, then build from trend data
+  // Merge ALL interest trends into a single pool per primary interest
+  // (so each seed gets keywords from primary + secondary interests combined)
+  function getTrendsForSeed(seed: string): TrendItem[] {
+    const primary = seedInterest.get(seed) ?? null;
+    const seen = new Set<string>();
+    const merged: TrendItem[] = [];
+
+    const addItems = (items: TrendItem[]) => {
+      for (const item of items) {
+        const kw = normalizeKeyword(item.keyword);
+        if (kw && !seen.has(kw)) { seen.add(kw); merged.push(item); }
+      }
+    };
+
+    if (primary) {
+      addItems(trendsByInterest.get(primary) ?? []);
+      for (const sec of SECONDARY_INTERESTS[primary] ?? []) {
+        addItems(trendsByInterest.get(sec) ?? []);
+      }
+    } else {
+      addItems(trendsByInterest.get(null) ?? []);
+    }
+
+    return merged;
+  }
+
+  // ── Process seeds in batches — cache, autocomplete, trends ────────────────
   const allResults: SeedEnrichmentResult[] = [];
   const failedSeeds: string[] = [];
-  const BATCH = 5;
+  const BATCH = 3; // smaller batch to avoid rate-limit on autocomplete
+
+  let autocompleteWorked = false;
 
   for (let i = 0; i < seeds.length; i += BATCH) {
     const batch = seeds.slice(i, i + BATCH);
 
-    const batchResults = await Promise.all(
-      batch.map(async (seed): Promise<SeedEnrichmentResult> => {
-        const cached = await getCached(seed, country);
-        if (cached) return { seed, keywords: cached.keywords, status: "cached" };
+    // Process sequentially within each batch (autocomplete calls need gaps)
+    for (const seed of batch) {
+      const cached = await getCached(seed, country);
+      if (cached) {
+        allResults.push({ seed, keywords: cached.keywords, status: "cached" });
+        continue;
+      }
 
-        try {
-          const interest = seedInterest.get(seed) ?? null;
-          // Prefer interest-specific trends; fall back to global
-          const trends = (interest && (trendsByInterest.get(interest)?.length ?? 0) > 0)
-            ? trendsByInterest.get(interest)!
-            : trendsByInterest.get(null)!;
+      try {
+        // Autocomplete Level-1 for this seed
+        const l1 = await fetchAutocomplete(seed);
+        if (l1.length > 0) autocompleteWorked = true;
 
-          const keywords = buildSeedKeywords(seed, country, trends, articleCountBySeed, !!interest && trends === trendsByInterest.get(interest));
-
-          if (keywords.some((k) => k.source === "PINTEREST_API")) {
-            await setCached(seed, country, { keywords, cachedAt: Date.now() });
-          }
-          return { seed, keywords, status: "ok" };
-        } catch (e) {
-          failedSeeds.push(seed);
-          return { seed, keywords: [], status: "error", error: String(e) };
+        // Autocomplete Level-2: expand top 5 L1 suggestions
+        const l2Raw: string[] = [];
+        for (const suggestion of l1.slice(0, 5)) {
+          await sleep(150);
+          const sub = await fetchAutocomplete(suggestion);
+          l2Raw.push(...sub);
         }
-      }),
-    );
+        const l2 = [...new Set(l2Raw.map(normalizeKeyword))];
 
-    for (const r of batchResults) {
-      if (r.keywords.length > 0 || r.status === "error") allResults.push(r);
+        if (l2.length > 0) autocompleteWorked = true;
+
+        const trendItems = getTrendsForSeed(seed);
+        const primary = seedInterest.get(seed) ?? null;
+        const hasInterest = primary !== null && (trendsByInterest.get(primary)?.length ?? 0) > 0;
+
+        const keywords = buildKeywordsForSeed(
+          seed,
+          country,
+          l1,
+          l2,
+          trendItems,
+          articleCountBySeed,
+          hasInterest,
+        );
+
+        const hasRealData = keywords.some(
+          (k) => k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED",
+        );
+        if (hasRealData) {
+          await setCached(seed, country, { keywords, cachedAt: Date.now() });
+        }
+
+        allResults.push({ seed, keywords, status: "ok" });
+      } catch (e) {
+        failedSeeds.push(seed);
+        allResults.push({ seed, keywords: [], status: "error", error: String(e) });
+      }
+
+      // Small gap between seeds to be respectful to autocomplete endpoints
+      if (batch.indexOf(seed) < batch.length - 1) await sleep(200);
     }
   }
 
-  const pinterestApiResults = allResults
-    .flatMap((r) => r.keywords)
-    .filter((k) => k.source === "PINTEREST_API");
-
-  const uniquePinterestKws = new Set(pinterestApiResults.map((k) => normalizeKeyword(k.keyword)));
-  const withMetrics = pinterestApiResults.filter(
+  // ── Build response metrics ─────────────────────────────────────────────────
+  const allPinterestKws = allResults.flatMap((r) => r.keywords).filter(
+    (k) => k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED",
+  );
+  const uniqueKwSet = new Set(allPinterestKws.map((k) => normalizeKeyword(k.keyword)));
+  const suggestedCount = allPinterestKws.filter((k) => k.source === "PINTEREST_SUGGESTED").length;
+  const trendingCount = allPinterestKws.filter((k) => k.source === "PINTEREST_API").length;
+  const withMetrics = allPinterestKws.filter(
     (k) => k.weeklyChange !== null || k.monthlyChange !== null,
   );
 
@@ -519,15 +693,19 @@ export async function POST(req: NextRequest) {
     country,
     websiteKeywords: seeds.length,
     pinterestEnriched: allResults.filter((r) => r.status === "ok" || r.status === "cached").length,
-    pinterestSuggestions: pinterestApiResults.length,
-    uniquePinterestKeywords: uniquePinterestKws.size,
+    pinterestSuggestions: allPinterestKws.length,
+    uniquePinterestKeywords: uniqueKwSet.size,
     metricsAvailable: withMetrics.length,
+    suggestedTermsCount: suggestedCount,
+    trendingTermsCount: trendingCount,
+    totalUniqueKeywords: uniqueKwSet.size,
     results: allResults,
     failedSeeds,
     _debug: {
       adAccountId: null,
       trendsCount: globalTrends.length,
       interestsFetched: interestList,
+      autocompleteWorking: autocompleteWorked,
     },
   };
 
