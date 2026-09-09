@@ -1,22 +1,37 @@
-// Category/listing page crawler — extracts article links directly from HTML pages.
-// Handles both traditional HTML <a> links and modern JS-rendered sites by parsing
-// embedded JSON (__NEXT_DATA__, JSON-LD, Gatsby, and inline script URL patterns).
+// Site Content Discovery Engine
+//
+// Generic multi-level discovery for any public website.
+// Does NOT assume any specific URL structure, CMS, or site architecture.
+//
+// Discovery pipeline:
+//   Homepage → classify links → hub pages → article links + pagination → merge
+//
+// "Hub" pages = pages that CONTAIN article links (categories, archives, nav sections).
+// We crawl hub pages one level deep to find the articles inside them.
+// This handles sites where the homepage links to categories, not directly to articles.
 
-const FETCH_TIMEOUT = 12_000;
-const MAX_BODY_SIZE = 800_000; // 800KB — enough for Next.js __NEXT_DATA__ payloads
-const MAX_PAGINATION_PAGES = 6;
-const MAX_LINKS_PER_PAGE = 1000;
+const FETCH_TIMEOUT = 8_000;
+const MAX_BODY_SIZE = 800_000;
 
-export interface CrawledPageResult {
+// Hub crawl settings
+const MAX_HUBS_TO_CRAWL = 30;    // max category/nav/archive pages to follow
+const HUB_CONCURRENCY = 8;       // concurrent hub page fetches
+const MAX_PAGINATION_PER_HUB = 2; // max pagination pages to follow per hub (rel=next only)
+const MAX_LINKS_PER_PAGE = 2000;
+
+export interface SiteDiscoveryResult {
   articleLinks: string[];
-  paginationPagesVisited: number;
+  hubsFound: number;
+  hubsCrawled: number;
+  paginationPagesCrawled: number;
+  homepageLinksFound: number;
   totalLinksFound: number;
   error?: string;
 }
 
 // ── HTML fetcher ──────────────────────────────────────────────────────────────
 
-async function fetchHtml(url: string): Promise<string | null> {
+async function fetchHtml(url: string, timeout = FETCH_TIMEOUT): Promise<string | null> {
   try {
     const res = await fetch(url, {
       headers: {
@@ -24,7 +39,7 @@ async function fetchHtml(url: string): Promise<string | null> {
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
       },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT),
+      signal: AbortSignal.timeout(timeout),
     });
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") ?? "";
@@ -70,8 +85,6 @@ function extractHtmlLinks(html: string, baseUrl: string, baseDomain: string): st
 }
 
 // ── Parse __NEXT_DATA__ (Next.js) ────────────────────────────────────────────
-// Next.js embeds the page's initial props as JSON in <script id="__NEXT_DATA__">
-// This includes article lists, story cards, etc.
 
 function extractNextDataUrls(html: string, baseDomain: string): string[] {
   const match = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
@@ -119,7 +132,6 @@ function extractJsonLdUrls(html: string, baseDomain: string): string[] {
 }
 
 // ── Recursively pull all URL-looking strings from a JSON object ───────────────
-// Looks for string values that are same-domain URLs, or objects with url/href/link fields
 
 function extractUrlsFromJson(obj: unknown, baseDomain: string, depth = 0): string[] {
   if (depth > 12) return [];
@@ -135,7 +147,6 @@ function extractUrlsFromJson(obj: unknown, baseDomain: string, depth = 0): strin
         }
       } catch { /* */ }
     } else if (obj.startsWith("/") && obj.length > 1 && !obj.startsWith("//")) {
-      // Relative path
       if (obj.includes("-") && obj.length > 5) {
         urls.push(`https://${baseDomain}${obj}`);
       }
@@ -152,17 +163,15 @@ function extractUrlsFromJson(obj: unknown, baseDomain: string, depth = 0): strin
 
   if (obj && typeof obj === "object") {
     const rec = obj as Record<string, unknown>;
-    // Prioritize known URL-carrying field names
     const urlFields = ["url", "href", "link", "canonicalUrl", "canonical", "slug", "path", "articleUrl", "articleLink", "contentUrl"];
     for (const field of urlFields) {
       if (typeof rec[field] === "string") {
         urls.push(...extractUrlsFromJson(rec[field], baseDomain, depth + 1));
       }
     }
-    // Recurse into all other fields too
     for (const [key, val] of Object.entries(rec)) {
-      if (urlFields.includes(key)) continue; // already processed
-      if (key === "__html" || key === "html" || key === "innerHTML") continue; // skip HTML blobs
+      if (urlFields.includes(key)) continue;
+      if (key === "__html" || key === "html" || key === "innerHTML") continue;
       urls.push(...extractUrlsFromJson(val, baseDomain, depth + 1));
     }
   }
@@ -171,11 +180,9 @@ function extractUrlsFromJson(obj: unknown, baseDomain: string, depth = 0): strin
 }
 
 // ── Scan script tags for URL-pattern strings ──────────────────────────────────
-// Some sites embed article lists as plain JS arrays of URL strings
 
 function extractScriptTagUrls(html: string, baseDomain: string): string[] {
   const urls: string[] = [];
-  // Find all URL strings in script content that match the same domain
   const urlRegex = new RegExp(
     `["']https?://${baseDomain.replace(".", "\\.")}(/[a-z0-9][a-z0-9\\-/_]{10,}?)["']`,
     "gi"
@@ -191,27 +198,7 @@ function extractScriptTagUrls(html: string, baseDomain: string): string[] {
   return urls;
 }
 
-// ── Article URL classifier ────────────────────────────────────────────────────
-
-function looksLikeArticle(url: string, baseDomain: string): boolean {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname !== baseDomain) return false;
-    const path = parsed.pathname;
-    if (path === "/" || path === "") return false;
-    if (/\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|css|js|ico|xml|json|rss|mp4|mp3)$/i.test(path)) return false;
-    if (/\/(wp-admin|wp-json|wp-content|feed|rss|api|cdn|assets|static|images|img|fonts|tag|tags|author|search|login|signup|register|cart|checkout|account|sitemap)\//i.test(path)) return false;
-    if (/\/(page\/\d+|p\/\d+)\/?$/i.test(path)) return false;
-    const segments = path.split("/").filter(Boolean);
-    if (segments.length < 1) return false;
-    const slug = segments.at(-1) ?? "";
-    // WordPress flat structure: /post-title/ has 1 segment but is still an article
-    // Must have a descriptive slug (has hyphens or is long) or be a numeric ID
-    return slug.includes("-") || slug.length > 12 || /^\d+$/.test(slug);
-  } catch {
-    return false;
-  }
-}
+// ── URL utility functions ────────────────────────────────────────────────────
 
 function normalizeUrl(url: string): string {
   try {
@@ -225,102 +212,257 @@ function normalizeUrl(url: string): string {
   }
 }
 
-// ── Pagination discovery ──────────────────────────────────────────────────────
+// Utility/legal slugs that should never be crawled
+const UTILITY_SLUGS = new Set([
+  "privacy-policy", "privacy", "cookie-policy", "cookie-notice", "cookie-statement", "cookies",
+  "terms-of-service", "terms-and-conditions", "terms-conditions", "terms-of-use", "terms", "tos",
+  "disclaimer", "legal", "legal-notice", "copyright", "dmca", "gdpr", "ccpa",
+  "affiliate-disclosure", "disclosure", "earnings-disclaimer",
+  "contact", "contact-us", "contact-me", "about", "about-us", "about-me", "our-story",
+  "team", "our-team", "meet-the-team", "who-we-are",
+  "login", "log-in", "signin", "sign-in", "logout", "log-out", "signout", "sign-out",
+  "register", "signup", "sign-up", "create-account", "join", "membership",
+  "forgot-password", "reset-password",
+  "account", "my-account", "profile", "settings", "preferences", "dashboard",
+  "cart", "basket", "shopping-cart", "checkout", "order", "orders", "payment", "billing",
+  "subscription", "subscriptions", "wishlist", "wish-list", "favorites",
+  "sitemap", "subscribe", "unsubscribe", "newsletter", "newsletter-signup",
+  "advertise", "advertising", "press", "press-kit", "media-kit", "newsroom",
+  "accessibility", "search", "404", "not-found", "error", "maintenance", "coming-soon",
+  "thank-you", "thanks", "success", "confirmation", "rss", "feed", "atom",
+]);
 
-function detectCurrentPageNumber(url: string): number {
+// Path segments that indicate non-crawlable paths
+const EXCLUDED_SEGMENTS = new Set([
+  "wp-admin", "wp-json", "wp-login", "wp-content",
+  "api", "graphql", "webhook", "cdn", "static", "assets",
+  "auth", "oauth", "sso", "checkout", "payment", "admin",
+]);
+
+// ── Hub page detection ────────────────────────────────────────────────────────
+// A "hub" is a page that aggregates article links — category pages, archive
+// pages, navigation sections, blog indexes, topic pages, etc.
+// Heuristic: shallow URL (1-2 path segments) that isn't a utility page and
+// isn't already an obvious article (long descriptive slug).
+
+function looksLikeHub(url: string, baseDomain: string): boolean {
   try {
-    const u = new URL(url);
-    const p = u.searchParams.get("page") || u.searchParams.get("p");
-    if (p) return parseInt(p, 10) || 1;
-    const m = url.match(/\/page\/(\d+)/i) || url.match(/\/p\/(\d+)/i);
-    if (m) return parseInt(m[1], 10) || 1;
-  } catch { /* */ }
-  return 1;
-}
+    const parsed = new URL(url);
+    if (parsed.hostname !== baseDomain) return false;
+    const path = parsed.pathname;
+    if (path === "/" || path === "") return false;
+    // Skip files
+    if (/\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|css|js|ico|xml|json|rss|mp4|mp3|woff|ttf)$/i.test(path)) return false;
+    // Skip pagination
+    if (/\/(page\/\d+|p\/\d+)\/?$/i.test(path)) return false;
 
-function extractPaginationLinks(html: string, baseUrl: string): string[] {
-  const base = new URL(baseUrl);
-  const candidates: string[] = [];
+    const segs = path.split("/").filter(Boolean);
 
-  // rel="next"
-  const relNext = html.match(/rel=["']next["'][^>]*href=["']([^"']+)["']|href=["']([^"']+)["'][^>]*rel=["']next["']/i);
-  if (relNext) {
-    const href = relNext[1] || relNext[2];
-    try { candidates.push(new URL(href, base.href).href); } catch { /* */ }
+    // Skip technical path segments
+    if (segs.some(s => EXCLUDED_SEGMENTS.has(s))) return false;
+
+    // Hub pages are shallow: 1 or 2 path segments
+    if (segs.length < 1 || segs.length > 2) return false;
+
+    const finalSeg = segs.at(-1) ?? "";
+    if (finalSeg.length < 2) return false;
+
+    // Skip utility slugs
+    if (UTILITY_SLUGS.has(finalSeg)) return false;
+
+    // An article slug typically has 5+ hyphen-separated words (long descriptive title).
+    // A hub slug is shorter (1-4 words): "living-room", "home-decor", "diy-projects".
+    // Note: some short articles exist, but crawling them as hubs is harmless —
+    // if they don't contain article links, we just get 0 additional URLs from them.
+    if (finalSeg.split("-").length >= 6) return false; // very likely an article, not a hub
+
+    return true;
+  } catch {
+    return false;
   }
-
-  return candidates;
 }
 
-// ── Main crawl function ───────────────────────────────────────────────────────
+// ── Article URL detection ────────────────────────────────────────────────────
+// Broad filter: keeps any URL that could be editorial content.
+// False positives (category pages, etc.) are removed later by classifyPage().
 
-export async function crawlCategoryPage(inputUrl: string): Promise<CrawledPageResult> {
+function looksLikeArticle(url: string, baseDomain: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== baseDomain) return false;
+    const path = parsed.pathname;
+    if (path === "/" || path === "") return false;
+    if (/\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|css|js|ico|xml|json|rss|mp4|mp3)$/i.test(path)) return false;
+    if (/\/(wp-admin|wp-json|wp-content|feed|rss|api|cdn|assets|static|images|img|fonts|tag|tags|author|search|login|signup|register|cart|checkout|account|sitemap)\//i.test(path)) return false;
+    if (/\/(page\/\d+|p\/\d+)\/?$/i.test(path)) return false;
+    const segs = path.split("/").filter(Boolean);
+    if (segs.length < 1) return false;
+    const finalSeg = segs.at(-1) ?? "";
+    if (UTILITY_SLUGS.has(finalSeg)) return false;
+    // Must have a descriptive slug (hyphen, long, or numeric ID) or be 2+ levels deep
+    return finalSeg.includes("-") || finalSeg.length > 12 || /^\d+$/.test(finalSeg) || segs.length >= 2;
+  } catch {
+    return false;
+  }
+}
+
+// ── Extract rel=next pagination URL ──────────────────────────────────────────
+
+function extractRelNextUrl(html: string, baseUrl: string): string | null {
+  const m = html.match(/rel=["']next["'][^>]*href=["']([^"']+)["']|href=["']([^"']+)["'][^>]*rel=["']next["']/i);
+  if (!m) return null;
+  const href = m[1] || m[2];
+  try { return new URL(href, new URL(baseUrl).href).href; } catch { return null; }
+}
+
+// ── All-source link extraction ────────────────────────────────────────────────
+
+function extractAllLinks(html: string, pageUrl: string, baseDomain: string): string[] {
+  return [
+    ...extractHtmlLinks(html, pageUrl, baseDomain),
+    ...extractNextDataUrls(html, baseDomain),
+    ...extractInlineStateUrls(html, baseDomain),
+    ...extractJsonLdUrls(html, baseDomain),
+    ...extractScriptTagUrls(html, baseDomain),
+  ];
+}
+
+// ── Main discovery function ───────────────────────────────────────────────────
+//
+// Generic two-phase internal discovery:
+//   Phase A: Homepage → classify links → identify article candidates + hub candidates
+//   Phase B: Crawl hub pages concurrently → extract articles + follow rel=next pagination
+//
+// Works for any public website regardless of URL structure or CMS.
+
+export async function discoverSiteContent(
+  domain: string,
+  onProgress?: (msg: string) => void,
+): Promise<SiteDiscoveryResult> {
   let baseDomain: string;
   try {
-    baseDomain = new URL(inputUrl).hostname;
+    baseDomain = new URL(domain).hostname;
   } catch {
-    return { articleLinks: [], paginationPagesVisited: 0, totalLinksFound: 0, error: "Invalid URL" };
+    return { articleLinks: [], hubsFound: 0, hubsCrawled: 0, paginationPagesCrawled: 0, homepageLinksFound: 0, totalLinksFound: 0, error: "Invalid URL" };
   }
 
-  const visited = new Set<string>();
-  const articleSet = new Set<string>();
-  const articleLinks: string[] = [];
-  let paginationPagesVisited = 0;
+  const articleSetNorm = new Set<string>(); // normalized form for dedup
+  const articleLinks: string[] = [];         // original URLs (for fetching)
+  const hubUrlsNorm = new Set<string>();
+  const hubUrls: string[] = [];
   let totalLinksFound = 0;
+  let paginationPagesCrawled = 0;
 
-  // Queue: submitted URL + proactive pagination guesses
-  const queue: string[] = [inputUrl];
-  const currentPage = detectCurrentPageNumber(inputUrl);
-  for (let pg = currentPage + 1; pg <= currentPage + MAX_PAGINATION_PAGES; pg++) {
-    try {
-      const byParam = new URL(inputUrl);
-      byParam.searchParams.set("page", String(pg));
-      queue.push(byParam.href);
-      const byPath = new URL(inputUrl);
-      byPath.pathname = byPath.pathname.replace(/\/$/, "") + `/page/${pg}/`;
-      queue.push(byPath.href);
-    } catch { /* */ }
+  const addArticle = (url: string) => {
+    const norm = normalizeUrl(url);
+    if (!articleSetNorm.has(norm)) {
+      articleSetNorm.add(norm);
+      articleLinks.push(url);
+    }
+  };
+
+  // ── Phase A: Homepage discovery ───────────────────────────────────────────
+  onProgress?.("Crawling homepage for supplemental links…");
+  const homepageHtml = await fetchHtml(domain);
+  if (!homepageHtml) {
+    return { articleLinks: [], hubsFound: 0, hubsCrawled: 0, paginationPagesCrawled: 0, homepageLinksFound: 0, totalLinksFound: 0, error: "Homepage unreachable" };
   }
 
-  for (const pageUrl of queue.slice(0, 1 + MAX_PAGINATION_PAGES * 2)) {
-    const normPage = pageUrl.toLowerCase();
-    if (visited.has(normPage)) continue;
-    visited.add(normPage);
+  const homepageLinks = extractAllLinks(homepageHtml, domain, baseDomain);
+  totalLinksFound += homepageLinks.length;
 
-    const html = await fetchHtml(pageUrl);
-    if (!html) continue;
-
-    if (pageUrl !== inputUrl) paginationPagesVisited++;
-
-    // Gather links from all extraction methods
-    const allLinks: string[] = [
-      ...extractHtmlLinks(html, pageUrl, baseDomain),
-      ...extractNextDataUrls(html, baseDomain),
-      ...extractInlineStateUrls(html, baseDomain),
-      ...extractJsonLdUrls(html, baseDomain),
-      ...extractScriptTagUrls(html, baseDomain),
-    ];
-
-    totalLinksFound += allLinks.length;
-
-    for (const link of allLinks.slice(0, MAX_LINKS_PER_PAGE)) {
-      if (!looksLikeArticle(link, baseDomain)) continue;
-      const normLink = normalizeUrl(link);
-      if (!articleSet.has(normLink)) {
-        articleSet.add(normLink);
-        articleLinks.push(link);
-      }
-    }
-
-    // Discover real rel="next" pagination from HTML
-    if (paginationPagesVisited < MAX_PAGINATION_PAGES) {
-      const pagLinks = extractPaginationLinks(html, pageUrl);
-      for (const pg of pagLinks) {
-        const pgNorm = pg.toLowerCase();
-        if (!visited.has(pgNorm)) queue.push(pg);
+  for (const link of homepageLinks.slice(0, MAX_LINKS_PER_PAGE)) {
+    if (looksLikeArticle(link, baseDomain)) addArticle(link);
+    if (looksLikeHub(link, baseDomain)) {
+      const norm = normalizeUrl(link);
+      if (!hubUrlsNorm.has(norm)) {
+        hubUrlsNorm.add(norm);
+        hubUrls.push(link);
       }
     }
   }
 
-  return { articleLinks, paginationPagesVisited, totalLinksFound };
+  // ── Phase B: Hub page crawl ───────────────────────────────────────────────
+  const toProcess = hubUrls.slice(0, MAX_HUBS_TO_CRAWL);
+  let hubsCrawled = 0;
+
+  if (toProcess.length > 0) {
+    onProgress?.(`Discovered ${toProcess.length} content hub${toProcess.length === 1 ? "" : "s"} — crawling for article links…`);
+  }
+
+  for (let i = 0; i < toProcess.length; i += HUB_CONCURRENCY) {
+    const batch = toProcess.slice(i, i + HUB_CONCURRENCY);
+    const htmlResults = await Promise.all(batch.map(url => fetchHtml(url)));
+
+    // Also collect pagination URLs discovered from this batch
+    const paginationUrls: string[] = [];
+
+    for (let j = 0; j < batch.length; j++) {
+      const html = htmlResults[j];
+      if (!html) continue;
+
+      hubsCrawled++;
+      const hubUrl = batch[j];
+
+      const hubLinks = extractAllLinks(html, hubUrl, baseDomain);
+      totalLinksFound += hubLinks.length;
+
+      for (const link of hubLinks.slice(0, MAX_LINKS_PER_PAGE)) {
+        if (looksLikeArticle(link, baseDomain)) addArticle(link);
+      }
+
+      // Discover rel=next pagination (only — no URL guessing)
+      const nextUrl = extractRelNextUrl(html, hubUrl);
+      if (nextUrl && !hubUrlsNorm.has(normalizeUrl(nextUrl))) {
+        paginationUrls.push(nextUrl);
+      }
+    }
+
+    // Follow pagination pages discovered in this batch (limited)
+    const pagToFollow = paginationUrls.slice(0, MAX_PAGINATION_PER_HUB * HUB_CONCURRENCY);
+    if (pagToFollow.length > 0) {
+      const pagHtmls = await Promise.all(pagToFollow.map(url => fetchHtml(url)));
+      for (let k = 0; k < pagToFollow.length; k++) {
+        const html = pagHtmls[k];
+        if (!html) continue;
+        paginationPagesCrawled++;
+        const pagLinks = extractHtmlLinks(html, pagToFollow[k], baseDomain);
+        totalLinksFound += pagLinks.length;
+        for (const link of pagLinks.slice(0, MAX_LINKS_PER_PAGE)) {
+          if (looksLikeArticle(link, baseDomain)) addArticle(link);
+        }
+      }
+    }
+
+    onProgress?.(`Hub discovery: ${Math.min(i + HUB_CONCURRENCY, toProcess.length)}/${toProcess.length} hubs crawled — ${articleLinks.length} article links so far…`);
+  }
+
+  return {
+    articleLinks,
+    hubsFound: toProcess.length,
+    hubsCrawled,
+    paginationPagesCrawled,
+    homepageLinksFound: homepageLinks.length,
+    totalLinksFound,
+  };
+}
+
+// ── Legacy export (kept for compatibility) ────────────────────────────────────
+// Delegates to discoverSiteContent.
+
+export interface CrawledPageResult {
+  articleLinks: string[];
+  paginationPagesVisited: number;
+  totalLinksFound: number;
+  error?: string;
+}
+
+export async function crawlCategoryPage(inputUrl: string): Promise<CrawledPageResult> {
+  const result = await discoverSiteContent(inputUrl);
+  return {
+    articleLinks: result.articleLinks,
+    paginationPagesVisited: result.paginationPagesCrawled,
+    totalLinksFound: result.totalLinksFound,
+    error: result.error,
+  };
 }

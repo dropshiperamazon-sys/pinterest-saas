@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { crawlSitemap } from "@/lib/keyword-extractor/sitemap-service";
-import { crawlCategoryPage } from "@/lib/keyword-extractor/category-crawler";
+import { discoverSiteContent } from "@/lib/keyword-extractor/category-crawler";
 import { isArticleUrl } from "@/lib/keyword-extractor/relevance-engine";
 import { fetchPageMeta } from "@/lib/keyword-extractor/page-crawler";
 import { classifyPage } from "@/lib/keyword-extractor/article-classifier";
@@ -35,6 +35,8 @@ export interface ArticleResult {
   dateModified?: string;
 }
 
+export type DiscoveryConfidence = "HIGH" | "MEDIUM" | "LOW";
+
 export interface AutoDiscoverResponse {
   articles: ArticleResult[];
   keywords: KeywordAggregate[];
@@ -45,15 +47,34 @@ export interface AutoDiscoverResponse {
   articlesAnalyzed: number;
   urlsFromSitemaps: number;
   homepageLinks: number;
+  hubsDiscovered: number;
+  hubsCrawled: number;
+  paginationPagesCrawled: number;
   sitemapsFound: string[];
   sitemapsProcessed: number;
   uniquePrimaryKeywords: number;
   totalClusters: number;
+  discoveryConfidence: DiscoveryConfidence;
   // Exclusion breakdown
   excludedLegal: number;
   excludedUtility: number;
   excludedLowConfidence: number;
   excludedProduct: number;
+}
+
+function calculateDiscoveryConfidence(
+  sitemapUrls: number,
+  internalArticleLinks: number,
+  hubsCrawled: number,
+): DiscoveryConfidence {
+  // HIGH: sitemap provided substantial inventory, or hubs + sitemap together found plenty
+  if (sitemapUrls >= 100) return "HIGH";
+  if (sitemapUrls >= 20 && hubsCrawled >= 3) return "HIGH";
+  // MEDIUM: some sitemap data, or meaningful hub crawl found content
+  if (sitemapUrls >= 10 || internalArticleLinks >= 50) return "MEDIUM";
+  if (hubsCrawled >= 5) return "MEDIUM";
+  // LOW: only homepage links, no sitemap, no hub traversal
+  return "LOW";
 }
 
 function normalizeForDedup(url: string): string {
@@ -140,9 +161,14 @@ export async function POST(req: NextRequest) {
           });
         });
 
-        // ── Step 2: Homepage supplemental discovery ──────────────────────
-        send({ type: "progress", stage: "homepage", message: "Crawling homepage for supplemental links…" });
-        const homepageResult = await crawlCategoryPage(rootDomain);
+        // ── Step 2: Internal content discovery (homepage + hub pages) ──────
+        // Discovers content even when sitemap is absent or incomplete.
+        // Crawls hub/category pages one level deep to find article links.
+        send({ type: "progress", stage: "homepage", message: "Crawling homepage and content hubs for supplemental links…" });
+
+        const siteDiscovery = await discoverSiteContent(rootDomain, (msg) => {
+          send({ type: "progress", stage: "homepage", message: msg });
+        });
 
         // ── Step 3: Merge + dedup ────────────────────────────────────────
         const dedupMap = new Map<string, SitemapURL>();
@@ -150,7 +176,7 @@ export async function POST(req: NextRequest) {
           const key = normalizeForDedup(u.loc);
           if (!dedupMap.has(key)) dedupMap.set(key, u);
         }
-        for (const link of homepageResult.articleLinks) {
+        for (const link of siteDiscovery.articleLinks) {
           const key = normalizeForDedup(link);
           if (!dedupMap.has(key)) dedupMap.set(key, { loc: link });
         }
@@ -160,11 +186,11 @@ export async function POST(req: NextRequest) {
         send({
           type: "progress",
           stage: "discovery",
-          message: `Discovered ${allUrls.length.toLocaleString()} unique URLs`,
+          message: `Discovered ${allUrls.length.toLocaleString()} unique URLs (sitemap: ${sitemapResult.urls.length.toLocaleString()}, hubs crawled: ${siteDiscovery.hubsCrawled})`,
           counts: {
             totalUrls: allUrls.length,
             urlsFromSitemaps: sitemapResult.urls.length,
-            homepageLinks: homepageResult.articleLinks.length,
+            homepageLinks: siteDiscovery.homepageLinksFound,
           },
         });
 
@@ -287,6 +313,12 @@ export async function POST(req: NextRequest) {
         );
         const clusters = buildClusters(aggregated);
 
+        const discoveryConfidence = calculateDiscoveryConfidence(
+          sitemapResult.urls.length,
+          siteDiscovery.articleLinks.length,
+          siteDiscovery.hubsCrawled,
+        );
+
         const response: AutoDiscoverResponse = {
           articles: articleResults,
           keywords: aggregated,
@@ -295,11 +327,15 @@ export async function POST(req: NextRequest) {
           totalArticleCandidates: articleCandidates.length,
           articlesAnalyzed: articleResults.length,
           urlsFromSitemaps: sitemapResult.urls.length,
-          homepageLinks: homepageResult.articleLinks.length,
+          homepageLinks: siteDiscovery.homepageLinksFound,
+          hubsDiscovered: siteDiscovery.hubsFound,
+          hubsCrawled: siteDiscovery.hubsCrawled,
+          paginationPagesCrawled: siteDiscovery.paginationPagesCrawled,
           sitemapsFound: sitemapResult.sitemapsFound,
           sitemapsProcessed: sitemapResult.sitemapsProcessed,
           uniquePrimaryKeywords: aggregated.length,
           totalClusters: clusters.length,
+          discoveryConfidence,
           excludedLegal,
           excludedUtility,
           excludedLowConfidence,
