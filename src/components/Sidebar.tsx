@@ -17,6 +17,7 @@ import {
   LogIn,
   LogOut,
   ScanSearch,
+  Telescope,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { href: "/keywords", icon: Search, label: "Keyword Research" },
   { href: "/pin-analysis", icon: LineChart, label: "Pin Analysis" },
   { href: "/seo-audit", icon: ScanSearch, label: "Pinterest SEO Audit" },
+  { href: "/keyword-extractor", icon: Telescope, label: "Keyword Extractor" },
   { href: "/scheduler", icon: Calendar, label: "Pin Scheduler" },
   { href: "/account-audit", icon: ShieldCheck, label: "Account Audit" },
   { href: "/ads", icon: Megaphone, label: "Pinterest Ads" },
