@@ -303,6 +303,7 @@ async function enrichSeed(
   let suggestRawKeys: string[] = [];
 
   if (adAccountId) {
+    // Attempt 1: /targeting/keywords/suggestions (preferred)
     const suggestRaw = await pinterestGetRaw(
       `/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${encodeURIComponent(seed)}&limit=20`,
       token,
@@ -311,7 +312,21 @@ async function enrichSeed(
     suggestRawKeys = suggestRaw.data && typeof suggestRaw.data === "object"
       ? Object.keys(suggestRaw.data as object).slice(0, 10) : [];
     suggestItems = extractItems(suggestRaw.data);
-    console.log(`[pinterest-enrich] seed="${seed}" suggest(ads) → HTTP ${suggestRaw.status}, items=${suggestItems.length}`);
+    console.log(`[pinterest-enrich] seed="${seed}" suggest(ads/suggest) → HTTP ${suggestRaw.status}, items=${suggestItems.length}, keys=[${suggestRawKeys.join(",")}], raw=${JSON.stringify(suggestRaw.data)?.slice(0, 200)}`);
+
+    // Attempt 2: /keywords?query= (simpler endpoint, also requires ads:read)
+    if (suggestItems.length === 0) {
+      const kwRaw = await pinterestGetRaw(
+        `/ad_accounts/${adAccountId}/keywords?page_size=50&query=${encodeURIComponent(seed)}`,
+        token,
+      );
+      const kwItems = extractItems(kwRaw.data);
+      console.log(`[pinterest-enrich] seed="${seed}" suggest(ads/keywords) → HTTP ${kwRaw.status}, items=${kwItems.length}, raw=${JSON.stringify(kwRaw.data)?.slice(0, 200)}`);
+      if (kwItems.length > 0) {
+        suggestItems = kwItems;
+        suggestStatus = kwRaw.status;
+      }
+    }
   }
 
   // If Ads API returned nothing (or no Ads account), try trends.pinterest.com search
@@ -453,7 +468,7 @@ export async function GET(req: NextRequest) {
   const trendsRaw = await pinterestGetRaw(`/trends/keywords/${country}/top/growing?limit=25`, accessToken);
   const trendItems = extractItems(trendsRaw.data);
 
-  // ── Suggest endpoint ──
+  // ── Suggest endpoint (attempt 1) ──
   const suggestRaw = adAccountId
     ? await pinterestGetRaw(
         `/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${encodeURIComponent(seed)}&limit=20`,
@@ -462,11 +477,22 @@ export async function GET(req: NextRequest) {
     : { status: 0, data: null, error: "no_ad_account" };
 
   let suggestItems = extractItems(suggestRaw.data);
+
+  // Suggest endpoint (attempt 2): /keywords?query=
+  const keywordsRaw = adAccountId && suggestItems.length === 0
+    ? await pinterestGetRaw(
+        `/ad_accounts/${adAccountId}/keywords?page_size=50&query=${encodeURIComponent(seed)}`,
+        accessToken,
+      )
+    : { status: 0, data: null, error: "skipped" };
+  const keywordsItems = extractItems(keywordsRaw.data);
+  if (keywordsItems.length > 0) suggestItems = keywordsItems;
+
   // Fallback: trends.pinterest.com search (no Ads account required)
-  if (suggestItems.length === 0) {
-    const fallbackKws = await trendsSuggest(seed, country, accessToken);
-    suggestItems = fallbackKws.map((kw) => ({ keyword: kw }));
-  }
+  const trendsFallbackKws = suggestItems.length === 0
+    ? await trendsSuggest(seed, country, accessToken)
+    : [];
+  if (trendsFallbackKws.length > 0) suggestItems = trendsFallbackKws.map((kw) => ({ keyword: kw }));
 
   // ── Targeting options endpoint ──
   const targetRaw = adAccountId
@@ -485,15 +511,28 @@ export async function GET(req: NextRequest) {
     adAccountId,
     adAccountsHttpStatus: accountsRaw.status,
     adAccountCount: adAccounts.length,
-    // Suggestions endpoint
+    // Suggestions endpoint (attempt 1)
     suggestEndpoint: adAccountId
       ? `/v5/ad_accounts/${adAccountId}/targeting/keywords/suggestions?query=${encodeURIComponent(seed)}&limit=20`
       : "skipped (no ad account)",
     suggestHttpStatus: suggestRaw.status,
     suggestError: suggestRaw.error,
+    suggestResponseRaw: suggestRaw.data,
     suggestResponseTopLevelKeys: suggestRaw.data && typeof suggestRaw.data === "object"
       ? Object.keys(suggestRaw.data as object)
       : null,
+    // Suggestions endpoint (attempt 2)
+    keywordsEndpoint: adAccountId
+      ? `/v5/ad_accounts/${adAccountId}/keywords?page_size=50&query=${encodeURIComponent(seed)}`
+      : "skipped (no ad account)",
+    keywordsHttpStatus: keywordsRaw.status,
+    keywordsError: keywordsRaw.error,
+    keywordsResponseRaw: keywordsRaw.data,
+    keywordsItemsFound: keywordsItems.length,
+    // Trends fallback
+    trendsFallbackItemsFound: trendsFallbackKws.length,
+    trendsFallbackSample: trendsFallbackKws.slice(0, 3),
+    // Total suggest result
     suggestItemsFound: suggestItems.length,
     suggestFirstItem: suggestItems[0] ?? null,
     // Targeting options endpoint
