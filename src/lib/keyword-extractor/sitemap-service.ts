@@ -24,10 +24,9 @@ async function fetchText(url: string): Promise<{ text: string; finalUrl: string 
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; KeywordExtractorBot/1.0; +https://mypinpro.com/bot)",
-        "Accept": "application/xml, text/xml, */*",
-        // Request identity to avoid getting gzip binary that text() can't decode
-        "Accept-Encoding": "identity",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/xml, text/xml, */*;q=0.9",
+        "Accept-Language": "en-US,en;q=0.9",
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
       redirect: "follow",
@@ -39,6 +38,12 @@ async function fetchText(url: string): Promise<{ text: string; finalUrl: string 
 
     const contentType = res.headers.get("content-type") ?? "";
     const finalUrl = res.url ?? url;
+
+    // Reject HTML responses (bot challenge pages, redirected pages, etc.)
+    if (contentType.startsWith("text/html")) {
+      console.log(`[sitemap] SKIP ${url} → HTML content-type (bot protection or redirect)`);
+      return null;
+    }
 
     // Handle gzip-encoded sitemaps (.xml.gz or content-encoding: gzip)
     const isGzip = url.endsWith(".gz") || contentType.includes("gzip") ||
@@ -72,6 +77,11 @@ async function fetchText(url: string): Promise<{ text: string; finalUrl: string 
     const trimmed = cleaned.trim();
     if (!trimmed.startsWith("<") && !trimmed.startsWith("<?")) {
       console.log(`[sitemap] SKIP ${url} → not XML (starts with: ${JSON.stringify(trimmed.slice(0, 60))})`);
+      return null;
+    }
+    // Detect HTML disguised as XML (Cloudflare challenges, login redirects, etc.)
+    if (/<html[\s>]/i.test(trimmed.slice(0, 500))) {
+      console.log(`[sitemap] SKIP ${url} → HTML body (bot protection or login wall)`);
       return null;
     }
     return { text: cleaned, finalUrl };
