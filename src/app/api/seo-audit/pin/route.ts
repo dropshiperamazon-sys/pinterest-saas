@@ -106,6 +106,7 @@ export async function PATCH(req: NextRequest) {
     description?: string;
     altText?: string;
     link?: string;
+    boardId?: string;
   };
 
   if (!body.pinId) return NextResponse.json({ error: "pinId required" }, { status: 400 });
@@ -118,6 +119,7 @@ export async function PATCH(req: NextRequest) {
   if (body.description !== undefined) patch.description = body.description;
   if (body.altText !== undefined) patch.alt_text = body.altText;
   if (body.link !== undefined) patch.link = body.link;
+  if (body.boardId !== undefined) patch.board_id = body.boardId;
 
   const patchRes = await fetch(`https://api.pinterest.com/v5/pins/${body.pinId}`, {
     method: "PATCH",

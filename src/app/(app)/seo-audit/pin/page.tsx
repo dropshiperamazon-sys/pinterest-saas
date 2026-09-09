@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, Loader2, XCircle, CheckCircle, AlertTriangle,
   ExternalLink, Edit2, Save, RefreshCw, Sparkles, ChevronDown, ChevronUp,
+  FolderInput,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -126,25 +127,34 @@ function PinSEOAuditContent() {
   // Live score (recalculates on every field change)
   const [liveScore, setLiveScore] = useState<PinSEOScore | null>(null);
 
+  // Move to board
+  const [boards, setBoards] = useState<{ id: string; name: string }[]>([]);
+  const [selectedBoardId, setSelectedBoardId] = useState("");
+  const [moving, setMoving] = useState(false);
+  const [moveMsg, setMoveMsg] = useState<string | null>(null);
+
   // AI suggestions
   const [aiSuggestions, setAISuggestions] = useState<AISEOSuggestions | null>(null);
   const [aiLoading, setAILoading] = useState(false);
   const [aiError, setAIError] = useState<string | null>(null);
   const [showAI, setShowAI] = useState(false);
 
-  // Load pin data
+  // Load pin data + boards list
   useEffect(() => {
     if (!pinId) { setError("No pin selected."); setLoading(false); return; }
-    fetch(`/api/seo-audit/pin?pinId=${pinId}&boardId=${boardId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) { setError(data.error); return; }
-        setPin(data.pin);
-        setEditTitle(data.pin.title ?? "");
-        setEditDescription(data.pin.description ?? "");
-        setEditAltText(data.pin.altText ?? "");
-        setEditLink(data.pin.link ?? "");
-        setLiveScore(data.seoScore);
+    Promise.all([
+      fetch(`/api/seo-audit/pin?pinId=${pinId}&boardId=${boardId}`).then((r) => r.json()),
+      fetch("/api/seo-audit/boards").then((r) => r.json()),
+    ])
+      .then(([pinData, boardsData]) => {
+        if (pinData.error) { setError(pinData.error); return; }
+        setPin(pinData.pin);
+        setEditTitle(pinData.pin.title ?? "");
+        setEditDescription(pinData.pin.description ?? "");
+        setEditAltText(pinData.pin.altText ?? "");
+        setEditLink(pinData.pin.link ?? "");
+        setLiveScore(pinData.seoScore);
+        setBoards(boardsData.boards ?? []);
       })
       .catch(() => setError("Failed to load pin data."))
       .finally(() => setLoading(false));
@@ -192,6 +202,28 @@ function PinSEOAuditContent() {
       setEditing(false);
     }
     setTimeout(() => setSaveMsg(null), 4000);
+  }
+
+  async function handleMoveBoard() {
+    if (!pin || !selectedBoardId) return;
+    setMoving(true);
+    setMoveMsg(null);
+    const res = await fetch("/api/seo-audit/pin", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinId: pin.id, boardId: selectedBoardId }),
+    });
+    const data = await res.json();
+    setMoving(false);
+    if (data.error) {
+      setMoveMsg(`Move failed: ${data.error}`);
+    } else {
+      const boardName = boards.find((b) => b.id === selectedBoardId)?.name ?? "new board";
+      setMoveMsg(`Pin moved to "${boardName}" successfully.`);
+      setPin((p) => p ? { ...p, boardName } : p);
+      setSelectedBoardId("");
+    }
+    setTimeout(() => setMoveMsg(null), 5000);
   }
 
   async function generateAI() {
@@ -304,6 +336,45 @@ function PinSEOAuditContent() {
               </div>
             )}
             <p className="text-xs text-gray-400 mt-2">Entering a keyword unlocks targeted SEO analysis. The score updates live as you type.</p>
+          </div>
+
+          {/* Move to Board */}
+          <div className="bg-white border border-gray-200 rounded-xl p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <FolderInput className="w-4 h-4 text-gray-400" />
+              <h2 className="font-semibold text-gray-800 text-sm">Move to Board</h2>
+              <span className="text-xs text-gray-400 ml-1">Current: <span className="font-medium text-gray-600">{pin.boardName || "Unknown"}</span></span>
+            </div>
+
+            {moveMsg && (
+              <div className={cn("text-xs mb-3 rounded-lg px-3 py-2", moveMsg.startsWith("Move failed") ? "bg-red-50 text-red-600" : "bg-green-50 text-green-700")}>
+                {moveMsg}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <select
+                value={selectedBoardId}
+                onChange={(e) => setSelectedBoardId(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 bg-white"
+              >
+                <option value="">Select a board…</option>
+                {boards
+                  .filter((b) => b.id !== pin.boardId)
+                  .map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+              </select>
+              <button
+                onClick={handleMoveBoard}
+                disabled={!selectedBoardId || moving}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-red-500 hover:bg-red-600 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              >
+                {moving ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderInput className="w-4 h-4" />}
+                Move
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">This permanently moves the pin to the selected board on Pinterest.</p>
           </div>
 
           {/* Editable fields */}
