@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { crawlSitemap } from "@/lib/keyword-extractor/sitemap-service";
+import { crawlCategoryPage } from "@/lib/keyword-extractor/category-crawler";
 import { extractKeywordFromUrl } from "@/lib/keyword-extractor/slug-extractor";
 import { isArticleUrl, scoreUrlOnly, scoreRelevanceFull } from "@/lib/keyword-extractor/relevance-engine";
 import { buildTopicProfile } from "@/lib/keyword-extractor/topic-profiler";
 import { fetchPageMetaBatch } from "@/lib/keyword-extractor/page-crawler";
+import type { SitemapURL } from "@/lib/keyword-extractor/sitemap-service";
 
-const STAGE1_THRESHOLD = 15;  // URL slug score needed to proceed to Stage 2
+const STAGE1_THRESHOLD = 10;   // URL slug score to proceed to Stage 2 (low — lets sematic matching decide)
 const STAGE2_CONCURRENCY = 5;
-const MAX_STAGE2_URLS = 150;  // cap page fetches per request
+const MAX_STAGE2_URLS = 300;   // max page fetches per request
 
 export interface ExtractedKeyword {
   url: string;
@@ -24,9 +26,39 @@ export interface ExtractResponse {
   totalUrlsFound: number;
   totalArticles: number;
   stage1Candidates: number;
+  stage2Fetched: number;
   relevant: ExtractedKeyword[];
   sitemapsFound: string[];
+  categoryPageLinks: number;
+  paginationPagesVisited: number;
   error?: string;
+}
+
+// Normalize a URL for deduplication: remove trailing slash, query, fragment
+function normalizeForDedup(url: string): string {
+  try {
+    const u = new URL(url);
+    u.search = "";
+    u.hash = "";
+    // Strip UTM and tracking params (they're already removed above, but belt+suspenders)
+    let path = u.pathname;
+    if (path.endsWith("/") && path.length > 1) path = path.slice(0, -1);
+    return `${u.hostname}${path}`.toLowerCase();
+  } catch {
+    return url.toLowerCase();
+  }
+}
+
+// Detect whether a submitted URL looks like a category/listing page
+// (not just the root domain)
+function isCategoryPage(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const segments = u.pathname.split("/").filter(Boolean);
+    return segments.length >= 1; // any path beyond root is potentially a category
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -42,7 +74,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "url and category are required" }, { status: 400 });
   }
 
-  // The user's actual topic: use custom topic if provided, else use category name
   const effectiveTopic = (topic && topic.trim()) ? topic.trim() : category;
 
   let normalizedUrl: string;
@@ -53,37 +84,62 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid URL" }, { status: 400 });
   }
 
-  const { urls, sitemapsFound, error } = await crawlSitemap(normalizedUrl);
+  console.log(`[keyword-extractor] Submitted URL: ${normalizedUrl}`);
+  console.log(`[keyword-extractor] Topic: ${effectiveTopic}`);
 
-  if (error) {
-    return NextResponse.json({ error, totalUrlsFound: 0, totalArticles: 0, stage1Candidates: 0, relevant: [], sitemapsFound: [] });
-  }
-
-  if (urls.length === 0) {
-    return NextResponse.json({
-      error: "No sitemap found or sitemap is empty.",
-      totalUrlsFound: 0,
-      totalArticles: 0,
-      stage1Candidates: 0,
-      relevant: [],
-      sitemapsFound,
-    });
-  }
-
-  // Build topic profile (OpenAI-powered or text-fallback)
+  // ── Build topic profile ──────────────────────────────────────────────────────
   const profile = await buildTopicProfile(effectiveTopic);
+  console.log(`[keyword-extractor] Profile: primaryTerms=${profile.primaryTerms.join(",")}`);
 
-  // Filter to article-like URLs
-  const articleUrls = urls.filter((u) => isArticleUrl(u.loc));
+  // ── Source A: Sitemap crawl ──────────────────────────────────────────────────
+  const sitemapPromise = crawlSitemap(normalizedUrl);
+
+  // ── Source B: Category page HTML crawl (if URL has a path) ──────────────────
+  const categoryPromise = isCategoryPage(normalizedUrl)
+    ? crawlCategoryPage(normalizedUrl)
+    : Promise.resolve({ articleLinks: [], paginationPagesVisited: 0, totalLinksFound: 0 });
+
+  const [sitemapResult, categoryResult] = await Promise.all([sitemapPromise, categoryPromise]);
+
+  console.log(`[keyword-extractor] Sitemaps discovered: ${sitemapResult.sitemapsFound.length} → ${sitemapResult.sitemapsFound.join(", ")}`);
+  console.log(`[keyword-extractor] Sitemap URLs: ${sitemapResult.urls.length}`);
+  console.log(`[keyword-extractor] Category page links: ${categoryResult.totalLinksFound} (article links: ${categoryResult.articleLinks.length})`);
+  console.log(`[keyword-extractor] Pagination pages visited: ${categoryResult.paginationPagesVisited}`);
+
+  // ── Merge + deduplicate all URLs ─────────────────────────────────────────────
+  const dedupMap = new Map<string, SitemapURL>();  // key = normalized, value = SitemapURL
+
+  // Add sitemap URLs first (they carry lastmod data)
+  for (const u of sitemapResult.urls) {
+    const key = normalizeForDedup(u.loc);
+    if (!dedupMap.has(key)) dedupMap.set(key, u);
+  }
+
+  // Add category page article links
+  for (const link of categoryResult.articleLinks) {
+    const key = normalizeForDedup(link);
+    if (!dedupMap.has(key)) dedupMap.set(key, { loc: link });
+  }
+
+  const allUrls = Array.from(dedupMap.values());
+  console.log(`[keyword-extractor] Unique URLs after deduplication: ${allUrls.length}`);
+
+  // ── Filter to article-like URLs ──────────────────────────────────────────────
+  const articleUrls = allUrls.filter((u) => isArticleUrl(u.loc));
+  console.log(`[keyword-extractor] Article candidates: ${articleUrls.length}`);
 
   // ── Stage 1: URL slug pre-filter ────────────────────────────────────────────
   const stage1Passed = articleUrls.filter((u) => {
     const slugScore = scoreUrlOnly(u.loc, profile);
     return slugScore >= STAGE1_THRESHOLD;
   });
+  console.log(`[keyword-extractor] Stage 1 passed (slug score >= ${STAGE1_THRESHOLD}): ${stage1Passed.length}`);
+  console.log(`[keyword-extractor] Rejected by Stage 1: ${articleUrls.length - stage1Passed.length}`);
 
-  // ── Stage 2: Fetch page meta for candidates only ─────────────────────────────
+  // ── Stage 2: Fetch page meta for candidates ──────────────────────────────────
   const candidateUrls = stage1Passed.slice(0, MAX_STAGE2_URLS).map((u) => u.loc);
+  console.log(`[keyword-extractor] Stage 2 fetching: ${candidateUrls.length} URLs`);
+
   const pageMetas = await fetchPageMetaBatch(candidateUrls, STAGE2_CONCURRENCY);
 
   const seenKeywords = new Set<string>();
@@ -97,7 +153,7 @@ export async function POST(req: NextRequest) {
     if (seenKeywords.has(normalized)) continue;
     seenKeywords.add(normalized);
 
-    const sitemapEntry = stage1Passed.find((u) => u.loc === meta.url);
+    const sitemapEntry = stage1Passed.find((u) => normalizeForDedup(u.loc) === normalizeForDedup(meta.url));
 
     const result = scoreRelevanceFull(
       {
@@ -124,12 +180,18 @@ export async function POST(req: NextRequest) {
 
   scored.sort((a, b) => b.relevance - a.relevance);
 
+  console.log(`[keyword-extractor] Scored articles: ${scored.length}`);
+  console.log(`[keyword-extractor] Score distribution: >=65=${scored.filter(s => s.relevance >= 65).length}, >=50=${scored.filter(s => s.relevance >= 50).length}, <50=${scored.filter(s => s.relevance < 50).length}`);
+
   const response: ExtractResponse = {
-    totalUrlsFound: urls.length,
+    totalUrlsFound: allUrls.length,
     totalArticles: articleUrls.length,
     stage1Candidates: stage1Passed.length,
-    relevant: scored.slice(0, 500),
-    sitemapsFound,
+    stage2Fetched: candidateUrls.length,
+    relevant: scored.slice(0, 1000),   // return up to 1000; UI paginates
+    sitemapsFound: sitemapResult.sitemapsFound,
+    categoryPageLinks: categoryResult.articleLinks.length,
+    paginationPagesVisited: categoryResult.paginationPagesVisited,
   };
 
   return NextResponse.json(response);

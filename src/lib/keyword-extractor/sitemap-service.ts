@@ -7,8 +7,9 @@ export interface SitemapURL {
 }
 
 const FETCH_TIMEOUT = 8000;
-const MAX_CHILD_SITEMAPS = 10;
-const MAX_URLS_PER_SITEMAP = 2000;
+const MAX_CHILD_SITEMAPS = 30;          // process up to 30 child sitemaps per index
+const MAX_URLS_PER_SITEMAP = 5000;      // per individual sitemap file
+const MAX_TOTAL_URLS = 10_000;          // hard ceiling across all sitemaps
 
 async function fetchText(url: string): Promise<string | null> {
   try {
@@ -82,7 +83,7 @@ async function collectFromSitemap(sitemapUrl: string, depth = 0): Promise<Sitema
     for (const childUrl of locs.slice(0, MAX_CHILD_SITEMAPS)) {
       const childResults = await collectFromSitemap(childUrl, depth + 1);
       results.push(...childResults);
-      if (results.length >= MAX_URLS_PER_SITEMAP) break;
+      if (results.length >= MAX_TOTAL_URLS) break;
     }
     return results;
   }
@@ -132,7 +133,7 @@ export async function crawlSitemap(inputUrl: string): Promise<{ urls: SitemapURL
         allUrls.push(u);
       }
     }
-    if (allUrls.length >= MAX_URLS_PER_SITEMAP) break;
+    if (allUrls.length >= MAX_TOTAL_URLS) break;
   }
 
   return { urls: allUrls, sitemapsFound };

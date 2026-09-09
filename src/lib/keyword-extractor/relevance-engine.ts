@@ -210,8 +210,8 @@ export function isArticleUrl(url: string): boolean {
 // ── Label helpers ─────────────────────────────────────────────────────────────
 
 export function relevanceLabel(score: number): { label: string; color: string } {
-  if (score >= 90) return { label: "Highly Relevant", color: "bg-green-100 text-green-700" };
-  if (score >= 75) return { label: "Relevant",         color: "bg-blue-100 text-blue-700" };
-  if (score >= 60) return { label: "Possibly Relevant", color: "bg-yellow-100 text-yellow-700" };
-  return                  { label: "Low Relevance",    color: "bg-gray-100 text-gray-500" };
+  if (score >= 80) return { label: "Highly Relevant",   color: "bg-green-100 text-green-700" };
+  if (score >= 65) return { label: "Relevant",           color: "bg-blue-100 text-blue-700" };
+  if (score >= 50) return { label: "Possibly Relevant",  color: "bg-yellow-100 text-yellow-700" };
+  return                  { label: "Low Relevance",      color: "bg-gray-100 text-gray-500" };
 }

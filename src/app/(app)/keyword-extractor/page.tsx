@@ -1,13 +1,13 @@
 "use client";
 import { useState, useMemo } from "react";
 import {
-  Globe, Search, Copy, Download, Sparkles, CheckCircle,
+  Globe, Copy, Download, Sparkles, CheckCircle,
   XCircle, AlertTriangle, ChevronUp, ChevronDown, Loader2,
-  Lightbulb, ExternalLink, Filter, SlidersHorizontal,
+  Lightbulb, ExternalLink, Filter, SlidersHorizontal, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CATEGORIES, relevanceLabel } from "@/lib/keyword-extractor/relevance-engine";
-import type { ExtractedKeyword } from "@/app/api/keyword-extractor/extract/route";
+import type { ExtractedKeyword, ExtractResponse } from "@/app/api/keyword-extractor/extract/route";
 import type { ContentIdea } from "@/lib/keyword-extractor/content-idea-generator";
 
 const INTENT_COLORS: Record<string, string> = {
@@ -39,12 +39,18 @@ export default function KeywordExtractorPage() {
   const [category, setCategory] = useState("");
   const [customCategory, setCustomCategory] = useState("");
   const [urlError, setUrlError] = useState<string | null>(null);
-  const [threshold, setThreshold] = useState(60);
+  const [threshold, setThreshold] = useState(65);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [results, setResults] = useState<ExtractedKeyword[] | null>(null);
-  const [stats, setStats] = useState<{ totalUrls: number; totalArticles: number; stage1Candidates: number; sitemaps: string[] } | null>(null);
+  const [stats, setStats] = useState<{
+    totalUrls: number; totalArticles: number; stage1Candidates: number;
+    stage2Fetched: number; categoryPageLinks: number; paginationPagesVisited: number;
+    sitemaps: string[];
+  } | null>(null);
 
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("relevance");
@@ -81,6 +87,7 @@ export default function KeywordExtractorPage() {
     setSelected(new Set());
     setIdeas(null);
     setSearch("");
+    setPage(1);
 
     try {
       const res = await fetch("/api/keyword-extractor/extract", {
@@ -88,7 +95,7 @@ export default function KeywordExtractorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url, category: effectiveCategory, topic: effectiveCategory }),
       });
-      const data = await res.json();
+      const data: ExtractResponse & { error?: string } = await res.json();
       if (data.error) {
         setExtractError(data.error);
       } else {
@@ -97,6 +104,9 @@ export default function KeywordExtractorPage() {
           totalUrls: data.totalUrlsFound,
           totalArticles: data.totalArticles,
           stage1Candidates: data.stage1Candidates ?? 0,
+          stage2Fetched: data.stage2Fetched ?? 0,
+          categoryPageLinks: data.categoryPageLinks ?? 0,
+          paginationPagesVisited: data.paginationPagesVisited ?? 0,
           sitemaps: data.sitemapsFound ?? [],
         });
       }
@@ -133,6 +143,7 @@ export default function KeywordExtractorPage() {
     }
   }
 
+  // All filtered+sorted rows (not paginated)
   const tableData = useMemo(() => {
     if (!results) return [];
     let data = results.filter((r) => r.relevance >= threshold);
@@ -151,9 +162,25 @@ export default function KeywordExtractorPage() {
     });
   }, [results, search, sortField, sortDir, threshold]);
 
+  // Current page slice for display
+  const totalPages = Math.max(1, Math.ceil(tableData.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageData = tableData.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
   function toggleSort(field: SortField) {
     if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortField(field); setSortDir("desc"); }
+    setPage(1);
+  }
+
+  function handleSearchChange(val: string) {
+    setSearch(val);
+    setPage(1);
+  }
+
+  function handleThresholdChange(val: number) {
+    setThreshold(val);
+    setPage(1);
   }
 
   function toggleSelect(url: string) {
@@ -165,8 +192,18 @@ export default function KeywordExtractorPage() {
   }
 
   function toggleSelectAll() {
-    if (selected.size === tableData.length) setSelected(new Set());
-    else setSelected(new Set(tableData.map((r) => r.url)));
+    // Select/deselect all on current page only
+    const pageUrls = new Set(pageData.map((r) => r.url));
+    const allPageSelected = pageData.every((r) => selected.has(r.url));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        for (const u of pageUrls) next.delete(u);
+      } else {
+        for (const u of pageUrls) next.add(u);
+      }
+      return next;
+    });
   }
 
   function exportCSV() {
@@ -292,14 +329,14 @@ export default function KeywordExtractorPage() {
               max={100}
               step={5}
               value={threshold}
-              onChange={(e) => setThreshold(Number(e.target.value))}
+              onChange={(e) => handleThresholdChange(Number(e.target.value))}
               className="w-full mt-1 accent-red-500"
             />
             <div className="flex justify-between text-xs text-gray-400 mt-0.5">
               <span>0 — All</span>
-              <span>60 — Possibly Relevant</span>
-              <span>75 — Relevant</span>
-              <span>90 — Highly Relevant</span>
+              <span>50 — Possibly Relevant</span>
+              <span>65 — Relevant</span>
+              <span>80 — Highly Relevant</span>
             </div>
           </div>
         </div>
@@ -323,12 +360,23 @@ export default function KeywordExtractorPage() {
       {/* Step 2: Results */}
       {results && (
         <>
-          <div className="grid grid-cols-4 gap-3 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <StatCard label="URLs Found" value={stats?.totalUrls ?? 0} />
             <StatCard label="Article URLs" value={stats?.totalArticles ?? 0} />
-            <StatCard label="Stage 1 Candidates" value={stats?.stage1Candidates ?? 0} />
+            <StatCard label="Relevant Articles" value={tableData.length} />
             <StatCard label={`Shown (≥${threshold})`} value={tableData.length} highlight />
           </div>
+
+          {/* Debug / discovery details */}
+          {stats && (
+            <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-700 space-y-0.5">
+              <div className="font-semibold mb-1">Discovery summary</div>
+              <div>Sitemaps used: {stats.sitemaps.length} · Sitemap URLs: {stats.totalUrls - stats.categoryPageLinks}</div>
+              <div>Category page article links: {stats.categoryPageLinks} · Pagination pages visited: {stats.paginationPagesVisited}</div>
+              <div>Stage 1 candidates (slug filter): {stats.stage1Candidates} · Stage 2 fetched: {stats.stage2Fetched}</div>
+              <div>Total unique URLs: {stats.totalUrls} · Article candidates: {stats.totalArticles}</div>
+            </div>
+          )}
 
           {stats?.sitemaps && stats.sitemaps.length > 0 && (
             <div className="bg-gray-50 border border-gray-100 rounded-lg px-4 py-2 mb-4 text-xs text-gray-500">
@@ -342,7 +390,7 @@ export default function KeywordExtractorPage() {
             <div className="bg-white border border-gray-200 rounded-xl p-10 text-center">
               <AlertTriangle className="w-8 h-8 text-yellow-400 mx-auto mb-3" />
               <p className="text-gray-600 font-medium">No keywords meet the threshold of {threshold} for "{effectiveCategory}"</p>
-              <p className="text-sm text-gray-400 mt-1">Lower the threshold or try a different topic.</p>
+              <p className="text-sm text-gray-400 mt-1">Lower the threshold slider above, or try a different topic / URL.</p>
             </div>
           ) : (
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
@@ -352,7 +400,7 @@ export default function KeywordExtractorPage() {
                   <input
                     type="text"
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(e) => handleSearchChange(e.target.value)}
                     placeholder="Filter keywords…"
                     className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-300"
                   />
@@ -382,7 +430,7 @@ export default function KeywordExtractorPage() {
                     <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
                       <th className="px-4 py-3 w-10">
                         <input type="checkbox"
-                          checked={selected.size === tableData.length && tableData.length > 0}
+                          checked={pageData.length > 0 && pageData.every((r) => selected.has(r.url))}
                           onChange={toggleSelectAll}
                           className="rounded border-gray-300 text-red-500 focus:ring-red-300" />
                       </th>
@@ -400,7 +448,7 @@ export default function KeywordExtractorPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {tableData.map((row) => (
+                    {pageData.map((row) => (
                       <TableRow
                         key={row.url}
                         row={row}
@@ -411,6 +459,39 @@ export default function KeywordExtractorPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+                  <span className="text-xs text-gray-500">
+                    Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, tableData.length)} of {tableData.length}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1}
+                      className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40">
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+                      // Show first, last, and pages around current
+                      let pg: number;
+                      if (totalPages <= 7) pg = i + 1;
+                      else if (i === 0) pg = 1;
+                      else if (i === 6) pg = totalPages;
+                      else pg = Math.max(2, Math.min(totalPages - 1, safePage - 2 + i));
+                      return (
+                        <button key={pg} onClick={() => setPage(pg)}
+                          className={cn("w-7 h-7 text-xs rounded", pg === safePage ? "bg-red-500 text-white" : "hover:bg-gray-100 text-gray-600")}>
+                          {pg}
+                        </button>
+                      );
+                    })}
+                    <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
+                      className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40">
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {tableData.length === 0 && search && (
                 <div className="p-6 text-center text-sm text-gray-400">No results match "{search}"</div>
