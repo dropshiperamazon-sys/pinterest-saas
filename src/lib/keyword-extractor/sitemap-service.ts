@@ -24,6 +24,8 @@ async function fetchText(url: string): Promise<{ text: string; finalUrl: string 
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; KeywordExtractorBot/1.0; +https://mypinpro.com/bot)",
         "Accept": "application/xml, text/xml, */*",
+        // Request identity to avoid getting gzip binary that text() can't decode
+        "Accept-Encoding": "identity",
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
       redirect: "follow",
@@ -32,15 +34,47 @@ async function fetchText(url: string): Promise<{ text: string; finalUrl: string 
       console.log(`[sitemap] SKIP ${url} → HTTP ${res.status}`);
       return null;
     }
-    const text = await res.text();
+
+    const contentType = res.headers.get("content-type") ?? "";
+    const finalUrl = res.url ?? url;
+
+    // Handle gzip-encoded sitemaps (.xml.gz or content-encoding: gzip)
+    const isGzip = url.endsWith(".gz") || contentType.includes("gzip") ||
+      res.headers.get("content-encoding") === "gzip";
+
+    let text: string;
+    if (isGzip) {
+      try {
+        const { createGunzip } = await import("zlib");
+        const { Readable } = await import("stream");
+        const buffer = await res.arrayBuffer();
+        const uint8 = new Uint8Array(buffer);
+        text = await new Promise<string>((resolve, reject) => {
+          const gunzip = createGunzip();
+          const chunks: Buffer[] = [];
+          const readable = Readable.from(Buffer.from(uint8));
+          readable.pipe(gunzip);
+          gunzip.on("data", (chunk: Buffer) => chunks.push(chunk));
+          gunzip.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+          gunzip.on("error", reject);
+        });
+        console.log(`[sitemap] Decompressed gzip: ${url} (${uint8.length} → ${text.length} bytes)`);
+      } catch (gzipErr) {
+        console.log(`[sitemap] SKIP ${url} → gzip decompress failed: ${gzipErr}`);
+        return null;
+      }
+    } else {
+      text = await res.text();
+    }
+
     // Strip UTF-8 BOM if present
     const cleaned = text.startsWith("﻿") ? text.slice(1) : text;
     const trimmed = cleaned.trim();
     if (!trimmed.startsWith("<") && !trimmed.startsWith("<?")) {
-      console.log(`[sitemap] SKIP ${url} → not XML (starts with: ${JSON.stringify(trimmed.slice(0, 30))})`);
+      console.log(`[sitemap] SKIP ${url} → not XML (starts with: ${JSON.stringify(trimmed.slice(0, 60))})`);
       return null;
     }
-    return { text: cleaned, finalUrl: res.url ?? url };
+    return { text: cleaned, finalUrl };
   } catch (err) {
     console.log(`[sitemap] SKIP ${url} → ${err instanceof Error ? err.message : String(err)}`);
     return null;
@@ -241,10 +275,26 @@ export async function crawlSitemap(
       report();
 
     } else if (docType === "urlset" || docType === "unknown") {
-      // Extract article URLs
       const entries = parseUrlsetEntries(text);
       sitemapsFound.push(sitemapUrl);
       sitemapsProcessed++;
+
+      if (entries.length === 0 && docType === "unknown") {
+        // Could be a malformed index — try to extract any <loc> as child sitemaps
+        const locs = parseLocEntries(text);
+        const xmlLocs = locs.filter((l) => l.endsWith(".xml") || l.endsWith(".xml.gz") || l.includes("sitemap"));
+        if (xmlLocs.length > 0) {
+          console.log(`[sitemap] Unknown type with 0 urlset entries, trying ${xmlLocs.length} locs as child sitemaps`);
+          for (const childUrl of xmlLocs) {
+            const normChild = childUrl.split("?")[0].replace(/\/$/, "");
+            if (!visitedSitemaps.has(normChild)) {
+              queue.push(childUrl);
+            }
+          }
+          report();
+          continue;
+        }
+      }
 
       let added = 0;
       for (const entry of entries) {
