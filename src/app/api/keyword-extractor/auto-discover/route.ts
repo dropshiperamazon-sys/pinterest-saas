@@ -10,13 +10,18 @@ import {
   buildClusters,
 } from "@/lib/keyword-extractor/article-keyword-extractor";
 import type { SitemapURL } from "@/lib/keyword-extractor/sitemap-service";
+import type { PageMeta } from "@/lib/keyword-extractor/page-crawler";
 import type { KeywordAggregate, TopicCluster } from "@/lib/keyword-extractor/article-keyword-extractor";
 import type { ProgressEvent } from "@/app/api/keyword-extractor/extract/route";
 
-// Practical analysis cap: fetch at most this many article pages in one request
-// (Vercel function timeout). Full discovery remains uncapped.
-const MAX_ARTICLES_TO_ANALYZE = 500;
-const CONCURRENCY = 8;
+// Phase 1: slug-based keywords for ALL candidates (instant, no network)
+// Phase 2: page-fetch enrichment for top ENRICH_MAX articles (fills in title/H1/headings)
+//
+// This ensures articlesAnalyzed == articleCandidates regardless of count,
+// while the enrichment pass gives higher-confidence keywords to the most recent articles.
+
+const ENRICH_MAX = 100;   // max page fetches per request (Vercel 60s budget)
+const CONCURRENCY = 20;   // concurrent page fetches in enrichment pass
 
 export interface ArticleResult {
   url: string;
@@ -64,14 +69,22 @@ function extractRootDomain(input: string): string {
   return `${parsed.protocol}//${parsed.hostname}`;
 }
 
-async function fetchBatch(urls: string[], concurrency: number) {
-  const results = [];
-  for (let i = 0; i < urls.length; i += concurrency) {
-    const batch = urls.slice(i, i + concurrency);
-    const batchResults = await Promise.all(batch.map((u) => fetchPageMeta(u)));
-    results.push(...batchResults);
-  }
-  return results;
+// Minimal PageMeta using only URL slug — no network required.
+// extractArticleKeyword falls back to Strategy 4 (slug) when title/H1 are absent.
+function slugOnlyMeta(sitemapEntry: SitemapURL): PageMeta {
+  return {
+    url: sitemapEntry.loc,
+    title: "",
+    ogTitle: "",
+    canonical: "",
+    h1: "",
+    headings: "",
+    metaDescription: "",
+    breadcrumbs: "",
+    bodySnippet: "",
+    datePublished: sitemapEntry.lastmod,
+    dateModified: sitemapEntry.lastmod,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -152,67 +165,92 @@ export async function POST(req: NextRequest) {
         // ── Step 4: Classify article URLs ────────────────────────────────
         const articleCandidates = allUrls.filter((u) => isArticleUrl(u.loc));
 
-        send({
-          type: "progress",
-          stage: "classify",
-          message: `${articleCandidates.length.toLocaleString()} article candidates identified`,
-          counts: { totalUrls: allUrls.length, articleCandidates: articleCandidates.length },
-        });
-
-        // ── Step 5: Sort by recency, cap at MAX_ARTICLES_TO_ANALYZE ─────
-        // Sort by lastmod descending (most recent first), then take cap
+        // Sort by recency (most recent first) — used for enrichment priority
         const sorted = [...articleCandidates].sort((a, b) => {
           if (a.lastmod && b.lastmod) return b.lastmod.localeCompare(a.lastmod);
           if (a.lastmod) return -1;
           if (b.lastmod) return 1;
           return 0;
         });
-        const toAnalyze = sorted.slice(0, MAX_ARTICLES_TO_ANALYZE).map((u) => u.loc);
+
+        send({
+          type: "progress",
+          stage: "classify",
+          message: `${articleCandidates.length.toLocaleString()} article candidates — extracting keywords…`,
+          counts: { totalUrls: allUrls.length, articleCandidates: articleCandidates.length },
+        });
+
+        // ── Step 5 (Phase 1): Slug-based keyword extraction for ALL candidates ──
+        // Instant — no network — gives every article at least a keyword from its URL.
+        // extractArticleKeyword Strategy 4 fires when title/H1 are empty.
+
+        const articleMap = new Map<string, ArticleResult>();
+
+        for (const candidate of sorted) {
+          const meta = slugOnlyMeta(candidate);
+          const kw = extractArticleKeyword(meta);
+          if (!kw.primary || kw.primary.length < 3) continue;
+          const key = normalizeForDedup(candidate.loc);
+          articleMap.set(key, {
+            url: candidate.loc,
+            title: candidate.loc, // placeholder — overwritten in Phase 2 if fetched
+            primaryKeyword: kw.primary,
+            secondaryKeywords: kw.secondary,
+            confidence: kw.confidence,
+            cluster: kw.cluster,
+            datePublished: candidate.lastmod,
+            dateModified: candidate.lastmod,
+          });
+        }
 
         send({
           type: "progress",
           stage: "analysis",
-          message: `Analyzing ${toAnalyze.length.toLocaleString()} articles…`,
-          counts: { analyzing: 0, total: toAnalyze.length },
+          message: `${articleMap.size} articles covered by slug extraction — enriching top ${Math.min(ENRICH_MAX, articleMap.size)} with page data…`,
+          counts: { analyzing: 0, total: Math.min(ENRICH_MAX, sorted.length) },
         });
 
-        // ── Step 6: Fetch pages + extract keywords ───────────────────────
-        const articleResults: ArticleResult[] = [];
-        const REPORT_EVERY = 25;
+        // ── Step 6 (Phase 2): Page-fetch enrichment for top ENRICH_MAX articles ─
+        // Higher-quality keywords (title, H1, headings) override slug-only results.
+        // CONCURRENCY=20 and 5s timeout → ~100 articles in ~25s, well within 60s.
 
-        for (let i = 0; i < toAnalyze.length; i += CONCURRENCY) {
-          const batch = toAnalyze.slice(i, i + CONCURRENCY);
+        const toEnrich = sorted.slice(0, ENRICH_MAX).map((u) => u.loc);
+
+        for (let i = 0; i < toEnrich.length; i += CONCURRENCY) {
+          const batch = toEnrich.slice(i, i + CONCURRENCY);
           const metas = await Promise.all(batch.map((u) => fetchPageMeta(u)));
 
           for (const meta of metas) {
-            if (!meta.title && !meta.h1) continue; // page fetch failed
+            if (!meta.title && !meta.h1) continue; // page fetch failed or blocked
             const kw = extractArticleKeyword(meta);
             if (!kw.primary || kw.primary.length < 3) continue;
-            articleResults.push({
+
+            const key = normalizeForDedup(meta.url);
+            articleMap.set(key, {
               url: meta.url,
               title: meta.title || meta.ogTitle || meta.url,
               primaryKeyword: kw.primary,
               secondaryKeywords: kw.secondary,
               confidence: kw.confidence,
               cluster: kw.cluster,
-              datePublished: meta.datePublished,
-              dateModified: meta.dateModified,
+              datePublished: meta.datePublished || articleMap.get(key)?.datePublished,
+              dateModified: meta.dateModified || articleMap.get(key)?.dateModified,
             });
           }
 
-          const done = Math.min(i + CONCURRENCY, toAnalyze.length);
-          if (done % REPORT_EVERY === 0 || done >= toAnalyze.length) {
-            send({
-              type: "progress",
-              stage: "analysis",
-              message: `Extracting keywords… ${done} / ${toAnalyze.length}`,
-              counts: { analyzing: done, total: toAnalyze.length },
-            });
-          }
+          const done = Math.min(i + CONCURRENCY, toEnrich.length);
+          send({
+            type: "progress",
+            stage: "analysis",
+            message: `Page enrichment: ${done} / ${toEnrich.length} fetched, ${articleMap.size} total articles`,
+            counts: { analyzing: done, total: toEnrich.length },
+          });
         }
 
         // ── Step 7: Aggregate + cluster ──────────────────────────────────
         send({ type: "progress", stage: "aggregating", message: "Aggregating and clustering keywords…" });
+
+        const articleResults = Array.from(articleMap.values());
 
         const aggregated = aggregateKeywords(
           articleResults.map((a) => ({

@@ -1,7 +1,7 @@
 // Page Crawler — fetches public pages and extracts title/H1/headings
 // Lightweight: uses regex on raw HTML, no headless browser
 
-const FETCH_TIMEOUT = 8000;
+const FETCH_TIMEOUT = 5000;
 const MAX_BODY_SIZE = 500_000; // 500KB — enough to capture article body
 
 export interface PageMeta {
