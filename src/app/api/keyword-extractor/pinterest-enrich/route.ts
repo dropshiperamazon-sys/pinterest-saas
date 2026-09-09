@@ -121,7 +121,7 @@ interface CachedSeedResult {
 }
 
 function cacheKey(seed: string, country: string): string {
-  return `kex_pinterest:${country}:${normalizeKeyword(seed)}`;
+  return `kex_pinterest_v2:${country}:${normalizeKeyword(seed)}`;
 }
 
 async function getCached(seed: string, country: string): Promise<CachedSeedResult | null> {
@@ -138,6 +138,17 @@ async function setCached(seed: string, country: string, data: CachedSeedResult):
   } catch { /* non-fatal */ }
 }
 
+// Words that are too generic to count as niche overlap when matching trending keywords.
+// "september nails ideas 2026" shares "ideas" with almost every seed — that's noise.
+const GENERIC_OVERLAP_WORDS = new Set([
+  "ideas","tips","inspiration","inspo","aesthetic","design","style","tutorial",
+  "guide","simple","modern","cute","best","good","great","easy","free","diy",
+  "home","room","decor","decoration","look","color","shop","buy","new","top",
+  "cool","nice","beautiful","amazing","awesome","perfect","ultimate","complete",
+  "budget","cheap","affordable","small","big","large","dark","light","white",
+  "black","blue","red","pink","green","gold","silver","grey","gray","brown",
+]);
+
 // ── Enrich one keyword seed via Pinterest API ──────────────────────────────────
 
 async function enrichSeed(
@@ -146,6 +157,7 @@ async function enrichSeed(
   token: string,
   adAccountId: string,
   articleCountBySeed: Map<string, number>,
+  prefetchedTrendItems: Record<string, unknown>[],  // fetched once, passed in
 ): Promise<{ keywords: PinterestKeywordResult[]; error?: string }> {
   const results: PinterestKeywordResult[] = [];
   const seen = new Set<string>([normalizeKeyword(seed)]);
@@ -232,30 +244,34 @@ async function enrichSeed(
     });
   }
 
-  // ── 3. Trends — look for seed in trending keywords (GET) ─────────────────────
-  // GET /v5/trends/keywords/{region}/top/growing?limit=25
-  // Scopes: no special scope required (public endpoint with auth)
-  let trendsData: unknown = null;
-  try {
-    trendsData = await pinterestGet(
-      `/trends/keywords/${country}/top/growing?limit=25`,
-      token,
-    );
-  } catch (e) {
-    if (e instanceof RateLimitError) throw e;
-  }
+  // ── 3. Trends — match pre-fetched trending keywords against this seed ───────────
+  // Trends are fetched ONCE per request (not per seed) to avoid redundant API calls.
+  // Only include a trending keyword if it shares a non-generic niche word with the seed.
+  // "september nails ideas 2026" shares "ideas" with every seed → excluded (generic word).
+  // "living room aesthetic" shares "living" with seed "living room decor" → included.
+  const seedNicheWords = new Set(
+    normalizeKeyword(seed).split(/\s+/).filter(
+      (w) => w.length >= 4 && !GENERIC_OVERLAP_WORDS.has(w)
+    )
+  );
+  const normSeed = normalizeKeyword(seed);
 
-  const trendItems = extractItems(trendsData);
-  const seedWords = new Set(normalizeKeyword(seed).split(/\s+/));
-  for (let i = 0; i < trendItems.length; i++) {
-    const item = trendItems[i];
+  for (let i = 0; i < prefetchedTrendItems.length; i++) {
+    const item = prefetchedTrendItems[i];
     const kw = normalizeKeyword(itemKeyword(item));
-    if (!kw || kw.length < 3) continue;
-    // Only include trending keywords that share a meaningful word with the seed
+    if (!kw || kw.length < 3 || seen.has(kw)) continue;
+
+    // A trending keyword is relevant to this seed only if:
+    // (a) the full normalised seed appears as a substring in the trending keyword, OR
+    // (b) the trending keyword appears as a substring in the seed, OR
+    // (c) they share at least one non-generic niche word (length ≥ 5 to avoid "room" etc.)
     const kwWords = kw.split(/\s+/);
-    const overlaps = kwWords.some((w) => w.length >= 4 && seedWords.has(w));
-    if (!overlaps && !kw.includes(normalizeKeyword(seed))) continue;
-    if (seen.has(kw)) continue;
+    const sharesNicheWord = seedNicheWords.size > 0 &&
+      kwWords.some((w) => w.length >= 5 && seedNicheWords.has(w));
+    const isSubstring = kw.includes(normSeed) || normSeed.includes(kw);
+
+    if (!sharesNicheWord && !isSubstring) continue;
+
     seen.add(kw);
     results.push({
       seedKeyword: seed,
@@ -266,7 +282,7 @@ async function enrichSeed(
       monthlySearches: null,
       weeklyChange: (item as Record<string, unknown>).pct_growth_wow as number ?? null,
       monthlyChange: (item as Record<string, unknown>).pct_growth_mom as number ?? null,
-      relevance: relevanceFromPosition(i, trendItems.length),
+      relevance: relevanceFromPosition(i, prefetchedTrendItems.length),
       articleCount: articleCountBySeed.get(kw) ?? 0,
     });
   }
@@ -361,6 +377,14 @@ export async function POST(req: NextRequest) {
       "Only trending keyword data may be available.";
   }
 
+  // Fetch trending keywords ONCE for the whole request — same 25 results for every seed,
+  // so calling per-seed is wasteful and just adds latency / rate-limit pressure.
+  let prefetchedTrendItems: Record<string, unknown>[] = [];
+  try {
+    const trendsData = await pinterestGet(`/trends/keywords/${country}/top/growing?limit=25`, accessToken);
+    prefetchedTrendItems = extractItems(trendsData);
+  } catch { /* non-fatal — trends won't be included */ }
+
   // Process seeds in batches with caching
   const allResults: SeedEnrichmentResult[] = [];
   const failedSeeds: string[] = [];
@@ -380,7 +404,13 @@ export async function POST(req: NextRequest) {
         }
 
         if (!adAccountId) {
-          // No ad account — we can still try trending endpoint
+          // No ad account — include seed keyword + any relevant trending matches
+          const seedNicheWords = new Set(
+            normalizeKeyword(seed).split(/\s+/).filter(
+              (w) => w.length >= 4 && !GENERIC_OVERLAP_WORDS.has(w)
+            )
+          );
+          const normSeed = normalizeKeyword(seed);
           const results: PinterestKeywordResult[] = [{
             seedKeyword: seed,
             keyword: seed,
@@ -391,14 +421,31 @@ export async function POST(req: NextRequest) {
             weeklyChange: null,
             monthlyChange: null,
             relevance: "Very High",
-            articleCount: articleCountBySeed.get(normalizeKeyword(seed)) ?? 0,
+            articleCount: articleCountBySeed.get(normSeed) ?? 0,
           }];
+          const seenLocal = new Set<string>([normSeed]);
+          for (const item of prefetchedTrendItems) {
+            const kw = normalizeKeyword(itemKeyword(item));
+            if (!kw || seenLocal.has(kw)) continue;
+            const kwWords = kw.split(/\s+/);
+            const sharesNiche = seedNicheWords.size > 0 &&
+              kwWords.some((w) => w.length >= 5 && seedNicheWords.has(w));
+            if (!sharesNiche && !kw.includes(normSeed) && !normSeed.includes(kw)) continue;
+            seenLocal.add(kw);
+            results.push({
+              seedKeyword: seed, keyword: kw, source: "PINTEREST_API", keywordType: "TRENDING",
+              country, monthlySearches: null,
+              weeklyChange: (item as Record<string, unknown>).pct_growth_wow as number ?? null,
+              monthlyChange: (item as Record<string, unknown>).pct_growth_mom as number ?? null,
+              relevance: "Medium", articleCount: articleCountBySeed.get(kw) ?? 0,
+            });
+          }
           await setCached(seed, country, { keywords: results, cachedAt: Date.now() });
           return { seed, keywords: results, status: "no_account" };
         }
 
         try {
-          const { keywords } = await enrichSeed(seed, country, accessToken, adAccountId, articleCountBySeed);
+          const { keywords } = await enrichSeed(seed, country, accessToken, adAccountId, articleCountBySeed, prefetchedTrendItems);
           await setCached(seed, country, { keywords, cachedAt: Date.now() });
           return { seed, keywords, status: "ok" };
         } catch (e) {
