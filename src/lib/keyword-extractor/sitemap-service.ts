@@ -1,4 +1,6 @@
 // Sitemap Service — discovers and parses public XML sitemaps
+import { createGunzip } from "zlib";
+import { Readable } from "stream";
 
 export interface SitemapURL {
   loc: string;
@@ -45,8 +47,6 @@ async function fetchText(url: string): Promise<{ text: string; finalUrl: string 
     let text: string;
     if (isGzip) {
       try {
-        const { createGunzip } = await import("zlib");
-        const { Readable } = await import("stream");
         const buffer = await res.arrayBuffer();
         const uint8 = new Uint8Array(buffer);
         text = await new Promise<string>((resolve, reject) => {
