@@ -25,6 +25,13 @@
 import { NextRequest } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import {
+  searchKeywords,
+  addRelationship,
+  logSearchSignal,
+  upsertKeyword,
+  normalizeKeyword as dbNorm,
+} from "@/lib/keyword-db";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -584,6 +591,32 @@ export async function POST(req: NextRequest) {
     articleCountBySeed.set(normalizeKeyword(k), v);
   }
 
+  // ── Log search signals (non-blocking) ────────────────────────────────────
+  for (const seed of seeds) {
+    logSearchSignal(seed, country).catch(() => {});
+  }
+
+  // ── Query internal knowledge store for each seed ──────────────────────────
+  // Knowledge store results enrich the Related Keywords tab with verified
+  // metrics (monthly_searches, competition, avg_cpc) that Pinterest API alone
+  // does not provide. We collect them now so they can be merged later.
+  const knowledgeStoreResults = new Map<string, Awaited<ReturnType<typeof searchKeywords>>>();
+  for (const seed of seeds) {
+    try {
+      const kbResults = await searchKeywords({ query: seed, country, limit: 60 });
+      if (kbResults.length > 0) {
+        knowledgeStoreResults.set(seed, kbResults);
+        // Store relationships from knowledge base into the Pinterest keywords
+        for (let i = 0; i < Math.min(kbResults.length, 10); i++) {
+          const kb = kbResults[i];
+          if (dbNorm(kb.keyword) !== seed) {
+            // Will be used when building keywords below
+          }
+        }
+      }
+    } catch { /* non-fatal */ }
+  }
+
   // ── Determine all interests for trend calls ───────────────────────────────
   const seedInterest = new Map<string, string | null>();
   const allInterestsToFetch = new Set<string>();
@@ -670,6 +703,53 @@ export async function POST(req: NextRequest) {
         articleCountBySeed,
         hasInterest,
       );
+
+      // ── Step 5: Merge knowledge store metrics into related keywords ────────
+      const kbForSeed = knowledgeStoreResults.get(seed) ?? [];
+      const kbByNorm = new Map(kbForSeed.map(k => [dbNorm(k.keyword), k]));
+      const kbSeen = new Set(keywords.map(k => dbNorm(k.keyword)));
+
+      for (const kb of kbForSeed) {
+        const norm = dbNorm(kb.keyword);
+        if (!kbSeen.has(norm)) {
+          kbSeen.add(norm);
+          keywords.push({
+            seedKeyword: seed,
+            keyword: kb.keyword,
+            source: "PINTEREST_RELATED",
+            keywordType: "RELATED",
+            country,
+            monthlySearches: kb.monthlySearches,
+            weeklyChange: null,
+            monthlyChange: null,
+            relevance: "Medium",
+            articleCount: articleCountBySeed.get(norm) ?? 0,
+          });
+        } else {
+          const existing = keywords.find(k => dbNorm(k.keyword) === norm);
+          if (existing && kb.monthlySearches !== null && existing.monthlySearches === null) {
+            existing.monthlySearches = kb.monthlySearches;
+          }
+        }
+      }
+
+      // ── Step 6: Store Pinterest related terms back into knowledge base ─────
+      for (const kw of keywords.filter(k => k.source === "PINTEREST_RELATED")) {
+        upsertKeyword({
+          keyword: kw.keyword,
+          country,
+          language: "en",
+          monthlySearches: kbByNorm.get(dbNorm(kw.keyword))?.monthlySearches ?? null,
+          competition: null,
+          avgCpc: null,
+          trend: kw.weeklyChange ?? null,
+          category: kbByNorm.get(dbNorm(kw.keyword))?.category ?? null,
+          source: "PINTEREST_RELATED",
+          sourceReference: `/v5/terms/related?terms=${encodeURIComponent(seed)}`,
+          confidence: "UNVERIFIED",
+          lastVerifiedAt: Date.now(),
+        }).catch(() => {});
+      }
 
       const hasRealData = keywords.some(
         (k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_API",

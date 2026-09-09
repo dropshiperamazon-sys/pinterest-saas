@@ -18,6 +18,7 @@ import {
   LogOut,
   ScanSearch,
   Telescope,
+  Database,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/scheduler", icon: Calendar, label: "Pin Scheduler" },
   { href: "/account-audit", icon: ShieldCheck, label: "Account Audit" },
   { href: "/ads", icon: Megaphone, label: "Pinterest Ads" },
+  { href: "/admin/keywords", icon: Database, label: "Keyword Admin" },
 ];
 
 export default function Sidebar() {
