@@ -458,6 +458,8 @@ function buildKeywordsForSeed(
 }
 
 // ── GET — diagnostic endpoint ─────────────────────────────────────────────────
+// Tests the official /v5/terms/suggested and /v5/terms/related endpoints.
+// Visit: GET /api/keyword-extractor/pinterest-enrich?q=room+decor+aesthetic
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -469,40 +471,54 @@ export async function GET(req: NextRequest) {
   const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
 
   const url = new URL(req.url);
-  const seed = (url.searchParams.get("q") ?? "living room").trim();
+  const seed = (url.searchParams.get("q") ?? "room decor aesthetic").trim();
   const country = (url.searchParams.get("country") ?? "US").toUpperCase();
 
+  // ── Test 1: GET /v5/terms/suggested ──────────────────────────────────────
+  const suggestedRaw = await pinterestGetRaw(
+    `/terms/suggested?term=${encodeURIComponent(seed)}&limit=10`,
+    accessToken,
+  );
+
+  // ── Test 2: GET /v5/terms/related ────────────────────────────────────────
+  const relatedRaw = await pinterestGetRaw(
+    `/terms/related?terms=${encodeURIComponent(seed)}`,
+    accessToken,
+  );
+
+  // ── Test 3: Trends (confirmed working) ───────────────────────────────────
   const interest = seedToInterest(seed);
-  const secondaryInterests = (interest ? SECONDARY_INTERESTS[interest] : undefined) ?? [];
-
-  const accountsRaw = await pinterestGetRaw("/ad_accounts?page_size=5", accessToken);
-  const adAccountsData = accountsRaw.data as Record<string, unknown> | null;
-  const adAccounts = Array.isArray(adAccountsData?.items) ? adAccountsData!.items as Record<string, unknown>[] : [];
-  const adAccountId = adAccounts[0]?.id as string ?? null;
-
-  const globalTrends = await fetchTrendsByInterest(country, null, accessToken);
-  const interestTrends = interest ? await fetchTrendsByInterest(country, interest, accessToken) : [];
-  const autocompleteL1 = await fetchAutocomplete(seed);
-  const autocompleteL2: string[] = [];
-  for (const s of autocompleteL1.slice(0, 3)) {
-    await sleep(150);
-    const sub = await fetchAutocomplete(s);
-    autocompleteL2.push(...sub);
-  }
+  const trendsRaw = await fetchTrendsByInterest(country, interest, accessToken);
 
   const diag = {
     seed,
     country,
-    detectedInterest: interest,
-    secondaryInterests,
-    adAccountId,
-    globalTrendsCount: globalTrends.length,
-    interestTrendsCount: interestTrends.length,
-    autocompleteL1Count: autocompleteL1.length,
-    autocompleteL1Sample: autocompleteL1.slice(0, 8),
-    autocompleteL2Count: [...new Set(autocompleteL2)].length,
-    autocompleteL2Sample: [...new Set(autocompleteL2)].slice(0, 8),
-    note: "Keyword suggestion endpoints (/targeting/keywords/suggestions) return 404 for this API tier. Using autocomplete + interest-filtered Trends API.",
+
+    terms_suggested: {
+      url: `${BASE}/terms/suggested?term=${encodeURIComponent(seed)}&limit=10`,
+      httpStatus: suggestedRaw.status,
+      error: suggestedRaw.error ?? null,
+      // Sanitised response — shows structure without exposing tokens
+      responseKeys: suggestedRaw.data ? Object.keys(suggestedRaw.data as object) : null,
+      rawData: suggestedRaw.data,
+    },
+
+    terms_related: {
+      url: `${BASE}/terms/related?terms=${encodeURIComponent(seed)}`,
+      httpStatus: relatedRaw.status,
+      error: relatedRaw.error ?? null,
+      responseKeys: relatedRaw.data ? Object.keys(relatedRaw.data as object) : null,
+      rawData: relatedRaw.data,
+    },
+
+    trends_growing: {
+      interest: interest ?? "none (global)",
+      httpStatus: trendsRaw.length > 0 ? 200 : "no data",
+      count: trendsRaw.length,
+      sample: trendsRaw.slice(0, 5).map((t) => t.keyword),
+    },
+
+    note: "Access token is NEVER logged or returned — only API response payloads are shown above.",
   };
 
   return new Response(JSON.stringify(diag, null, 2), {
