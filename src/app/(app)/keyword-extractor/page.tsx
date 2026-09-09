@@ -1,36 +1,18 @@
 "use client";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   Globe, Copy, Download, Sparkles, CheckCircle,
   XCircle, AlertTriangle, ChevronUp, ChevronDown, Loader2,
-  Lightbulb, ExternalLink, Filter, SlidersHorizontal, ChevronLeft, ChevronRight,
-  Zap, Search,
+  Lightbulb, ExternalLink, Filter, ChevronLeft, ChevronRight,
+  BarChart2, FileText, Tag, Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { relevanceLabel } from "@/lib/keyword-extractor/relevance-engine";
-import type { ExtractedKeyword, DateFilter, ProgressEvent } from "@/app/api/keyword-extractor/extract/route";
-import type { AutoDiscoverResponse } from "@/app/api/keyword-extractor/auto-discover/route";
-import type { DiscoveredKeyword } from "@/lib/keyword-extractor/slug-keyword-analyzer";
+import type { ProgressEvent } from "@/app/api/keyword-extractor/extract/route";
+import type { AutoDiscoverResponse, ArticleResult } from "@/app/api/keyword-extractor/auto-discover/route";
+import type { KeywordAggregate, TopicCluster } from "@/lib/keyword-extractor/article-keyword-extractor";
 import type { ContentIdea } from "@/lib/keyword-extractor/content-idea-generator";
 
-type Mode = "topic" | "auto";
-
-const INTENT_COLORS: Record<string, string> = {
-  Informational: "bg-blue-100 text-blue-700",
-  Inspirational: "bg-pink-100 text-pink-700",
-  Commercial: "bg-purple-100 text-purple-700",
-  Transactional: "bg-green-100 text-green-700",
-  Educational: "bg-indigo-100 text-indigo-700",
-};
-
-const DATE_FILTER_OPTIONS: { value: DateFilter; label: string }[] = [
-  { value: "all", label: "All time" },
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
-  { value: "90d", label: "Last 90 days" },
-  { value: "6m", label: "Last 6 months" },
-  { value: "1y", label: "Last year" },
-];
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface ProgressState {
   stage: string;
@@ -39,62 +21,56 @@ interface ProgressState {
   log: string[];
 }
 
-function RelevanceBadge({ score }: { score: number }) {
-  const { label, color } = relevanceLabel(score);
-  return (
-    <span className={cn("text-xs rounded px-1.5 py-0.5 font-medium", color)}>
-      {score} · {label}
-    </span>
-  );
+type ResultTab = "articles" | "keywords" | "clusters";
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function confidenceBadge(conf: number) {
+  if (conf >= 90) return "bg-green-100 text-green-700";
+  if (conf >= 75) return "bg-blue-100 text-blue-700";
+  if (conf >= 60) return "bg-yellow-100 text-yellow-700";
+  return "bg-gray-100 text-gray-500";
+}
+
+function confidenceLabel(conf: number) {
+  if (conf >= 90) return "Very High";
+  if (conf >= 75) return "High";
+  if (conf >= 60) return "Medium";
+  return "Low";
 }
 
 function copyToClipboard(text: string) {
   navigator.clipboard.writeText(text).catch(() => {});
 }
 
-type SortField = "keyword" | "relevance" | "url";
-type SortDir = "asc" | "desc";
+const PAGE_SIZE = 25;
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function KeywordExtractorPage() {
-  const [mode, setMode] = useState<Mode>("topic");
   const [domain, setDomain] = useState("");
-  const [topic, setTopic] = useState("");
-  const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [domainError, setDomainError] = useState<string | null>(null);
-  const [threshold, setThreshold] = useState(65);
-  const [page, setPage] = useState(1);
-  const PAGE_SIZE = 20;
-
   const [extracting, setExtracting] = useState(false);
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
-  const [results, setResults] = useState<ExtractedKeyword[] | null>(null);
-  const [autoResults, setAutoResults] = useState<DiscoveredKeyword[] | null>(null);
-  const [stats, setStats] = useState<{
-    totalUrls: number;
-    totalArticles: number;
-    candidateArticles: number;
-    stage2Fetched: number;
-    homepageLinks: number;
-    urlsFromSitemaps: number;
-    sitemapsProcessed: number;
-    sitemaps: string[];
-  } | null>(null);
-
+  const [data, setData] = useState<AutoDiscoverResponse | null>(null);
+  const [tab, setTab] = useState<ResultTab>("articles");
+  const [clusterFilter, setClusterFilter] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [sortField, setSortField] = useState<SortField>("relevance");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [articlePage, setArticlePage] = useState(1);
+  const [kwPage, setKwPage] = useState(1);
+  const [sortField, setSortField] = useState<"confidence" | "keyword" | "articles">("confidence");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [copiedAll, setCopiedAll] = useState(false);
-
+  const [ideas, setIdeas] = useState<ContentIdea[] | null>(null);
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   const [ideaError, setIdeaError] = useState<string | null>(null);
-  const [ideas, setIdeas] = useState<ContentIdea[] | null>(null);
+  const logRef = useRef<HTMLDivElement>(null);
 
   function validateDomain(val: string): boolean {
     try {
       const u = new URL(val.startsWith("http") ? val : `https://${val}`);
-      if (!["http:", "https:"].includes(u.protocol)) { setDomainError("URL must start with http:// or https://"); return false; }
+      if (!["http:", "https:"].includes(u.protocol)) { setDomainError("URL must use http or https"); return false; }
       setDomainError(null);
       return true;
     } catch {
@@ -103,33 +79,25 @@ export default function KeywordExtractorPage() {
     }
   }
 
-  async function handleExtract() {
+  async function handleAnalyze() {
     if (!validateDomain(domain)) return;
-    if (mode === "topic" && !topic.trim()) { setDomainError("Keyword / Topic is required"); return; }
-
     setExtracting(true);
     setExtractError(null);
-    setResults(null);
-    setAutoResults(null);
-    setStats(null);
+    setData(null);
     setSelected(new Set());
     setIdeas(null);
     setSearch("");
-    setPage(1);
+    setArticlePage(1);
+    setKwPage(1);
+    setClusterFilter(null);
+    setTab("articles");
     setProgress({ stage: "init", message: "Starting…", log: [] });
 
     try {
-      const endpoint = mode === "auto"
-        ? "/api/keyword-extractor/auto-discover"
-        : "/api/keyword-extractor/extract";
-      const body = mode === "auto"
-        ? { domain }
-        : { domain, topic: topic.trim(), dateFilter };
-
-      const res = await fetch(endpoint, {
+      const res = await fetch("/api/keyword-extractor/auto-discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ domain }),
       });
 
       if (!res.ok || !res.body) {
@@ -148,8 +116,6 @@ export default function KeywordExtractorPage() {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE lines
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
 
@@ -157,305 +123,183 @@ export default function KeywordExtractorPage() {
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6)) as ProgressEvent;
-
             if (event.type === "progress") {
               setProgress((prev) => ({
                 stage: event.stage,
                 message: event.message,
                 counts: event.counts,
-                log: [...(prev?.log ?? []), event.message].slice(-20),
+                log: [...(prev?.log ?? []), event.message].slice(-30),
               }));
+              setTimeout(() => { logRef.current?.scrollTo({ top: 9999 }); }, 50);
             } else if (event.type === "complete") {
-              const data = event.data as (typeof event.data) & AutoDiscoverResponse;
-              if (mode === "auto") {
-                setAutoResults(data.keywords ?? []);
-              } else {
-                setResults(data.relevant ?? []);
-              }
-              setStats({
-                totalUrls: data.totalUrlsFound,
-                totalArticles: data.totalArticles,
-                candidateArticles: (data as never as { candidateArticles?: number; stage2Fetched?: number }).candidateArticles ?? (data as never as { stage2Fetched?: number }).stage2Fetched ?? 0,
-                stage2Fetched: (data as never as { stage2Fetched?: number }).stage2Fetched ?? 0,
-                homepageLinks: data.homepageLinks ?? 0,
-                urlsFromSitemaps: data.urlsFromSitemaps ?? 0,
-                sitemapsProcessed: data.sitemapsProcessed ?? 0,
-                sitemaps: data.sitemapsFound ?? [],
-              });
+              setData(event.data as unknown as AutoDiscoverResponse);
               setProgress(null);
             } else if (event.type === "error") {
               setExtractError(event.message);
               setProgress(null);
             }
-          } catch { /* malformed SSE line */ }
+          } catch { /* malformed SSE */ }
         }
       }
     } catch (err) {
-      setExtractError(err instanceof Error ? err.message : "Request failed. Please check the domain and try again.");
+      setExtractError(err instanceof Error ? err.message : "Request failed");
       setProgress(null);
     } finally {
       setExtracting(false);
     }
   }
 
-  async function handleGenerateIdeas() {
-    if (selected.size === 0) return;
-    const selectedItems = (results ?? []).filter((r) => selected.has(r.url));
-    const keywords = selectedItems.map((r) => r.keyword);
-    const urls = selectedItems.map((r) => r.url);
-
-    setGeneratingIdeas(true);
-    setIdeaError(null);
-    setIdeas(null);
-
-    try {
-      const res = await fetch("/api/keyword-extractor/generate-ideas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keywords, urls, category: topic.trim() }),
-      });
-      const data = await res.json();
-      if (data.error) setIdeaError(data.error);
-      else setIdeas(data.ideas ?? []);
-    } catch {
-      setIdeaError("AI generation failed. Please try again.");
-    } finally {
-      setGeneratingIdeas(false);
-    }
-  }
-
-  const tableData = useMemo(() => {
-    if (!results) return [];
-    let data = results.filter((r) => r.relevance >= threshold);
+  // ── Filter + sort articles ─────────────────────────────────────────────────
+  const filteredArticles = useMemo((): ArticleResult[] => {
+    if (!data) return [];
+    let list = data.articles;
+    if (clusterFilter) list = list.filter((a) => a.cluster === clusterFilter);
     if (search.trim()) {
       const q = search.toLowerCase();
-      data = data.filter((r) => r.keyword.toLowerCase().includes(q) || r.url.toLowerCase().includes(q));
+      list = list.filter((a) =>
+        a.primaryKeyword.toLowerCase().includes(q) ||
+        a.title.toLowerCase().includes(q) ||
+        a.url.toLowerCase().includes(q)
+      );
     }
-    return [...data].sort((a, b) => {
-      let va: string | number, vb: string | number;
-      if (sortField === "relevance") { va = a.relevance; vb = b.relevance; }
-      else if (sortField === "keyword") { va = a.keyword.toLowerCase(); vb = b.keyword.toLowerCase(); }
-      else { va = a.url; vb = b.url; }
+    return [...list].sort((a, b) => {
+      const va = sortField === "confidence" ? a.confidence : a.primaryKeyword.toLowerCase();
+      const vb = sortField === "confidence" ? b.confidence : b.primaryKeyword.toLowerCase();
       if (va < vb) return sortDir === "asc" ? -1 : 1;
       if (va > vb) return sortDir === "asc" ? 1 : -1;
       return 0;
     });
-  }, [results, search, sortField, sortDir, threshold]);
+  }, [data, clusterFilter, search, sortField, sortDir]);
 
-  const totalPages = Math.max(1, Math.ceil(tableData.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageData = tableData.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  // ── Filter + sort keywords ─────────────────────────────────────────────────
+  const filteredKeywords = useMemo((): KeywordAggregate[] => {
+    if (!data) return [];
+    let list = data.keywords;
+    if (clusterFilter) list = list.filter((k) => k.cluster === clusterFilter);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter((k) => k.keyword.toLowerCase().includes(q));
+    }
+    return [...list].sort((a, b) => {
+      if (sortField === "articles") return sortDir === "asc" ? a.articleCount - b.articleCount : b.articleCount - a.articleCount;
+      if (sortField === "confidence") return sortDir === "asc" ? a.avgConfidence - b.avgConfidence : b.avgConfidence - a.avgConfidence;
+      const va = a.keyword; const vb = b.keyword;
+      return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+    });
+  }, [data, clusterFilter, search, sortField, sortDir]);
 
-  function toggleSort(field: SortField) {
+  const articlePages = Math.max(1, Math.ceil(filteredArticles.length / PAGE_SIZE));
+  const safeAPage = Math.min(articlePage, articlePages);
+  const pageArticles = filteredArticles.slice((safeAPage - 1) * PAGE_SIZE, safeAPage * PAGE_SIZE);
+
+  const kwPages = Math.max(1, Math.ceil(filteredKeywords.length / PAGE_SIZE));
+  const safeKwPage = Math.min(kwPage, kwPages);
+  const pageKeywords = filteredKeywords.slice((safeKwPage - 1) * PAGE_SIZE, safeKwPage * PAGE_SIZE);
+
+  function toggleSort(field: typeof sortField) {
     if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setSortField(field); setSortDir("desc"); }
-    setPage(1);
+    setArticlePage(1); setKwPage(1);
   }
-
-  function handleSearchChange(val: string) { setSearch(val); setPage(1); }
-  function handleThresholdChange(val: number) { setThreshold(val); setPage(1); }
 
   function toggleSelect(url: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(url) ? next.delete(url) : next.add(url);
-      return next;
-    });
+    setSelected((prev) => { const next = new Set(prev); next.has(url) ? next.delete(url) : next.add(url); return next; });
   }
 
-  function toggleSelectAll() {
-    const pageUrls = new Set(pageData.map((r) => r.url));
-    const allPageSelected = pageData.every((r) => selected.has(r.url));
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (allPageSelected) {
-        for (const u of pageUrls) next.delete(u);
-      } else {
-        for (const u of pageUrls) next.add(u);
-      }
-      return next;
-    });
+  async function handleGenerateIdeas() {
+    if (selected.size === 0) return;
+    const selectedArticles = (data?.articles ?? []).filter((a) => selected.has(a.url));
+    const keywords = selectedArticles.map((a) => a.primaryKeyword);
+    const urls = selectedArticles.map((a) => a.url);
+    setGeneratingIdeas(true); setIdeaError(null); setIdeas(null);
+    try {
+      const res = await fetch("/api/keyword-extractor/generate-ideas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keywords, urls, category: "" }),
+      });
+      const d = await res.json();
+      if (d.error) setIdeaError(d.error); else setIdeas(d.ideas ?? []);
+    } catch { setIdeaError("AI generation failed"); }
+    finally { setGeneratingIdeas(false); }
   }
 
   function exportCSV() {
-    if (!tableData.length) return;
-    const rows = [["Source URL", "Page Title", "Keyword", "Relevance", "Match Reason"]];
-    for (const r of tableData) rows.push([r.url, r.pageTitle ?? "", r.keyword, String(r.relevance), r.matchReason ?? ""]);
+    if (!data) return;
+    const rows = [["URL", "Title", "Primary Keyword", "Confidence", "Cluster", "Secondary Keywords", "Published Date"]];
+    for (const a of filteredArticles) {
+      rows.push([a.url, a.title, a.primaryKeyword, String(a.confidence) + "%", a.cluster, a.secondaryKeywords.join("; "), a.datePublished ?? ""]);
+    }
     const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
     dl("keywords.csv", csv, "text/csv");
   }
 
-  function exportTXT() {
-    if (!tableData.length) return;
-    dl("keywords.txt", tableData.map((r) => r.keyword).join("\n"), "text/plain");
+  function exportKeywordsCSV() {
+    if (!data) return;
+    const rows = [["Keyword", "Article Count", "Avg Confidence", "Cluster"]];
+    for (const k of filteredKeywords) {
+      rows.push([k.keyword, String(k.articleCount), String(k.avgConfidence) + "%", k.cluster]);
+    }
+    const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
+    dl("keyword-aggregates.csv", csv, "text/csv");
   }
 
   function dl(name: string, content: string, type: string) {
     const blob = new Blob([content], { type });
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
   }
 
-  function copyAllKeywords() {
-    copyToClipboard(tableData.map((r) => r.keyword).join("\n"));
-    setCopiedAll(true);
-    setTimeout(() => setCopiedAll(false), 2000);
-  }
+  const stageLabel: Record<string, string> = {
+    init: "Initializing…", sitemap: "Discovering sitemaps…", homepage: "Scanning homepage…",
+    discovery: "Processing URLs…", classify: "Classifying articles…",
+    analysis: "Extracting keywords…", aggregating: "Clustering keywords…",
+  };
 
-  const SortIcon = ({ field }: { field: SortField }) =>
+  const SortIcon = ({ field }: { field: typeof sortField }) =>
     sortField === field
       ? sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
       : <ChevronDown className="w-3 h-3 text-gray-300" />;
 
-  const step = !(results || autoResults) ? 1 : ideas ? 3 : 2;
-
-  const stageLabel: Record<string, string> = {
-    init: "Initializing…",
-    sitemap: "Discovering sitemaps…",
-    homepage: "Scanning homepage…",
-    discovery: "Processing URLs…",
-    filter: "Filtering articles…",
-    analysis: "Analyzing pages…",
-  };
-
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
+      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Globe className="w-7 h-7 text-red-500" />
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Keyword Extractor</h1>
-          <p className="text-sm text-gray-500">Find relevant articles from any public website by topic</p>
+          <p className="text-sm text-gray-500">Automatically discover every keyword a website ranks for — no topic needed</p>
         </div>
       </div>
 
-      {/* Mode toggle */}
-      <div className="flex items-center gap-2 mb-6">
-        <button
-          onClick={() => { setMode("topic"); setResults(null); setAutoResults(null); setStats(null); setProgress(null); setExtractError(null); }}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
-            mode === "topic"
-              ? "bg-red-500 text-white border-red-500"
-              : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-          )}
-        >
-          <Search className="w-4 h-4" /> Topic Search
-        </button>
-        <button
-          onClick={() => { setMode("auto"); setResults(null); setAutoResults(null); setStats(null); setProgress(null); setExtractError(null); }}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
-            mode === "auto"
-              ? "bg-red-500 text-white border-red-500"
-              : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
-          )}
-        >
-          <Zap className="w-4 h-4" /> Auto-Discover
-        </button>
-        <span className="text-xs text-gray-400 hidden sm:inline">
-          {mode === "auto" ? "Discovers all topics the site covers — no keyword needed" : "Find articles matching a specific keyword or topic"}
-        </span>
-      </div>
-
-      <div className="flex items-center gap-3 mb-6">
-        {(mode === "topic"
-          ? [{ n: 1, label: "Enter website + topic" }, { n: 2, label: "Review keywords" }, { n: 3, label: "Generate content ideas" }]
-          : [{ n: 1, label: "Enter website domain" }, { n: 2, label: "Explore discovered keywords" }, { n: 3, label: "Generate content ideas" }]
-        ).map(({ n, label }) => (
-          <div key={n} className="flex items-center gap-2">
-            <span className={cn("w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
-              step >= n ? "bg-red-500 text-white" : "bg-gray-100 text-gray-400")}>
-              {n}
-            </span>
-            <span className={cn("text-sm hidden sm:inline", step >= n ? "text-gray-700 font-medium" : "text-gray-400")}>{label}</span>
-            {n < 3 && <span className="text-gray-200 mx-1">→</span>}
-          </div>
-        ))}
-      </div>
-
-      {/* Step 1: Input */}
+      {/* Input */}
       <div className="bg-white border border-gray-200 rounded-xl p-6 mb-5">
-        <div className={cn("grid gap-4 mb-4", mode === "topic" ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 max-w-md")}>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Website Domain</label>
-            <input
-              type="text"
-              value={domain}
-              onChange={(e) => { setDomain(e.target.value); setDomainError(null); }}
-              placeholder="https://example.com"
-              className={cn(
-                "w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300",
-                domainError ? "border-red-300" : "border-gray-200"
-              )}
-            />
-            {domainError && <p className="text-xs text-red-500 mt-1">{domainError}</p>}
-          </div>
-
-          {mode === "topic" && (
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-                Keyword / Topic <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g. kitchen decor, fitness, personal finance…"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
-              />
-              <p className="text-xs text-gray-400 mt-1">Enter any keyword or topic. We&apos;ll analyze the public website and find relevant articles.</p>
-            </div>
-          )}
+        <div className="max-w-lg">
+          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Website Domain</label>
+          <input
+            type="text"
+            value={domain}
+            onChange={(e) => { setDomain(e.target.value); setDomainError(null); }}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAnalyze(); }}
+            placeholder="https://www.heytherehome.com"
+            className={cn(
+              "w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300 mb-3",
+              domainError ? "border-red-300" : "border-gray-200"
+            )}
+          />
+          {domainError && <p className="text-xs text-red-500 mb-2">{domainError}</p>}
+          <p className="text-xs text-gray-400 mb-4">
+            Enter any public website. We&apos;ll discover all articles via sitemap, analyze each page, and extract the primary keyword automatically.
+          </p>
+          <button
+            onClick={handleAnalyze}
+            disabled={extracting || !domain.trim()}
+            className="flex items-center gap-2 px-6 py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {extracting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+            {extracting ? "Analyzing…" : "Analyze Website"}
+          </button>
         </div>
-
-        {mode === "topic" && (
-          <div className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Date Filter</label>
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value as DateFilter)}
-              className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-300"
-            >
-              {DATE_FILTER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {mode === "topic" && (
-          <div className="mb-4 flex items-center gap-4 bg-gray-50 rounded-lg px-4 py-3">
-            <SlidersHorizontal className="w-4 h-4 text-gray-400 shrink-0" />
-            <div className="flex-1">
-              <label className="text-sm font-medium text-gray-700">
-                Min. Relevance Threshold: <span className="text-red-500 font-bold">{threshold}</span>
-              </label>
-              <input
-                type="range" min={0} max={100} step={5} value={threshold}
-                onChange={(e) => handleThresholdChange(Number(e.target.value))}
-                className="w-full mt-1 accent-red-500"
-              />
-              <div className="flex justify-between text-xs text-gray-400 mt-0.5">
-                <span>0 — All</span>
-                <span>50 — Possibly Relevant</span>
-                <span>65 — Relevant</span>
-                <span>80 — Highly Relevant</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <button
-          onClick={handleExtract}
-          disabled={extracting || !domain || (mode === "topic" && !topic.trim())}
-          className="flex items-center gap-2 px-6 py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {extracting ? <Loader2 className="w-4 h-4 animate-spin" /> : mode === "auto" ? <Zap className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
-          {extracting ? (mode === "auto" ? "Discovering…" : "Extracting…") : mode === "auto" ? "Auto-Discover Keywords" : "Extract Keywords"}
-        </button>
-
         {extractError && (
           <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2 text-red-700 text-sm">
             <XCircle className="w-4 h-4 shrink-0 mt-0.5" /> {extractError}
@@ -463,7 +307,7 @@ export default function KeywordExtractorPage() {
         )}
       </div>
 
-      {/* Progress panel */}
+      {/* Progress */}
       {extracting && progress && (
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 mb-5">
           <div className="flex items-center gap-2 mb-3">
@@ -471,293 +315,349 @@ export default function KeywordExtractorPage() {
             <span className="text-sm font-semibold text-blue-800">{stageLabel[progress.stage] ?? progress.stage}</span>
           </div>
           {progress.counts && (
-            <div className="flex flex-wrap gap-4 mb-3">
-              {progress.counts.sitemapsFound !== undefined && (
-                <Chip label="Sitemaps" value={progress.counts.sitemapsFound} />
+            <div className="flex flex-wrap gap-3 mb-3">
+              {progress.counts.sitemapsDiscovered !== undefined && (
+                <Chip label="Sitemaps" value={progress.counts.sitemapsDiscovered} />
               )}
-              {progress.counts.urlsCollected !== undefined && (
-                <Chip label="URLs collected" value={progress.counts.urlsCollected} />
+              {progress.counts.urlsFromSitemaps !== undefined && (
+                <Chip label="Sitemap URLs" value={progress.counts.urlsFromSitemaps} />
               )}
               {progress.counts.totalUrls !== undefined && (
                 <Chip label="Total URLs" value={progress.counts.totalUrls} />
               )}
-              {progress.counts.articleUrls !== undefined && (
-                <Chip label="Articles" value={progress.counts.articleUrls} />
+              {progress.counts.articleCandidates !== undefined && (
+                <Chip label="Articles" value={progress.counts.articleCandidates} />
               )}
-              {progress.counts.candidateArticles !== undefined && (
-                <Chip label="Candidates" value={progress.counts.candidateArticles} />
-              )}
-              {progress.counts.analyzed !== undefined && progress.counts.total !== undefined && (
-                <Chip label="Analyzed" value={`${progress.counts.analyzed} / ${progress.counts.total}`} />
+              {progress.counts.analyzing !== undefined && progress.counts.total !== undefined && (
+                <Chip label="Analyzed" value={`${progress.counts.analyzing} / ${progress.counts.total}`} />
               )}
             </div>
           )}
-          <div className="bg-white border border-blue-100 rounded-lg p-3 max-h-36 overflow-y-auto font-mono text-xs text-gray-500 space-y-0.5">
-            {progress.log.map((line, i) => (
-              <div key={i} className="truncate">{line}</div>
-            ))}
+          <div ref={logRef} className="bg-white border border-blue-100 rounded-lg p-3 max-h-40 overflow-y-auto font-mono text-xs text-gray-500 space-y-0.5">
+            {progress.log.map((line, i) => <div key={i} className="truncate">{line}</div>)}
           </div>
         </div>
       )}
 
-      {/* Step 2: Results */}
-      {results && (
+      {/* Results */}
+      {data && (
         <>
-          {/* Metrics row */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-            <StatCard label="Total URLs" value={stats?.totalUrls ?? 0} />
-            <StatCard label="Article URLs" value={stats?.totalArticles ?? 0} />
-            <StatCard label="Candidates" value={stats?.candidateArticles ?? 0} />
-            <StatCard label="Analyzed" value={stats?.stage2Fetched ?? 0} />
-            <StatCard label="Scored" value={results.length} />
-            <StatCard label={`Shown (≥${threshold})`} value={tableData.length} highlight />
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+            <StatCard label="Total URLs" value={data.totalUrlsFound} />
+            <StatCard label="Article Candidates" value={data.totalArticleCandidates} />
+            <StatCard label="Articles Analyzed" value={data.articlesAnalyzed} />
+            <StatCard label="Keywords Extracted" value={data.articles.length} />
+            <StatCard label="Unique Keywords" value={data.uniquePrimaryKeywords} highlight />
+            <StatCard label="Clusters" value={data.totalClusters} />
           </div>
 
-          {stats && (
-            <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-700 space-y-0.5">
-              <div className="font-semibold mb-1">Discovery summary</div>
-              <div>Sitemap Files Discovered: <strong>{stats.sitemaps.length}</strong> · Sitemap Files Processed: <strong>{stats.sitemapsProcessed}</strong> · URLs From Sitemaps: <strong>{stats.urlsFromSitemaps.toLocaleString()}</strong></div>
-              <div>Homepage/Internal Links: <strong>{stats.homepageLinks}</strong> · Total Unique URLs: <strong>{stats.totalUrls.toLocaleString()}</strong> · Article Candidates: <strong>{stats.totalArticles.toLocaleString()}</strong></div>
-            </div>
-          )}
+          {/* Discovery summary */}
+          <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-700 space-y-0.5">
+            <div className="font-semibold mb-1">Discovery summary</div>
+            <div>Sitemap Files Discovered: <strong>{data.sitemapsFound.length}</strong> · Sitemap Files Processed: <strong>{data.sitemapsProcessed}</strong> · URLs From Sitemaps: <strong>{data.urlsFromSitemaps.toLocaleString()}</strong></div>
+            <div>Supplemental Internal URLs: <strong>{data.homepageLinks}</strong> · Total Unique URLs: <strong>{data.totalUrlsFound.toLocaleString()}</strong> · Article Candidates: <strong>{data.totalArticleCandidates.toLocaleString()}</strong></div>
+          </div>
 
-          {stats?.sitemaps && stats.sitemaps.length > 0 && (
-            <div className="bg-gray-50 border border-gray-100 rounded-lg px-4 py-2 mb-4 text-xs text-gray-500 flex flex-wrap gap-x-2 gap-y-1 items-center">
-              <span className="font-medium text-gray-600">Sitemaps:</span>
-              {stats.sitemaps.slice(0, 20).map((s, i) => {
-                try {
-                  return <a key={i} href={s} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline">{new URL(s).pathname}</a>;
-                } catch {
-                  return <span key={i}>{s}</span>;
-                }
-              })}
-              {stats.sitemaps.length > 20 && <span className="text-gray-400">+{stats.sitemaps.length - 20} more</span>}
-            </div>
-          )}
+          <div className="flex gap-5">
+            {/* Cluster sidebar */}
+            {data.clusters.length > 0 && (
+              <div className="hidden lg:block w-52 shrink-0">
+                <div className="bg-white border border-gray-200 rounded-xl p-3 sticky top-4">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Topic Clusters</div>
+                  <button
+                    onClick={() => setClusterFilter(null)}
+                    className={cn("w-full text-left text-xs px-2 py-1.5 rounded-lg mb-0.5 transition-colors",
+                      !clusterFilter ? "bg-red-50 text-red-600 font-medium" : "hover:bg-gray-50 text-gray-600")}
+                  >
+                    All clusters
+                  </button>
+                  {data.clusters.map((c) => (
+                    <button
+                      key={c.name}
+                      onClick={() => { setClusterFilter(c.name === clusterFilter ? null : c.name); setArticlePage(1); setKwPage(1); }}
+                      className={cn("w-full text-left text-xs px-2 py-1.5 rounded-lg mb-0.5 flex items-center justify-between transition-colors",
+                        clusterFilter === c.name ? "bg-red-50 text-red-600 font-medium" : "hover:bg-gray-50 text-gray-600")}
+                    >
+                      <span className="truncate">{c.name}</span>
+                      <span className="text-gray-400 ml-1">{c.totalArticles}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
-          {tableData.length === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-xl p-10 text-center">
-              <AlertTriangle className="w-8 h-8 text-yellow-400 mx-auto mb-3" />
-              <p className="text-gray-600 font-medium">No keywords meet the threshold of {threshold} for &quot;{topic}&quot;</p>
-              <p className="text-sm text-gray-400 mt-1">Lower the threshold slider above, or try a different topic.</p>
-            </div>
-          ) : (
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
-              <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-gray-100">
+            {/* Main content */}
+            <div className="flex-1 min-w-0">
+              {/* Tabs */}
+              <div className="flex items-center gap-1 mb-4 border-b border-gray-200">
+                {([
+                  { id: "articles" as ResultTab, label: "Articles", icon: FileText, count: data.articles.length },
+                  { id: "keywords" as ResultTab, label: "Keywords", icon: Tag, count: data.keywords.length },
+                  { id: "clusters" as ResultTab, label: "Clusters", icon: BarChart2, count: data.clusters.length },
+                ] as const).map(({ id, label, icon: Icon, count }) => (
+                  <button
+                    key={id}
+                    onClick={() => setTab(id)}
+                    className={cn("flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
+                      tab === id ? "border-red-500 text-red-600" : "border-transparent text-gray-500 hover:text-gray-700")}
+                  >
+                    <Icon className="w-3.5 h-3.5" /> {label}
+                    <span className={cn("text-xs px-1.5 py-0.5 rounded-full",
+                      tab === id ? "bg-red-100 text-red-600" : "bg-gray-100 text-gray-500")}>{count}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Search + export toolbar */}
+              <div className="flex flex-wrap items-center gap-3 mb-3">
                 <div className="flex items-center gap-2 flex-1 min-w-48">
-                  <Filter className="w-4 h-4 text-gray-300" />
+                  <Search className="w-4 h-4 text-gray-300" />
                   <input
                     type="text" value={search}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    placeholder="Filter keywords…"
+                    onChange={(e) => { setSearch(e.target.value); setArticlePage(1); setKwPage(1); }}
+                    placeholder={tab === "articles" ? "Filter articles…" : "Filter keywords…"}
                     className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-red-300"
                   />
                 </div>
-                <div className="flex items-center gap-2 ml-auto flex-wrap">
-                  <span className="text-xs text-gray-400">{selected.size} selected</span>
-                  <button onClick={copyAllKeywords}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
-                    {copiedAll ? <CheckCircle className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-                    {copiedAll ? "Copied!" : "Copy All"}
-                  </button>
-                  <button onClick={exportCSV}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
-                    <Download className="w-3 h-3" /> CSV
-                  </button>
-                  <button onClick={exportTXT}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
-                    <Download className="w-3 h-3" /> TXT
-                  </button>
+                <div className="flex gap-2 ml-auto">
+                  {tab === "articles" && (
+                    <>
+                      <span className="text-xs text-gray-400 self-center">{selected.size} selected</span>
+                      <button onClick={() => copyToClipboard(filteredArticles.map((a) => a.primaryKeyword).join("\n"))}
+                        className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
+                        <Copy className="w-3 h-3" /> Copy Keywords
+                      </button>
+                      <button onClick={exportCSV}
+                        className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
+                        <Download className="w-3 h-3" /> CSV
+                      </button>
+                    </>
+                  )}
+                  {tab === "keywords" && (
+                    <button onClick={exportKeywordsCSV}
+                      className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
+                      <Download className="w-3 h-3" /> CSV
+                    </button>
+                  )}
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
-                      <th className="px-4 py-3 w-10">
-                        <input type="checkbox"
-                          checked={pageData.length > 0 && pageData.every((r) => selected.has(r.url))}
-                          onChange={toggleSelectAll}
-                          className="rounded border-gray-300 text-red-500 focus:ring-red-300" />
-                      </th>
-                      <th className="px-4 py-3 text-left cursor-pointer select-none" onClick={() => toggleSort("keyword")}>
-                        <span className="flex items-center gap-1">Keyword <SortIcon field="keyword" /></span>
-                      </th>
-                      <th className="px-4 py-3 text-left hidden lg:table-cell cursor-pointer select-none" onClick={() => toggleSort("url")}>
-                        <span className="flex items-center gap-1">Article URL <SortIcon field="url" /></span>
-                      </th>
-                      <th className="px-4 py-3 text-left cursor-pointer select-none" onClick={() => toggleSort("relevance")}>
-                        <span className="flex items-center gap-1">Relevance <SortIcon field="relevance" /></span>
-                      </th>
-                      <th className="px-4 py-3 text-left hidden xl:table-cell">Match Reason</th>
-                      <th className="px-4 py-3 w-10"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {pageData.map((row) => (
-                      <TableRow key={row.url} row={row} selected={selected.has(row.url)} onToggle={() => toggleSelect(row.url)} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {/* ── Articles tab ── */}
+              {tab === "articles" && (
+                <>
+                  {filteredArticles.length === 0 ? (
+                    <EmptyState message={search ? `No articles match "${search}"` : "No articles found"} />
+                  ) : (
+                    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-4">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
+                              <th className="px-4 py-3 w-8">
+                                <input type="checkbox"
+                                  checked={pageArticles.length > 0 && pageArticles.every((a) => selected.has(a.url))}
+                                  onChange={() => {
+                                    const all = pageArticles.every((a) => selected.has(a.url));
+                                    setSelected((prev) => {
+                                      const next = new Set(prev);
+                                      for (const a of pageArticles) all ? next.delete(a.url) : next.add(a.url);
+                                      return next;
+                                    });
+                                  }}
+                                  className="rounded border-gray-300 text-red-500 focus:ring-red-300" />
+                              </th>
+                              <th className="px-4 py-3 text-left cursor-pointer" onClick={() => toggleSort("confidence")}>
+                                <span className="flex items-center gap-1">Confidence <SortIcon field="confidence" /></span>
+                              </th>
+                              <th className="px-4 py-3 text-left cursor-pointer" onClick={() => toggleSort("keyword")}>
+                                <span className="flex items-center gap-1">Primary Keyword <SortIcon field="keyword" /></span>
+                              </th>
+                              <th className="px-4 py-3 text-left hidden xl:table-cell">Secondary Keywords</th>
+                              <th className="px-4 py-3 text-left hidden lg:table-cell">Article</th>
+                              <th className="px-4 py-3 text-left hidden md:table-cell">Cluster</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {pageArticles.map((a) => (
+                              <tr key={a.url} className={cn("hover:bg-gray-50 cursor-pointer", selected.has(a.url) && "bg-red-50")}
+                                onClick={() => toggleSelect(a.url)}>
+                                <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                                  <input type="checkbox" checked={selected.has(a.url)} onChange={() => toggleSelect(a.url)}
+                                    className="rounded border-gray-300 text-red-500 focus:ring-red-300" />
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap">
+                                  <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full", confidenceBadge(a.confidence))}>
+                                    {a.confidence}% · {confidenceLabel(a.confidence)}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <p className="font-medium text-gray-900 text-sm">{a.primaryKeyword}</p>
+                                </td>
+                                <td className="px-4 py-3 hidden xl:table-cell max-w-xs">
+                                  <p className="text-xs text-gray-400 truncate">{a.secondaryKeywords.join(", ")}</p>
+                                </td>
+                                <td className="px-4 py-3 hidden lg:table-cell max-w-xs">
+                                  <p className="text-xs font-medium text-gray-700 truncate">{a.title}</p>
+                                  <a href={a.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                                    className="text-xs text-blue-400 hover:underline flex items-center gap-0.5 mt-0.5 truncate max-w-xs">
+                                    <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                                    <span className="truncate">{a.url.replace(/^https?:\/\//, "")}</span>
+                                  </a>
+                                  {a.datePublished && (
+                                    <p className="text-xs text-gray-300 mt-0.5">{new Date(a.datePublished).toLocaleDateString()}</p>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 hidden md:table-cell">
+                                  <span className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">{a.cluster}</span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <Pagination page={safeAPage} total={articlePages} onChange={setArticlePage}
+                        showing={`${(safeAPage - 1) * PAGE_SIZE + 1}–${Math.min(safeAPage * PAGE_SIZE, filteredArticles.length)} of ${filteredArticles.length}`} />
+                    </div>
+                  )}
 
-              {totalPages > 1 && (
-                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
-                  <span className="text-xs text-gray-500">
-                    Showing {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, tableData.length)} of {tableData.length}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1}
-                      className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40">
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
-                      let pg: number;
-                      if (totalPages <= 7) pg = i + 1;
-                      else if (i === 0) pg = 1;
-                      else if (i === 6) pg = totalPages;
-                      else pg = Math.max(2, Math.min(totalPages - 1, safePage - 2 + i));
-                      return (
-                        <button key={pg} onClick={() => setPage(pg)}
-                          className={cn("w-7 h-7 text-xs rounded", pg === safePage ? "bg-red-500 text-white" : "hover:bg-gray-100 text-gray-600")}>
-                          {pg}
+                  {/* Generate Ideas CTA */}
+                  {data.articles.length > 0 && (
+                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100 rounded-xl p-5 mb-5">
+                      <div className="flex items-center justify-between flex-wrap gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <Sparkles className="w-4 h-4 text-purple-500" />
+                            <h3 className="font-semibold text-gray-800">Generate Content Ideas</h3>
+                          </div>
+                          <p className="text-sm text-gray-500">
+                            Select articles above, then generate original Pinterest content ideas.
+                            {selected.size > 0 && <span className="text-purple-600 font-medium"> {selected.size} selected.</span>}
+                          </p>
+                        </div>
+                        <button
+                          onClick={handleGenerateIdeas}
+                          disabled={selected.size === 0 || generatingIdeas}
+                          className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
+                        >
+                          {generatingIdeas ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                          {generatingIdeas ? "Generating…" : "Generate Content Ideas"}
                         </button>
-                      );
-                    })}
-                    <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
-                      className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40">
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
+                      </div>
+                      {ideaError && (
+                        <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm flex items-center gap-2">
+                          <XCircle className="w-4 h-4" /> {ideaError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ── Keywords tab ── */}
+              {tab === "keywords" && (
+                filteredKeywords.length === 0 ? (
+                  <EmptyState message={search ? `No keywords match "${search}"` : "No keywords found"} />
+                ) : (
+                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-4">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
+                            <th className="px-4 py-3 text-left cursor-pointer" onClick={() => toggleSort("keyword")}>
+                              <span className="flex items-center gap-1">Keyword <SortIcon field="keyword" /></span>
+                            </th>
+                            <th className="px-4 py-3 text-left cursor-pointer w-28" onClick={() => toggleSort("articles")}>
+                              <span className="flex items-center gap-1">Articles <SortIcon field="articles" /></span>
+                            </th>
+                            <th className="px-4 py-3 text-left cursor-pointer w-32" onClick={() => toggleSort("confidence")}>
+                              <span className="flex items-center gap-1">Avg Confidence <SortIcon field="confidence" /></span>
+                            </th>
+                            <th className="px-4 py-3 text-left w-28 hidden md:table-cell">Cluster</th>
+                            <th className="px-4 py-3 text-left hidden lg:table-cell">Sample Articles</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                          {pageKeywords.map((kw) => (
+                            <tr key={kw.keyword} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <p className="font-medium text-gray-900">{kw.keyword}</p>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="text-xs bg-red-50 text-red-600 font-semibold px-2 py-0.5 rounded-full">
+                                  {kw.articleCount}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full", confidenceBadge(kw.avgConfidence))}>
+                                  {kw.avgConfidence}%
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 hidden md:table-cell">
+                                <span className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded-full">{kw.cluster}</span>
+                              </td>
+                              <td className="px-4 py-3 hidden lg:table-cell">
+                                <div className="space-y-0.5">
+                                  {kw.articles.slice(0, 2).map((a) => (
+                                    <a key={a.url} href={a.url} target="_blank" rel="noreferrer"
+                                      className="text-xs text-blue-400 hover:underline truncate flex items-center gap-0.5 max-w-xs">
+                                      <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                                      <span className="truncate">{a.title || a.url}</span>
+                                    </a>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pagination page={safeKwPage} total={kwPages} onChange={setKwPage}
+                      showing={`${(safeKwPage - 1) * PAGE_SIZE + 1}–${Math.min(safeKwPage * PAGE_SIZE, filteredKeywords.length)} of ${filteredKeywords.length}`} />
                   </div>
-                </div>
+                )
               )}
 
-              {tableData.length === 0 && search && (
-                <div className="p-6 text-center text-sm text-gray-400">No results match &quot;{search}&quot;</div>
-              )}
-            </div>
-          )}
-
-          {results.length > 0 && (
-            <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100 rounded-xl p-5 mb-5">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <Sparkles className="w-4 h-4 text-purple-500" />
-                    <h3 className="font-semibold text-gray-800">Generate Content Ideas</h3>
-                  </div>
-                  <p className="text-sm text-gray-500">
-                    Select keywords above, then generate original content ideas with Pinterest angles.
-                    {selected.size > 0 && <span className="text-purple-600 font-medium"> {selected.size} selected.</span>}
-                  </p>
-                </div>
-                <button
-                  onClick={handleGenerateIdeas}
-                  disabled={selected.size === 0 || generatingIdeas}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors shrink-0"
-                >
-                  {generatingIdeas ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {generatingIdeas ? "Generating…" : "Generate Content Ideas"}
-                </button>
-              </div>
-              {ideaError && (
-                <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm flex items-center gap-2">
-                  <XCircle className="w-4 h-4" /> {ideaError}
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Auto-Discover results */}
-      {autoResults && (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-            <StatCard label="Total URLs" value={stats?.totalUrls ?? 0} />
-            <StatCard label="Article URLs" value={stats?.totalArticles ?? 0} />
-            <StatCard label="URLs From Sitemaps" value={stats?.urlsFromSitemaps ?? 0} />
-            <StatCard label="Keywords Found" value={autoResults.length} highlight />
-          </div>
-
-          {stats && (
-            <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-700 space-y-0.5">
-              <div className="font-semibold mb-1">Discovery summary</div>
-              <div>Sitemap Files Discovered: <strong>{stats.sitemaps.length}</strong> · Sitemap Files Processed: <strong>{stats.sitemapsProcessed}</strong> · URLs From Sitemaps: <strong>{stats.urlsFromSitemaps.toLocaleString()}</strong></div>
-              <div>Homepage/Internal Links: <strong>{stats.homepageLinks}</strong> · Total Unique URLs: <strong>{stats.totalUrls.toLocaleString()}</strong> · Article Candidates: <strong>{stats.totalArticles.toLocaleString()}</strong></div>
-            </div>
-          )}
-
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
-            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-              <span className="text-sm font-semibold text-gray-700">Top Keywords by Frequency</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => copyToClipboard(autoResults.map((k) => k.keyword).join("\n"))}
-                  className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50"
-                >
-                  <Copy className="w-3 h-3" /> Copy All
-                </button>
-                <button
-                  onClick={() => {
-                    const csv = ["Keyword,Page Count,Sample URL"].concat(
-                      autoResults.map((k) => `"${k.keyword}",${k.count},"${k.sampleUrls[0] ?? ""}"`)
-                    ).join("\n");
-                    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-                    a.download = "discovered-keywords.csv"; a.click();
-                  }}
-                  className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50"
-                >
-                  <Download className="w-3 h-3" /> CSV
-                </button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
-                    <th className="px-4 py-3 text-left">Keyword</th>
-                    <th className="px-4 py-3 text-left w-28">Pages</th>
-                    <th className="px-4 py-3 text-left hidden lg:table-cell">Sample URL</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {autoResults.map((kw) => (
-                    <tr key={kw.keyword} className="hover:bg-gray-50">
-                      <td className="px-4 py-2.5">
-                        <span className="font-medium text-gray-900">{kw.keyword}</span>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <span className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 font-semibold px-2 py-0.5 rounded-full">
-                          {kw.count.toLocaleString()} pages
+              {/* ── Clusters tab ── */}
+              {tab === "clusters" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                  {data.clusters.map((c) => (
+                    <div key={c.name} className="bg-white border border-gray-200 rounded-xl p-4 hover:border-red-200 transition-colors">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-semibold text-gray-900">{c.name}</h3>
+                        <span className="text-xs bg-red-50 text-red-600 font-semibold px-2 py-0.5 rounded-full">
+                          {c.totalArticles} articles
                         </span>
-                      </td>
-                      <td className="px-4 py-2.5 hidden lg:table-cell max-w-xs">
-                        {kw.sampleUrls[0] && (
-                          <a href={kw.sampleUrls[0]} target="_blank" rel="noreferrer"
-                            className="text-xs text-blue-500 hover:underline truncate flex items-center gap-1 max-w-xs">
-                            <ExternalLink className="w-3 h-3 shrink-0" />
-                            <span className="truncate">{kw.sampleUrls[0]}</span>
-                          </a>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {c.keywords.slice(0, 8).map((kw) => (
+                          <span key={kw} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{kw}</span>
+                        ))}
+                        {c.keywords.length > 8 && (
+                          <span className="text-xs text-gray-400">+{c.keywords.length - 8} more</span>
                         )}
-                      </td>
-                    </tr>
+                      </div>
+                      <button
+                        onClick={() => { setClusterFilter(c.name); setTab("keywords"); setKwPage(1); }}
+                        className="mt-3 text-xs text-red-500 hover:text-red-600 font-medium"
+                      >
+                        View keywords →
+                      </button>
+                    </div>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              )}
             </div>
           </div>
         </>
       )}
 
-      {/* Step 3: Content Ideas */}
+      {/* Content Ideas */}
       {ideas && ideas.length > 0 && (
-        <div>
+        <div className="mt-2">
           <div className="flex items-center gap-2 mb-4">
             <Lightbulb className="w-5 h-5 text-yellow-500" />
             <h2 className="text-lg font-bold text-gray-900">Content Ideas ({ideas.length})</h2>
-            <span className="text-xs text-gray-400 ml-1">Original ideas — not copied from source</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {ideas.map((idea, i) => <IdeaCard key={i} idea={idea} />)}
@@ -768,9 +668,11 @@ export default function KeywordExtractorPage() {
   );
 }
 
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
 function Chip({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="bg-white border border-blue-100 rounded-lg px-3 py-1.5 text-center min-w-16">
+    <div className="bg-white border border-blue-100 rounded-lg px-3 py-1.5 text-center min-w-14">
       <div className="text-sm font-bold text-blue-800">{typeof value === "number" ? value.toLocaleString() : value}</div>
       <div className="text-xs text-blue-500">{label}</div>
     </div>
@@ -786,109 +688,68 @@ function StatCard({ label, value, highlight = false }: { label: string; value: n
   );
 }
 
-function TableRow({ row, selected, onToggle }: { row: ExtractedKeyword; selected: boolean; onToggle: () => void }) {
-  const [copied, setCopied] = useState(false);
-
-  function handleCopy(e: React.MouseEvent) {
-    e.stopPropagation();
-    copyToClipboard(row.keyword);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }
-
+function EmptyState({ message }: { message: string }) {
   return (
-    <tr className={cn("hover:bg-gray-50 cursor-pointer transition-colors", selected && "bg-red-50")} onClick={onToggle}>
-      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" checked={selected} onChange={onToggle}
-          className="rounded border-gray-300 text-red-500 focus:ring-red-300" />
-      </td>
-      <td className="px-4 py-3">
-        <p className="font-medium text-gray-900">{row.keyword}</p>
-        {row.pageTitle && <p className="text-xs text-gray-400 truncate max-w-xs mt-0.5">{row.pageTitle}</p>}
-      </td>
-      <td className="px-4 py-3 hidden lg:table-cell max-w-xs">
-        <a href={row.url} target="_blank" rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="text-xs text-blue-500 hover:underline truncate flex items-center gap-1 max-w-xs">
-          <ExternalLink className="w-3 h-3 shrink-0" />
-          <span className="truncate">{row.url}</span>
-        </a>
-      </td>
-      <td className="px-4 py-3 whitespace-nowrap"><RelevanceBadge score={row.relevance} /></td>
-      <td className="px-4 py-3 hidden xl:table-cell text-xs text-gray-500 max-w-xs">
-        <span className="truncate block" title={row.matchReason}>{row.matchReason ?? ""}</span>
-      </td>
-      <td className="px-4 py-3">
-        <button onClick={handleCopy} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600">
-          {copied ? <CheckCircle className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+    <div className="bg-white border border-gray-200 rounded-xl p-10 text-center">
+      <AlertTriangle className="w-8 h-8 text-yellow-400 mx-auto mb-3" />
+      <p className="text-gray-600 font-medium">{message}</p>
+    </div>
+  );
+}
+
+function Pagination({ page, total, onChange, showing }: { page: number; total: number; onChange: (p: number) => void; showing: string }) {
+  if (total <= 1) return null;
+  return (
+    <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100">
+      <span className="text-xs text-gray-500">{showing}</span>
+      <div className="flex items-center gap-1">
+        <button onClick={() => onChange(Math.max(1, page - 1))} disabled={page === 1}
+          className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40">
+          <ChevronLeft className="w-4 h-4" />
         </button>
-      </td>
-    </tr>
+        {Array.from({ length: Math.min(total, 7) }, (_, i) => {
+          let pg: number;
+          if (total <= 7) pg = i + 1;
+          else if (i === 0) pg = 1;
+          else if (i === 6) pg = total;
+          else pg = Math.max(2, Math.min(total - 1, page - 2 + i));
+          return (
+            <button key={pg} onClick={() => onChange(pg)}
+              className={cn("w-7 h-7 text-xs rounded", pg === page ? "bg-red-500 text-white" : "hover:bg-gray-100 text-gray-600")}>
+              {pg}
+            </button>
+          );
+        })}
+        <button onClick={() => onChange(Math.min(total, page + 1))} disabled={page === total}
+          className="p-1.5 rounded hover:bg-gray-100 disabled:opacity-40">
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
 function IdeaCard({ idea }: { idea: ContentIdea }) {
   const [copied, setCopied] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <h3 className="font-semibold text-gray-900 leading-snug">{idea.title}</h3>
-          <button onClick={() => { copyToClipboard(idea.title); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-            className="shrink-0 p-1.5 rounded hover:bg-gray-100">
-            {copied ? <CheckCircle className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5 text-gray-400" />}
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          <span className={cn("text-xs rounded px-2 py-0.5 font-medium", INTENT_COLORS[idea.searchIntent] ?? "bg-gray-100 text-gray-600")}>
-            {idea.searchIntent}
-          </span>
-          <span className="text-xs bg-gray-100 text-gray-600 rounded px-2 py-0.5">{idea.primaryKeyword}</span>
-        </div>
-        <p className="text-sm text-gray-600 mb-3">{idea.angle}</p>
-        {idea.subtopics?.length > 0 && (
-          <div className="mb-3">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">Subtopics</p>
-            <ul className="space-y-1">
-              {idea.subtopics.map((s, i) => (
-                <li key={i} className="text-xs text-gray-600 flex items-center gap-1.5">
-                  <span className="w-1 h-1 rounded-full bg-gray-300 shrink-0" /> {s}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        <button onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 font-medium mt-1">
-          <Sparkles className="w-3 h-3" />
-          {expanded ? "Hide" : "Show"} Pinterest Opportunity
-          {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+    <div className="bg-white border border-gray-200 rounded-xl p-4">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <h3 className="font-semibold text-gray-900 text-sm">{idea.title}</h3>
+        <button onClick={() => { copyToClipboard(idea.title); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+          className="text-gray-300 hover:text-gray-500 shrink-0">
+          {copied ? <CheckCircle className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
         </button>
       </div>
-      {expanded && (
-        <div className="border-t border-purple-50 bg-purple-50 p-5">
-          <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-3">Pinterest Opportunity</p>
-          <div className="space-y-2">
-            <div><p className="text-xs text-gray-500 mb-0.5">Pin Title</p><p className="text-sm font-medium text-gray-800">{idea.pinterestTitle}</p></div>
-            <div><p className="text-xs text-gray-500 mb-0.5">Pin Angle</p><p className="text-sm text-gray-700">{idea.pinterestAngle}</p></div>
-            <div>
-              <p className="text-xs text-gray-500 mb-1">Related Keywords</p>
-              <div className="flex flex-wrap gap-1.5">
-                {idea.pinterestKeywords?.map((kw, i) => (
-                  <span key={i} className="text-xs bg-white border border-purple-100 text-purple-700 rounded-full px-2.5 py-0.5">{kw}</span>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 mb-0.5">Suggested Board</p>
-              <span className="text-xs bg-white border border-purple-100 text-purple-700 rounded px-2 py-0.5">{idea.suggestedBoard}</span>
-            </div>
-          </div>
-          <p className="text-xs text-gray-400 mt-3">Pinterest keyword data shown is AI-estimated. Not official Pinterest search volume.</p>
-        </div>
-      )}
+      {idea.angle && <p className="text-xs text-gray-500 mb-2">{idea.angle}</p>}
+      <div className="flex flex-wrap gap-1">
+        {idea.pinterestKeywords?.map((k: string) => (
+          <span key={k} className="text-xs bg-pink-50 text-pink-600 px-1.5 py-0.5 rounded">{k}</span>
+        ))}
+      </div>
     </div>
   );
 }
+
+// Keep unused imports referenced so they don't error — Filter is used via Search
+const _unused = Filter;
+void _unused;

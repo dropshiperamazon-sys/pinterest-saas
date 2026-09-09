@@ -3,19 +3,46 @@ import { auth } from "@/auth";
 import { crawlSitemap } from "@/lib/keyword-extractor/sitemap-service";
 import { crawlCategoryPage } from "@/lib/keyword-extractor/category-crawler";
 import { isArticleUrl } from "@/lib/keyword-extractor/relevance-engine";
-import { analyzeSlugKeywords } from "@/lib/keyword-extractor/slug-keyword-analyzer";
+import { fetchPageMeta } from "@/lib/keyword-extractor/page-crawler";
+import {
+  extractArticleKeyword,
+  aggregateKeywords,
+  buildClusters,
+} from "@/lib/keyword-extractor/article-keyword-extractor";
 import type { SitemapURL } from "@/lib/keyword-extractor/sitemap-service";
-import type { DiscoveredKeyword } from "@/lib/keyword-extractor/slug-keyword-analyzer";
+import type { KeywordAggregate, TopicCluster } from "@/lib/keyword-extractor/article-keyword-extractor";
 import type { ProgressEvent } from "@/app/api/keyword-extractor/extract/route";
 
+// Practical analysis cap: fetch at most this many article pages in one request
+// (Vercel function timeout). Full discovery remains uncapped.
+const MAX_ARTICLES_TO_ANALYZE = 500;
+const CONCURRENCY = 8;
+
+export interface ArticleResult {
+  url: string;
+  title: string;
+  primaryKeyword: string;
+  secondaryKeywords: string[];
+  confidence: number;
+  cluster: string;
+  datePublished?: string;
+  dateModified?: string;
+}
+
 export interface AutoDiscoverResponse {
-  keywords: DiscoveredKeyword[];
+  articles: ArticleResult[];
+  keywords: KeywordAggregate[];
+  clusters: TopicCluster[];
+  // Discovery stats
   totalUrlsFound: number;
-  totalArticles: number;
+  totalArticleCandidates: number;
+  articlesAnalyzed: number;
   urlsFromSitemaps: number;
   homepageLinks: number;
   sitemapsFound: string[];
   sitemapsProcessed: number;
+  uniquePrimaryKeywords: number;
+  totalClusters: number;
 }
 
 function normalizeForDedup(url: string): string {
@@ -35,6 +62,16 @@ function extractRootDomain(input: string): string {
   const withProtocol = input.startsWith("http") ? input : `https://${input}`;
   const parsed = new URL(withProtocol);
   return `${parsed.protocol}//${parsed.hostname}`;
+}
+
+async function fetchBatch(urls: string[], concurrency: number) {
+  const results = [];
+  for (let i = 0; i < urls.length; i += concurrency) {
+    const batch = urls.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map((u) => fetchPageMeta(u)));
+    results.push(...batchResults);
+  }
+  return results;
 }
 
 export async function POST(req: NextRequest) {
@@ -68,7 +105,7 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        // ── Sitemap crawl ────────────────────────────────────────────────
+        // ── Step 1: Sitemap discovery ────────────────────────────────────
         send({ type: "progress", stage: "sitemap", message: "Reading robots.txt and discovering sitemaps…" });
 
         const sitemapResult = await crawlSitemap(rootDomain, (p) => {
@@ -84,11 +121,11 @@ export async function POST(req: NextRequest) {
           });
         });
 
-        // ── Homepage crawl (supplemental) ────────────────────────────────
+        // ── Step 2: Homepage supplemental discovery ──────────────────────
         send({ type: "progress", stage: "homepage", message: "Crawling homepage for supplemental links…" });
         const homepageResult = await crawlCategoryPage(rootDomain);
 
-        // ── Merge + dedup ────────────────────────────────────────────────
+        // ── Step 3: Merge + dedup ────────────────────────────────────────
         const dedupMap = new Map<string, SitemapURL>();
         for (const u of sitemapResult.urls) {
           const key = normalizeForDedup(u.loc);
@@ -105,29 +142,102 @@ export async function POST(req: NextRequest) {
           type: "progress",
           stage: "discovery",
           message: `Discovered ${allUrls.length.toLocaleString()} unique URLs`,
-          counts: { totalUrls: allUrls.length, urlsFromSitemaps: sitemapResult.urls.length },
+          counts: {
+            totalUrls: allUrls.length,
+            urlsFromSitemaps: sitemapResult.urls.length,
+            homepageLinks: homepageResult.articleLinks.length,
+          },
         });
 
-        // ── Filter article-like URLs ─────────────────────────────────────
-        const articleUrls = allUrls.filter((u) => isArticleUrl(u.loc));
+        // ── Step 4: Classify article URLs ────────────────────────────────
+        const articleCandidates = allUrls.filter((u) => isArticleUrl(u.loc));
+
+        send({
+          type: "progress",
+          stage: "classify",
+          message: `${articleCandidates.length.toLocaleString()} article candidates identified`,
+          counts: { totalUrls: allUrls.length, articleCandidates: articleCandidates.length },
+        });
+
+        // ── Step 5: Sort by recency, cap at MAX_ARTICLES_TO_ANALYZE ─────
+        // Sort by lastmod descending (most recent first), then take cap
+        const sorted = [...articleCandidates].sort((a, b) => {
+          if (a.lastmod && b.lastmod) return b.lastmod.localeCompare(a.lastmod);
+          if (a.lastmod) return -1;
+          if (b.lastmod) return 1;
+          return 0;
+        });
+        const toAnalyze = sorted.slice(0, MAX_ARTICLES_TO_ANALYZE).map((u) => u.loc);
 
         send({
           type: "progress",
           stage: "analysis",
-          message: `Analyzing ${articleUrls.length.toLocaleString()} article URLs for keyword frequency…`,
+          message: `Analyzing ${toAnalyze.length.toLocaleString()} articles…`,
+          counts: { analyzing: 0, total: toAnalyze.length },
         });
 
-        // ── Slug keyword frequency analysis ──────────────────────────────
-        const keywords = analyzeSlugKeywords(articleUrls.map((u) => u.loc), 200);
+        // ── Step 6: Fetch pages + extract keywords ───────────────────────
+        const articleResults: ArticleResult[] = [];
+        const REPORT_EVERY = 25;
+
+        for (let i = 0; i < toAnalyze.length; i += CONCURRENCY) {
+          const batch = toAnalyze.slice(i, i + CONCURRENCY);
+          const metas = await Promise.all(batch.map((u) => fetchPageMeta(u)));
+
+          for (const meta of metas) {
+            if (!meta.title && !meta.h1) continue; // page fetch failed
+            const kw = extractArticleKeyword(meta);
+            if (!kw.primary || kw.primary.length < 3) continue;
+            articleResults.push({
+              url: meta.url,
+              title: meta.title || meta.ogTitle || meta.url,
+              primaryKeyword: kw.primary,
+              secondaryKeywords: kw.secondary,
+              confidence: kw.confidence,
+              cluster: kw.cluster,
+              datePublished: meta.datePublished,
+              dateModified: meta.dateModified,
+            });
+          }
+
+          const done = Math.min(i + CONCURRENCY, toAnalyze.length);
+          if (done % REPORT_EVERY === 0 || done >= toAnalyze.length) {
+            send({
+              type: "progress",
+              stage: "analysis",
+              message: `Extracting keywords… ${done} / ${toAnalyze.length}`,
+              counts: { analyzing: done, total: toAnalyze.length },
+            });
+          }
+        }
+
+        // ── Step 7: Aggregate + cluster ──────────────────────────────────
+        send({ type: "progress", stage: "aggregating", message: "Aggregating and clustering keywords…" });
+
+        const aggregated = aggregateKeywords(
+          articleResults.map((a) => ({
+            url: a.url,
+            title: a.title,
+            primary: a.primaryKeyword,
+            confidence: a.confidence,
+            cluster: a.cluster,
+          }))
+        );
+        const clusters = buildClusters(aggregated);
 
         const response: AutoDiscoverResponse = {
-          keywords,
+          articles: articleResults,
+          keywords: aggregated,
+          clusters,
           totalUrlsFound: allUrls.length,
-          totalArticles: articleUrls.length,
+          totalArticleCandidates: articleCandidates.length,
+          articlesAnalyzed: articleResults.length,
           urlsFromSitemaps: sitemapResult.urls.length,
           homepageLinks: homepageResult.articleLinks.length,
           sitemapsFound: sitemapResult.sitemapsFound,
           sitemapsProcessed: sitemapResult.sitemapsProcessed,
+          uniquePrimaryKeywords: aggregated.length,
+          totalClusters: clusters.length,
         };
 
         send({ type: "complete", data: response as never });

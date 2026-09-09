@@ -1,16 +1,19 @@
 // Page Crawler — fetches public pages and extracts title/H1/headings
 // Lightweight: uses regex on raw HTML, no headless browser
 
-const FETCH_TIMEOUT = 6000;
-const MAX_BODY_SIZE = 200_000; // 200KB max — we only need the <head> and early body
+const FETCH_TIMEOUT = 8000;
+const MAX_BODY_SIZE = 500_000; // 500KB — enough to capture article body
 
 export interface PageMeta {
   url: string;
   title: string;
+  ogTitle: string;         // Open Graph title
+  canonical: string;       // canonical URL if present
   h1: string;
   headings: string;        // concatenated H2/H3 text
   metaDescription: string;
-  bodySnippet: string;     // first ~500 chars of visible body text
+  breadcrumbs: string;     // breadcrumb trail text
+  bodySnippet: string;     // first ~800 chars of article body text
   datePublished?: string;  // ISO date string if found
   dateModified?: string;
 }
@@ -47,12 +50,13 @@ function extractDate(html: string, field: string): string | undefined {
 }
 
 export async function fetchPageMeta(url: string): Promise<PageMeta> {
-  const empty: PageMeta = { url, title: "", h1: "", headings: "", metaDescription: "", bodySnippet: "", datePublished: undefined, dateModified: undefined };
+  const empty: PageMeta = { url, title: "", ogTitle: "", canonical: "", h1: "", headings: "", metaDescription: "", breadcrumbs: "", bodySnippet: "", datePublished: undefined, dateModified: undefined };
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; KeywordExtractorBot/1.0; +https://mypinpro.com/bot)",
-        Accept: "text/html",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,*/*;q=0.9",
+        "Accept-Language": "en-US,en;q=0.9",
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
     });
@@ -82,6 +86,10 @@ export async function fetchPageMeta(url: string): Promise<PageMeta> {
     );
 
     const title = extractTag(html, /<title[^>]*>([\s\S]*?)<\/title>/i);
+    const ogTitle = extractTag(html, /<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']*)/i)
+      || extractTag(html, /<meta[^>]*content=["']([^"']*?)["'][^>]*property=["']og:title["']/i);
+    const canonical = extractTag(html, /<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']*)/i)
+      || extractTag(html, /<link[^>]*href=["']([^"']*?)["'][^>]*rel=["']canonical["']/i);
     const h1 = extractTag(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i).replace(/<[^>]+>/g, "").trim();
     const metaDescription = extractTag(html, /<meta[^>]*name=["']description["'][^>]*content=["']([^"']*)/i)
       || extractTag(html, /<meta[^>]*content=["']([^"']*?)["'][^>]*name=["']description["']/i);
@@ -91,19 +99,38 @@ export async function fetchPageMeta(url: string): Promise<PageMeta> {
     const headings = headingMatches
       .map((m) => m[1].replace(/<[^>]+>/g, "").trim())
       .filter(Boolean)
-      .slice(0, 10)
+      .slice(0, 15)
       .join(" | ");
 
-    // Extract body text snippet — strip tags, collapse whitespace, take first 500 chars
-    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    // Extract breadcrumbs from JSON-LD BreadcrumbList or aria-label="breadcrumb"
+    let breadcrumbs = "";
+    const ldRegex = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    let ldm: RegExpExecArray | null;
+    while ((ldm = ldRegex.exec(html)) !== null) {
+      try {
+        const json = JSON.parse(ldm[1]) as Record<string, unknown>;
+        const items = (json["@type"] === "BreadcrumbList" ? (json.itemListElement as Array<Record<string,unknown>> | undefined) : null) ?? [];
+        if (items.length > 0) {
+          breadcrumbs = items.map((i) => (i.name as string) ?? "").filter(Boolean).join(" > ");
+          break;
+        }
+      } catch { /* */ }
+    }
+
+    // Extract body text — prefer <article> tag, fall back to <body>
+    const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+    const bodyMatch = articleMatch ?? html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     const bodySnippet = bodyMatch
       ? bodyMatch[1]
           .replace(/<script[\s\S]*?<\/script>/gi, "")
           .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+          .replace(/<header[\s\S]*?<\/header>/gi, "")
+          .replace(/<footer[\s\S]*?<\/footer>/gi, "")
           .replace(/<[^>]+>/g, " ")
           .replace(/\s+/g, " ")
           .trim()
-          .slice(0, 500)
+          .slice(0, 800)
       : "";
 
     // Extract dates — check meta tags, JSON-LD, and og tags
@@ -113,7 +140,7 @@ export async function fetchPageMeta(url: string): Promise<PageMeta> {
     const dateModified = extractDate(html, "dateModified") ||
       extractTag(html, /<meta[^>]*property=["']article:modified_time["'][^>]*content=["']([^"']*)/i) || undefined;
 
-    return { url, title, h1, headings, metaDescription, bodySnippet, datePublished, dateModified };
+    return { url, title, ogTitle, canonical, h1, headings, metaDescription, breadcrumbs, bodySnippet, datePublished, dateModified };
   } catch {
     return empty;
   }
