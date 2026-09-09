@@ -4,11 +4,16 @@ import {
   Globe, Copy, Download, Sparkles, CheckCircle,
   XCircle, AlertTriangle, ChevronUp, ChevronDown, Loader2,
   Lightbulb, ExternalLink, Filter, SlidersHorizontal, ChevronLeft, ChevronRight,
+  Zap, Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { relevanceLabel } from "@/lib/keyword-extractor/relevance-engine";
-import type { ExtractedKeyword, ExtractResponse, DateFilter, ProgressEvent } from "@/app/api/keyword-extractor/extract/route";
+import type { ExtractedKeyword, DateFilter, ProgressEvent } from "@/app/api/keyword-extractor/extract/route";
+import type { AutoDiscoverResponse } from "@/app/api/keyword-extractor/auto-discover/route";
+import type { DiscoveredKeyword } from "@/lib/keyword-extractor/slug-keyword-analyzer";
 import type { ContentIdea } from "@/lib/keyword-extractor/content-idea-generator";
+
+type Mode = "topic" | "auto";
 
 const INTENT_COLORS: Record<string, string> = {
   Informational: "bg-blue-100 text-blue-700",
@@ -51,6 +56,7 @@ type SortField = "keyword" | "relevance" | "url";
 type SortDir = "asc" | "desc";
 
 export default function KeywordExtractorPage() {
+  const [mode, setMode] = useState<Mode>("topic");
   const [domain, setDomain] = useState("");
   const [topic, setTopic] = useState("");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -63,6 +69,7 @@ export default function KeywordExtractorPage() {
   const [progress, setProgress] = useState<ProgressState | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [results, setResults] = useState<ExtractedKeyword[] | null>(null);
+  const [autoResults, setAutoResults] = useState<DiscoveredKeyword[] | null>(null);
   const [stats, setStats] = useState<{
     totalUrls: number;
     totalArticles: number;
@@ -98,11 +105,12 @@ export default function KeywordExtractorPage() {
 
   async function handleExtract() {
     if (!validateDomain(domain)) return;
-    if (!topic.trim()) { setDomainError("Keyword / Topic is required"); return; }
+    if (mode === "topic" && !topic.trim()) { setDomainError("Keyword / Topic is required"); return; }
 
     setExtracting(true);
     setExtractError(null);
     setResults(null);
+    setAutoResults(null);
     setStats(null);
     setSelected(new Set());
     setIdeas(null);
@@ -111,10 +119,17 @@ export default function KeywordExtractorPage() {
     setProgress({ stage: "init", message: "Starting…", log: [] });
 
     try {
-      const res = await fetch("/api/keyword-extractor/extract", {
+      const endpoint = mode === "auto"
+        ? "/api/keyword-extractor/auto-discover"
+        : "/api/keyword-extractor/extract";
+      const body = mode === "auto"
+        ? { domain }
+        : { domain, topic: topic.trim(), dateFilter };
+
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain, topic: topic.trim(), dateFilter }),
+        body: JSON.stringify(body),
       });
 
       if (!res.ok || !res.body) {
@@ -151,13 +166,17 @@ export default function KeywordExtractorPage() {
                 log: [...(prev?.log ?? []), event.message].slice(-20),
               }));
             } else if (event.type === "complete") {
-              const data = event.data;
-              setResults(data.relevant ?? []);
+              const data = event.data as (typeof event.data) & AutoDiscoverResponse;
+              if (mode === "auto") {
+                setAutoResults(data.keywords ?? []);
+              } else {
+                setResults(data.relevant ?? []);
+              }
               setStats({
                 totalUrls: data.totalUrlsFound,
                 totalArticles: data.totalArticles,
-                candidateArticles: data.candidateArticles ?? data.stage2Fetched ?? 0,
-                stage2Fetched: data.stage2Fetched ?? 0,
+                candidateArticles: (data as never as { candidateArticles?: number; stage2Fetched?: number }).candidateArticles ?? (data as never as { stage2Fetched?: number }).stage2Fetched ?? 0,
+                stage2Fetched: (data as never as { stage2Fetched?: number }).stage2Fetched ?? 0,
                 homepageLinks: data.homepageLinks ?? 0,
                 urlsFromSitemaps: data.urlsFromSitemaps ?? 0,
                 sitemapsProcessed: data.sitemapsProcessed ?? 0,
@@ -290,7 +309,7 @@ export default function KeywordExtractorPage() {
       ? sortDir === "asc" ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
       : <ChevronDown className="w-3 h-3 text-gray-300" />;
 
-  const step = !results ? 1 : ideas ? 3 : 2;
+  const step = !(results || autoResults) ? 1 : ideas ? 3 : 2;
 
   const stageLabel: Record<string, string> = {
     init: "Initializing…",
@@ -311,12 +330,40 @@ export default function KeywordExtractorPage() {
         </div>
       </div>
 
+      {/* Mode toggle */}
+      <div className="flex items-center gap-2 mb-6">
+        <button
+          onClick={() => { setMode("topic"); setResults(null); setAutoResults(null); setStats(null); setProgress(null); setExtractError(null); }}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
+            mode === "topic"
+              ? "bg-red-500 text-white border-red-500"
+              : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+          )}
+        >
+          <Search className="w-4 h-4" /> Topic Search
+        </button>
+        <button
+          onClick={() => { setMode("auto"); setResults(null); setAutoResults(null); setStats(null); setProgress(null); setExtractError(null); }}
+          className={cn(
+            "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors",
+            mode === "auto"
+              ? "bg-red-500 text-white border-red-500"
+              : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+          )}
+        >
+          <Zap className="w-4 h-4" /> Auto-Discover
+        </button>
+        <span className="text-xs text-gray-400 hidden sm:inline">
+          {mode === "auto" ? "Discovers all topics the site covers — no keyword needed" : "Find articles matching a specific keyword or topic"}
+        </span>
+      </div>
+
       <div className="flex items-center gap-3 mb-6">
-        {[
-          { n: 1, label: "Enter website + topic" },
-          { n: 2, label: "Review keywords" },
-          { n: 3, label: "Generate content ideas" },
-        ].map(({ n, label }) => (
+        {(mode === "topic"
+          ? [{ n: 1, label: "Enter website + topic" }, { n: 2, label: "Review keywords" }, { n: 3, label: "Generate content ideas" }]
+          : [{ n: 1, label: "Enter website domain" }, { n: 2, label: "Explore discovered keywords" }, { n: 3, label: "Generate content ideas" }]
+        ).map(({ n, label }) => (
           <div key={n} className="flex items-center gap-2">
             <span className={cn("w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold",
               step >= n ? "bg-red-500 text-white" : "bg-gray-100 text-gray-400")}>
@@ -330,7 +377,7 @@ export default function KeywordExtractorPage() {
 
       {/* Step 1: Input */}
       <div className="bg-white border border-gray-200 rounded-xl p-6 mb-5">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className={cn("grid gap-4 mb-4", mode === "topic" ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 max-w-md")}>
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Website Domain</label>
             <input
@@ -346,61 +393,67 @@ export default function KeywordExtractorPage() {
             {domainError && <p className="text-xs text-red-500 mt-1">{domainError}</p>}
           </div>
 
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">
-              Keyword / Topic <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={topic}
-              onChange={(e) => setTopic(e.target.value)}
-              placeholder="e.g. kitchen decor, fitness, personal finance…"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
-            />
-            <p className="text-xs text-gray-400 mt-1">Enter any keyword or topic. We&apos;ll analyze the public website and find relevant articles.</p>
+          {mode === "topic" && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">
+                Keyword / Topic <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="e.g. kitchen decor, fitness, personal finance…"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
+              />
+              <p className="text-xs text-gray-400 mt-1">Enter any keyword or topic. We&apos;ll analyze the public website and find relevant articles.</p>
+            </div>
+          )}
+        </div>
+
+        {mode === "topic" && (
+          <div className="mb-4">
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Date Filter</label>
+            <select
+              value={dateFilter}
+              onChange={(e) => setDateFilter(e.target.value as DateFilter)}
+              className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-300"
+            >
+              {DATE_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
-        </div>
+        )}
 
-        <div className="mb-4">
-          <label className="block text-sm font-semibold text-gray-700 mb-1.5">Date Filter</label>
-          <select
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value as DateFilter)}
-            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-red-300"
-          >
-            {DATE_FILTER_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="mb-4 flex items-center gap-4 bg-gray-50 rounded-lg px-4 py-3">
-          <SlidersHorizontal className="w-4 h-4 text-gray-400 shrink-0" />
-          <div className="flex-1">
-            <label className="text-sm font-medium text-gray-700">
-              Min. Relevance Threshold: <span className="text-red-500 font-bold">{threshold}</span>
-            </label>
-            <input
-              type="range" min={0} max={100} step={5} value={threshold}
-              onChange={(e) => handleThresholdChange(Number(e.target.value))}
-              className="w-full mt-1 accent-red-500"
-            />
-            <div className="flex justify-between text-xs text-gray-400 mt-0.5">
-              <span>0 — All</span>
-              <span>50 — Possibly Relevant</span>
-              <span>65 — Relevant</span>
-              <span>80 — Highly Relevant</span>
+        {mode === "topic" && (
+          <div className="mb-4 flex items-center gap-4 bg-gray-50 rounded-lg px-4 py-3">
+            <SlidersHorizontal className="w-4 h-4 text-gray-400 shrink-0" />
+            <div className="flex-1">
+              <label className="text-sm font-medium text-gray-700">
+                Min. Relevance Threshold: <span className="text-red-500 font-bold">{threshold}</span>
+              </label>
+              <input
+                type="range" min={0} max={100} step={5} value={threshold}
+                onChange={(e) => handleThresholdChange(Number(e.target.value))}
+                className="w-full mt-1 accent-red-500"
+              />
+              <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+                <span>0 — All</span>
+                <span>50 — Possibly Relevant</span>
+                <span>65 — Relevant</span>
+                <span>80 — Highly Relevant</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         <button
           onClick={handleExtract}
-          disabled={extracting || !domain || !topic.trim()}
+          disabled={extracting || !domain || (mode === "topic" && !topic.trim())}
           className="flex items-center gap-2 px-6 py-2.5 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
-          {extracting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
-          {extracting ? "Extracting…" : "Extract Keywords"}
+          {extracting ? <Loader2 className="w-4 h-4 animate-spin" /> : mode === "auto" ? <Zap className="w-4 h-4" /> : <Globe className="w-4 h-4" />}
+          {extracting ? (mode === "auto" ? "Discovering…" : "Extracting…") : mode === "auto" ? "Auto-Discover Keywords" : "Extract Keywords"}
         </button>
 
         {extractError && (
@@ -615,6 +668,86 @@ export default function KeywordExtractorPage() {
               )}
             </div>
           )}
+        </>
+      )}
+
+      {/* Auto-Discover results */}
+      {autoResults && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <StatCard label="Total URLs" value={stats?.totalUrls ?? 0} />
+            <StatCard label="Article URLs" value={stats?.totalArticles ?? 0} />
+            <StatCard label="URLs From Sitemaps" value={stats?.urlsFromSitemaps ?? 0} />
+            <StatCard label="Keywords Found" value={autoResults.length} highlight />
+          </div>
+
+          {stats && (
+            <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5 mb-4 text-xs text-blue-700 space-y-0.5">
+              <div className="font-semibold mb-1">Discovery summary</div>
+              <div>Sitemap Files Discovered: <strong>{stats.sitemaps.length}</strong> · Sitemap Files Processed: <strong>{stats.sitemapsProcessed}</strong> · URLs From Sitemaps: <strong>{stats.urlsFromSitemaps.toLocaleString()}</strong></div>
+              <div>Homepage/Internal Links: <strong>{stats.homepageLinks}</strong> · Total Unique URLs: <strong>{stats.totalUrls.toLocaleString()}</strong> · Article Candidates: <strong>{stats.totalArticles.toLocaleString()}</strong></div>
+            </div>
+          )}
+
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">Top Keywords by Frequency</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => copyToClipboard(autoResults.map((k) => k.keyword).join("\n"))}
+                  className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50"
+                >
+                  <Copy className="w-3 h-3" /> Copy All
+                </button>
+                <button
+                  onClick={() => {
+                    const csv = ["Keyword,Page Count,Sample URL"].concat(
+                      autoResults.map((k) => `"${k.keyword}",${k.count},"${k.sampleUrls[0] ?? ""}"`)
+                    ).join("\n");
+                    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    a.download = "discovered-keywords.csv"; a.click();
+                  }}
+                  className="flex items-center gap-1 text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50"
+                >
+                  <Download className="w-3 h-3" /> CSV
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
+                    <th className="px-4 py-3 text-left">Keyword</th>
+                    <th className="px-4 py-3 text-left w-28">Pages</th>
+                    <th className="px-4 py-3 text-left hidden lg:table-cell">Sample URL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {autoResults.map((kw) => (
+                    <tr key={kw.keyword} className="hover:bg-gray-50">
+                      <td className="px-4 py-2.5">
+                        <span className="font-medium text-gray-900">{kw.keyword}</span>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="inline-flex items-center gap-1 text-xs bg-red-50 text-red-600 font-semibold px-2 py-0.5 rounded-full">
+                          {kw.count.toLocaleString()} pages
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 hidden lg:table-cell max-w-xs">
+                        {kw.sampleUrls[0] && (
+                          <a href={kw.sampleUrls[0]} target="_blank" rel="noreferrer"
+                            className="text-xs text-blue-500 hover:underline truncate flex items-center gap-1 max-w-xs">
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{kw.sampleUrls[0]}</span>
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </>
       )}
 
