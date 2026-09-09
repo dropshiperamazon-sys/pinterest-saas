@@ -726,6 +726,9 @@ function AIIntelligenceSection({
 export default function KeywordsPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<KeywordResult[]>([]);
+  const [relatedResults, setRelatedResults] = useState<KeywordResult[]>([]);
+  const [trendingResults, setTrendingResults] = useState<KeywordResult[]>([]);
+  const [dataTab, setDataTab] = useState<"related" | "trending">("related");
   const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
@@ -807,6 +810,10 @@ export default function KeywordsPage() {
     setLoading(true);
     setIsLive(false);
     setSuggestions([]);
+    setRelatedResults([]);
+    setTrendingResults([]);
+    setResults([]);
+    setDataTab("related");
     // Kick off AI analysis in parallel (non-blocking)
     runAIAnalysis(trimmed);
 
@@ -825,29 +832,52 @@ export default function KeywordsPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        const allKws: { keyword: string; weeklyChange: number | null; monthlyChange: number | null; keywordType: string }[] =
-          (data.results ?? []).flatMap((r: { keywords: { keyword: string; weeklyChange: number | null; monthlyChange: number | null; keywordType: string; source: string }[] }) =>
+        const matchTypes: Array<"exact"|"phrase"|"broad"> = ["exact", "phrase", "broad"];
+
+        type RawKw = { keyword: string; weeklyChange: number | null; monthlyChange: number | null; source: string };
+        const toKeywordResult = (k: RawKw, i: number): KeywordResult => ({
+          keyword: k.keyword,
+          volume: 0,
+          trend: k.weeklyChange ?? k.monthlyChange ?? 0,
+          competition: "medium" as const,
+          cpc: 0,
+          matchType: matchTypes[i % 3],
+          category: q,
+        });
+
+        // Use the pre-separated arrays from the backend when available
+        if (Array.isArray(data.relatedKeywords) || Array.isArray(data.trendingKeywords)) {
+          const related: KeywordResult[] = (data.relatedKeywords ?? []).map(toKeywordResult);
+          const trending: KeywordResult[] = (data.trendingKeywords ?? []).map(toKeywordResult);
+          setRelatedResults(related);
+          setTrendingResults(trending);
+          // results = union for export / legacy
+          setResults([...related, ...trending]);
+          setIsLive(true);
+          setLoading(false);
+          return;
+        }
+
+        // Fallback: flat list (backward compat with old cache shape)
+        const allKws: RawKw[] = (data.results ?? []).flatMap(
+          (r: { keywords: RawKw[] }) =>
             r.keywords.filter((k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED")
-          );
+        );
         if (allKws.length > 0) {
-          const matchTypes: Array<"exact"|"phrase"|"broad"> = ["exact", "phrase", "broad"];
-          const mapped: KeywordResult[] = allKws.map((k, i) => ({
-            keyword: k.keyword,
-            volume: 0,
-            trend: k.weeklyChange ?? k.monthlyChange ?? 0,
-            competition: "medium" as const,
-            cpc: 0,
-            matchType: matchTypes[i % 3],
-            category: q,
-          }));
-          setResults(mapped);
+          const rel = allKws.filter(k => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_SUGGESTED").map(toKeywordResult);
+          const trend = allKws.filter(k => k.source === "PINTEREST_API").map(toKeywordResult);
+          setRelatedResults(rel);
+          setTrendingResults(trend);
+          setResults([...rel, ...trend]);
           setIsLive(true);
           setLoading(false);
           return;
         }
       }
     } catch { /* fall through */ }
-    setResults(generateKeywords(q));
+    const fallback = generateKeywords(q);
+    setResults(fallback);
+    setRelatedResults(fallback);
     setLoading(false);
   }, [runAIAnalysis, searchRegion]);
 
@@ -866,7 +896,11 @@ export default function KeywordsPage() {
     handleSearch(sub);
   };
 
-  const sorted = [...results].sort((a, b) => {
+  const activeResults = (relatedResults.length > 0 || trendingResults.length > 0)
+    ? (dataTab === "related" ? relatedResults : trendingResults)
+    : results;
+
+  const sorted = [...activeResults].sort((a, b) => {
     let diff = 0;
     if (sortKey === "volume") diff = a.volume - b.volume;
     else if (sortKey === "trend") diff = a.trend - b.trend;
@@ -959,7 +993,7 @@ export default function KeywordsPage() {
                   className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
                 />
                 {query && (
-                  <button onClick={() => { setQuery(""); setResults([]); setSearchedQuery(""); setAiAnalysis(null); setAiError(null); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <button onClick={() => { setQuery(""); setResults([]); setRelatedResults([]); setTrendingResults([]); setSearchedQuery(""); setAiAnalysis(null); setAiError(null); }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                     <X className="w-4 h-4" />
                   </button>
                 )}
@@ -1042,6 +1076,33 @@ export default function KeywordsPage() {
               </div>
             ) : sorted.length > 0 ? (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                {/* Tab toggle — only shown when we have real Pinterest data in both sets */}
+                {(relatedResults.length > 0 || trendingResults.length > 0) && (
+                  <div className="flex items-center gap-1 px-4 pt-3 pb-0 border-b border-gray-100">
+                    <button
+                      onClick={() => setDataTab("related")}
+                      className={cn(
+                        "text-xs font-semibold px-4 py-2 rounded-t-lg border-b-2 transition-colors",
+                        dataTab === "related"
+                          ? "border-[#e60023] text-[#e60023] bg-red-50/60"
+                          : "border-transparent text-gray-500 hover:text-gray-700"
+                      )}
+                    >
+                      Related Keywords {relatedResults.length > 0 && `(${relatedResults.length})`}
+                    </button>
+                    <button
+                      onClick={() => setDataTab("trending")}
+                      className={cn(
+                        "text-xs font-semibold px-4 py-2 rounded-t-lg border-b-2 transition-colors",
+                        dataTab === "trending"
+                          ? "border-[#e60023] text-[#e60023] bg-red-50/60"
+                          : "border-transparent text-gray-500 hover:text-gray-700"
+                      )}
+                    >
+                      Trending Keywords {trendingResults.length > 0 && `(${trendingResults.length})`}
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-center justify-between p-4 border-b border-gray-100">
                   <div className="flex items-center gap-2">
                     <BarChart2 className="w-4 h-4 text-gray-400" />

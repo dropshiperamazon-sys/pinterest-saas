@@ -80,6 +80,9 @@ export interface PinterestEnrichResponse {
   results: SeedEnrichmentResult[];
   failedSeeds: string[];
   noAccountWarning?: string;
+  // Separated datasets — PINTEREST_RELATED/PINTEREST_SUGGESTED vs PINTEREST_API
+  relatedKeywords: PinterestKeywordResult[];
+  trendingKeywords: PinterestKeywordResult[];
   _debug?: {
     interestsFetched: string[];
     relatedApiWorking: boolean;
@@ -696,6 +699,11 @@ export async function POST(req: NextRequest) {
     (k) => k.weeklyChange !== null || k.monthlyChange !== null,
   );
 
+  const relatedKeywords = allRealKws.filter(
+    (k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_SUGGESTED",
+  );
+  const trendingKeywords = allRealKws.filter((k) => k.source === "PINTEREST_API");
+
   const response: PinterestEnrichResponse = {
     country,
     websiteKeywords: seeds.length,
@@ -708,6 +716,8 @@ export async function POST(req: NextRequest) {
     totalUniqueKeywords: uniqueKwSet.size,
     results: allResults,
     failedSeeds,
+    relatedKeywords,
+    trendingKeywords,
     _debug: {
       interestsFetched: interestList,
       relatedApiWorking: relatedApiWorked,
