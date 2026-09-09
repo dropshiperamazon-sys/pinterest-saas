@@ -8,7 +8,7 @@ import { buildTopicProfile } from "@/lib/keyword-extractor/topic-profiler";
 import { fetchPageMetaBatch } from "@/lib/keyword-extractor/page-crawler";
 import type { SitemapURL } from "@/lib/keyword-extractor/sitemap-service";
 
-const STAGE1_THRESHOLD = 10;   // URL slug score to proceed to Stage 2 (low — lets sematic matching decide)
+const STAGE1_THRESHOLD = 5;    // URL slug score to proceed to Stage 2 — very low, semantic scoring decides
 const STAGE2_CONCURRENCY = 5;
 const MAX_STAGE2_URLS = 300;   // max page fetches per request
 
@@ -103,8 +103,11 @@ export async function POST(req: NextRequest) {
 
   console.log(`[keyword-extractor] Sitemaps discovered: ${sitemapResult.sitemapsFound.length} → ${sitemapResult.sitemapsFound.join(", ")}`);
   console.log(`[keyword-extractor] Sitemap URLs: ${sitemapResult.urls.length}`);
-  console.log(`[keyword-extractor] Category page links: ${categoryResult.totalLinksFound} (article links: ${categoryResult.articleLinks.length})`);
+  console.log(`[keyword-extractor] Category page total links found: ${categoryResult.totalLinksFound}, article links extracted: ${categoryResult.articleLinks.length}`);
   console.log(`[keyword-extractor] Pagination pages visited: ${categoryResult.paginationPagesVisited}`);
+  if (categoryResult.articleLinks.length === 0 && categoryResult.totalLinksFound === 0) {
+    console.log(`[keyword-extractor] WARNING: Category page returned 0 links — site may be JS-only or blocked our crawler`);
+  }
 
   // ── Merge + deduplicate all URLs ─────────────────────────────────────────────
   const dedupMap = new Map<string, SitemapURL>();  // key = normalized, value = SitemapURL

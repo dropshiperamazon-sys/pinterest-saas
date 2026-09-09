@@ -61,8 +61,29 @@ async function discoverSitemaps(domain: string): Promise<string[]> {
   const fromRobots = await getSitemapsFromRobots(domain);
   for (const s of fromRobots) candidates.add(s);
 
-  // 2. Common locations
-  for (const path of ["/sitemap.xml", "/sitemap_index.xml", "/sitemap/sitemap.xml", "/post-sitemap.xml", "/page-sitemap.xml"]) {
+  // 2. Common locations — try many patterns; invalid ones return 404 and are skipped
+  const commonPaths = [
+    "/sitemap.xml",
+    "/sitemap_index.xml",
+    "/sitemap/sitemap.xml",
+    "/sitemap/index.xml",
+    // WordPress common sitemaps
+    "/post-sitemap.xml",
+    "/page-sitemap.xml",
+    "/category-sitemap.xml",
+    "/news-sitemap.xml",
+    // Numbered article sitemaps
+    "/sitemap-articles.xml",
+    "/sitemap-posts.xml",
+    "/sitemaps/articles-sitemap.xml",
+    "/sitemap-1.xml",
+    "/sitemap-2.xml",
+    // Hearst / major publisher patterns
+    "/sitemap/articles/",
+    "/sitemap/sitemap-index.xml",
+    "/sitemap_post.xml",
+  ];
+  for (const path of commonPaths) {
     candidates.add(`${domain}${path}`);
   }
 
@@ -70,18 +91,21 @@ async function discoverSitemaps(domain: string): Promise<string[]> {
 }
 
 // Fetch and collect all leaf URLs from a sitemap (handles index recursion)
-async function collectFromSitemap(sitemapUrl: string, depth = 0): Promise<SitemapURL[]> {
-  if (depth > 2) return [];
+async function collectFromSitemap(sitemapUrl: string, depth = 0, seen = new Set<string>()): Promise<SitemapURL[]> {
+  if (depth > 3) return [];
+  if (seen.has(sitemapUrl)) return [];
+  seen.add(sitemapUrl);
+
   const text = await fetchText(sitemapUrl);
   if (!text) return [];
 
   const locs = parseLocTags(text);
 
   if (isSitemapIndex(text)) {
-    // It's an index — each loc is a child sitemap
+    // It's an index — each loc is a child sitemap; process all (up to MAX_CHILD_SITEMAPS)
     const results: SitemapURL[] = [];
     for (const childUrl of locs.slice(0, MAX_CHILD_SITEMAPS)) {
-      const childResults = await collectFromSitemap(childUrl, depth + 1);
+      const childResults = await collectFromSitemap(childUrl, depth + 1, seen);
       results.push(...childResults);
       if (results.length >= MAX_TOTAL_URLS) break;
     }
@@ -126,7 +150,7 @@ export async function crawlSitemap(inputUrl: string): Promise<{ urls: SitemapURL
     if (!text || !text.trim().startsWith("<")) continue;
     sitemapsFound.push(sitemapUrl);
 
-    const collected = await collectFromSitemap(sitemapUrl);
+    const collected = await collectFromSitemap(sitemapUrl, 0, new Set([sitemapUrl]));
     for (const u of collected) {
       if (!seen.has(u.loc)) {
         seen.add(u.loc);
