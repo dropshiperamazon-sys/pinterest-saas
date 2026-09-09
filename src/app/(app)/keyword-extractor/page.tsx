@@ -1,16 +1,14 @@
 "use client";
 import { useState, useMemo } from "react";
 import {
-  Globe, Tag, Search, Copy, Download, Sparkles, CheckCircle,
+  Globe, Search, Copy, Download, Sparkles, CheckCircle,
   XCircle, AlertTriangle, ChevronUp, ChevronDown, Loader2,
-  LayoutList, Lightbulb, ExternalLink, Filter,
+  Lightbulb, ExternalLink, Filter, SlidersHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CATEGORIES } from "@/lib/keyword-extractor/relevance-engine";
+import { CATEGORIES, relevanceLabel } from "@/lib/keyword-extractor/relevance-engine";
 import type { ExtractedKeyword } from "@/app/api/keyword-extractor/extract/route";
 import type { ContentIdea } from "@/lib/keyword-extractor/content-idea-generator";
-
-// ── constants ────────────────────────────────────────────────────────────────
 
 const INTENT_COLORS: Record<string, string> = {
   Informational: "bg-blue-100 text-blue-700",
@@ -20,16 +18,13 @@ const INTENT_COLORS: Record<string, string> = {
   Educational: "bg-indigo-100 text-indigo-700",
 };
 
-// ── tiny helpers ─────────────────────────────────────────────────────────────
-
 function RelevanceBadge({ score }: { score: number }) {
-  const cls =
-    score >= 70
-      ? "bg-green-100 text-green-700"
-      : score >= 40
-      ? "bg-yellow-100 text-yellow-700"
-      : "bg-gray-100 text-gray-500";
-  return <span className={cn("text-xs rounded px-1.5 py-0.5 font-medium", cls)}>{score}</span>;
+  const { label, color } = relevanceLabel(score);
+  return (
+    <span className={cn("text-xs rounded px-1.5 py-0.5 font-medium", color)}>
+      {score} · {label}
+    </span>
+  );
 }
 
 function copyToClipboard(text: string) {
@@ -39,29 +34,24 @@ function copyToClipboard(text: string) {
 type SortField = "keyword" | "relevance" | "url";
 type SortDir = "asc" | "desc";
 
-// ── main page ────────────────────────────────────────────────────────────────
-
 export default function KeywordExtractorPage() {
-  // Step 1 — form
   const [url, setUrl] = useState("");
   const [category, setCategory] = useState("");
   const [customCategory, setCustomCategory] = useState("");
   const [urlError, setUrlError] = useState<string | null>(null);
+  const [threshold, setThreshold] = useState(60);
 
-  // Step 2 — extraction
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [results, setResults] = useState<ExtractedKeyword[] | null>(null);
-  const [stats, setStats] = useState<{ totalUrls: number; totalArticles: number; sitemaps: string[] } | null>(null);
+  const [stats, setStats] = useState<{ totalUrls: number; totalArticles: number; stage1Candidates: number; sitemaps: string[] } | null>(null);
 
-  // Table controls
   const [search, setSearch] = useState("");
   const [sortField, setSortField] = useState<SortField>("relevance");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [copiedAll, setCopiedAll] = useState(false);
 
-  // Step 3 — content ideas
   const [generatingIdeas, setGeneratingIdeas] = useState(false);
   const [ideaError, setIdeaError] = useState<string | null>(null);
   const [ideas, setIdeas] = useState<ContentIdea[] | null>(null);
@@ -96,14 +86,19 @@ export default function KeywordExtractorPage() {
       const res = await fetch("/api/keyword-extractor/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, category: effectiveCategory }),
+        body: JSON.stringify({ url, category: effectiveCategory, topic: effectiveCategory }),
       });
       const data = await res.json();
       if (data.error) {
         setExtractError(data.error);
       } else {
         setResults(data.relevant ?? []);
-        setStats({ totalUrls: data.totalUrlsFound, totalArticles: data.totalArticles, sitemaps: data.sitemapsFound ?? [] });
+        setStats({
+          totalUrls: data.totalUrlsFound,
+          totalArticles: data.totalArticles,
+          stage1Candidates: data.stage1Candidates ?? 0,
+          sitemaps: data.sitemapsFound ?? [],
+        });
       }
     } catch {
       setExtractError("Request failed. Please check the URL and try again.");
@@ -138,10 +133,9 @@ export default function KeywordExtractorPage() {
     }
   }
 
-  // Filtered + sorted table data
   const tableData = useMemo(() => {
     if (!results) return [];
-    let data = results;
+    let data = results.filter((r) => r.relevance >= threshold);
     if (search.trim()) {
       const q = search.toLowerCase();
       data = data.filter((r) => r.keyword.toLowerCase().includes(q) || r.url.toLowerCase().includes(q));
@@ -155,7 +149,7 @@ export default function KeywordExtractorPage() {
       if (va > vb) return sortDir === "asc" ? 1 : -1;
       return 0;
     });
-  }, [results, search, sortField, sortDir]);
+  }, [results, search, sortField, sortDir, threshold]);
 
   function toggleSort(field: SortField) {
     if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -177,8 +171,8 @@ export default function KeywordExtractorPage() {
 
   function exportCSV() {
     if (!tableData.length) return;
-    const rows = [["Source URL", "Keyword", "Category", "Relevance"]];
-    for (const r of tableData) rows.push([r.url, r.keyword, r.category, String(r.relevance)]);
+    const rows = [["Source URL", "Page Title", "Keyword", "Relevance", "Match Reason"]];
+    for (const r of tableData) rows.push([r.url, r.pageTitle ?? "", r.keyword, String(r.relevance), r.matchReason ?? ""]);
     const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
     download("keywords.csv", csv, "text/csv");
   }
@@ -215,7 +209,6 @@ export default function KeywordExtractorPage() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Globe className="w-7 h-7 text-red-500" />
         <div>
@@ -224,10 +217,9 @@ export default function KeywordExtractorPage() {
         </div>
       </div>
 
-      {/* Steps indicator */}
       <div className="flex items-center gap-3 mb-6">
         {[
-          { n: 1, label: "Enter website + category" },
+          { n: 1, label: "Enter website + topic" },
           { n: 2, label: "Review keywords" },
           { n: 3, label: "Generate content ideas" },
         ].map(({ n, label }) => (
@@ -242,10 +234,9 @@ export default function KeywordExtractorPage() {
         ))}
       </div>
 
-      {/* ── Step 1: Input form ── */}
+      {/* Step 1: Input */}
       <div className="bg-white border border-gray-200 rounded-xl p-6 mb-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          {/* URL */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Competitor Website URL</label>
             <input
@@ -261,7 +252,6 @@ export default function KeywordExtractorPage() {
             {urlError && <p className="text-xs text-red-500 mt-1">{urlError}</p>}
           </div>
 
-          {/* Category */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1.5">Category / Niche</label>
             <select
@@ -277,7 +267,7 @@ export default function KeywordExtractorPage() {
 
         {category === "Other" && (
           <div className="mb-4">
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Custom Category / Topic</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Custom Topic</label>
             <input
               type="text"
               value={customCategory}
@@ -285,8 +275,34 @@ export default function KeywordExtractorPage() {
               placeholder="e.g. Pet Care, Photography, Finance…"
               className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-red-300"
             />
+            <p className="text-xs text-gray-400 mt-1">The AI will understand any topic — be as specific as you like.</p>
           </div>
         )}
+
+        {/* Threshold control */}
+        <div className="mb-4 flex items-center gap-4 bg-gray-50 rounded-lg px-4 py-3">
+          <SlidersHorizontal className="w-4 h-4 text-gray-400 shrink-0" />
+          <div className="flex-1">
+            <label className="text-sm font-medium text-gray-700">
+              Min. Relevance Threshold: <span className="text-red-500 font-bold">{threshold}</span>
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={threshold}
+              onChange={(e) => setThreshold(Number(e.target.value))}
+              className="w-full mt-1 accent-red-500"
+            />
+            <div className="flex justify-between text-xs text-gray-400 mt-0.5">
+              <span>0 — All</span>
+              <span>60 — Possibly Relevant</span>
+              <span>75 — Relevant</span>
+              <span>90 — Highly Relevant</span>
+            </div>
+          </div>
+        </div>
 
         <button
           onClick={handleExtract}
@@ -304,33 +320,32 @@ export default function KeywordExtractorPage() {
         )}
       </div>
 
-      {/* ── Step 2: Results table ── */}
+      {/* Step 2: Results */}
       {results && (
         <>
-          {/* Stats row */}
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-4 gap-3 mb-4">
             <StatCard label="URLs Found" value={stats?.totalUrls ?? 0} />
             <StatCard label="Article URLs" value={stats?.totalArticles ?? 0} />
-            <StatCard label="Relevant Keywords" value={results.length} highlight />
+            <StatCard label="Stage 1 Candidates" value={stats?.stage1Candidates ?? 0} />
+            <StatCard label={`Shown (≥${threshold})`} value={tableData.length} highlight />
           </div>
 
           {stats?.sitemaps && stats.sitemaps.length > 0 && (
             <div className="bg-gray-50 border border-gray-100 rounded-lg px-4 py-2 mb-4 text-xs text-gray-500">
-              Sitemaps used: {stats.sitemaps.map((s, i) => (
+              Sitemaps: {stats.sitemaps.map((s, i) => (
                 <a key={i} href={s} target="_blank" rel="noreferrer" className="text-blue-500 hover:underline mr-2">{new URL(s).pathname}</a>
               ))}
             </div>
           )}
 
-          {results.length === 0 ? (
+          {tableData.length === 0 ? (
             <div className="bg-white border border-gray-200 rounded-xl p-10 text-center">
               <AlertTriangle className="w-8 h-8 text-yellow-400 mx-auto mb-3" />
-              <p className="text-gray-600 font-medium">No relevant keywords found for "{effectiveCategory}"</p>
-              <p className="text-sm text-gray-400 mt-1">Try a different category or check the website URL.</p>
+              <p className="text-gray-600 font-medium">No keywords meet the threshold of {threshold} for "{effectiveCategory}"</p>
+              <p className="text-sm text-gray-400 mt-1">Lower the threshold or try a different topic.</p>
             </div>
           ) : (
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden mb-5">
-              {/* Table toolbar */}
               <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-gray-100">
                 <div className="flex items-center gap-2 flex-1 min-w-48">
                   <Filter className="w-4 h-4 text-gray-300" />
@@ -361,13 +376,13 @@ export default function KeywordExtractorPage() {
                 </div>
               </div>
 
-              {/* Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 text-xs text-gray-400 uppercase tracking-wide">
                       <th className="px-4 py-3 w-10">
-                        <input type="checkbox" checked={selected.size === tableData.length && tableData.length > 0}
+                        <input type="checkbox"
+                          checked={selected.size === tableData.length && tableData.length > 0}
                           onChange={toggleSelectAll}
                           className="rounded border-gray-300 text-red-500 focus:ring-red-300" />
                       </th>
@@ -375,12 +390,13 @@ export default function KeywordExtractorPage() {
                         <span className="flex items-center gap-1">Keyword <SortIcon field="keyword" /></span>
                       </th>
                       <th className="px-4 py-3 text-left hidden lg:table-cell cursor-pointer select-none" onClick={() => toggleSort("url")}>
-                        <span className="flex items-center gap-1">Source URL <SortIcon field="url" /></span>
+                        <span className="flex items-center gap-1">Article URL <SortIcon field="url" /></span>
                       </th>
                       <th className="px-4 py-3 text-left cursor-pointer select-none" onClick={() => toggleSort("relevance")}>
                         <span className="flex items-center gap-1">Relevance <SortIcon field="relevance" /></span>
                       </th>
-                      <th className="px-4 py-3 w-16"></th>
+                      <th className="px-4 py-3 text-left hidden xl:table-cell">Match Reason</th>
+                      <th className="px-4 py-3 w-10"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -402,7 +418,6 @@ export default function KeywordExtractorPage() {
             </div>
           )}
 
-          {/* Generate Ideas CTA */}
           {results.length > 0 && (
             <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100 rounded-xl p-5 mb-5">
               <div className="flex items-center justify-between flex-wrap gap-3">
@@ -412,7 +427,7 @@ export default function KeywordExtractorPage() {
                     <h3 className="font-semibold text-gray-800">Generate Content Ideas</h3>
                   </div>
                   <p className="text-sm text-gray-500">
-                    Select keywords from the table above, then generate original content ideas with Pinterest angles.
+                    Select keywords above, then generate original content ideas with Pinterest angles.
                     {selected.size > 0 && <span className="text-purple-600 font-medium"> {selected.size} selected.</span>}
                   </p>
                 </div>
@@ -435,7 +450,7 @@ export default function KeywordExtractorPage() {
         </>
       )}
 
-      {/* ── Step 3: Content Ideas ── */}
+      {/* Step 3: Content Ideas */}
       {ideas && ideas.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-4">
@@ -451,8 +466,6 @@ export default function KeywordExtractorPage() {
     </div>
   );
 }
-
-// ── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCard({ label, value, highlight = false }: { label: string; value: number; highlight?: boolean }) {
   return (
@@ -482,7 +495,10 @@ function TableRow({ row, selected, onToggle }: { row: ExtractedKeyword; selected
         <input type="checkbox" checked={selected} onChange={onToggle}
           className="rounded border-gray-300 text-red-500 focus:ring-red-300" />
       </td>
-      <td className="px-4 py-3 font-medium text-gray-900">{row.keyword}</td>
+      <td className="px-4 py-3">
+        <p className="font-medium text-gray-900">{row.keyword}</p>
+        {row.pageTitle && <p className="text-xs text-gray-400 truncate max-w-xs mt-0.5">{row.pageTitle}</p>}
+      </td>
       <td className="px-4 py-3 hidden lg:table-cell max-w-xs">
         <a href={row.url} target="_blank" rel="noreferrer"
           onClick={(e) => e.stopPropagation()}
@@ -491,7 +507,10 @@ function TableRow({ row, selected, onToggle }: { row: ExtractedKeyword; selected
           <span className="truncate">{row.url}</span>
         </a>
       </td>
-      <td className="px-4 py-3"><RelevanceBadge score={row.relevance} /></td>
+      <td className="px-4 py-3 whitespace-nowrap"><RelevanceBadge score={row.relevance} /></td>
+      <td className="px-4 py-3 hidden xl:table-cell text-xs text-gray-500 max-w-xs">
+        <span className="truncate block" title={row.matchReason}>{row.matchReason ?? ""}</span>
+      </td>
       <td className="px-4 py-3">
         <button onClick={handleCopy}
           className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600">

@@ -8,7 +8,9 @@ export interface PageMeta {
   url: string;
   title: string;
   h1: string;
+  headings: string;      // concatenated H2/H3 text
   metaDescription: string;
+  bodySnippet: string;   // first ~500 chars of visible body text
 }
 
 function extractTag(html: string, pattern: RegExp): string {
@@ -29,7 +31,7 @@ function decodeEntities(str: string): string {
 }
 
 export async function fetchPageMeta(url: string): Promise<PageMeta> {
-  const empty: PageMeta = { url, title: "", h1: "", metaDescription: "" };
+  const empty: PageMeta = { url, title: "", h1: "", headings: "", metaDescription: "", bodySnippet: "" };
   try {
     const res = await fetch(url, {
       headers: {
@@ -68,7 +70,27 @@ export async function fetchPageMeta(url: string): Promise<PageMeta> {
     const metaDescription = extractTag(html, /<meta[^>]*name=["']description["'][^>]*content=["']([^"']*)/i)
       || extractTag(html, /<meta[^>]*content=["']([^"']*?)["'][^>]*name=["']description["']/i);
 
-    return { url, title, h1, metaDescription };
+    // Extract H2/H3 headings
+    const headingMatches = [...html.matchAll(/<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi)];
+    const headings = headingMatches
+      .map((m) => m[1].replace(/<[^>]+>/g, "").trim())
+      .filter(Boolean)
+      .slice(0, 10)
+      .join(" | ");
+
+    // Extract body text snippet — strip tags, collapse whitespace, take first 500 chars
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    const bodySnippet = bodyMatch
+      ? bodyMatch[1]
+          .replace(/<script[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[\s\S]*?<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 500)
+      : "";
+
+    return { url, title, h1, headings, metaDescription, bodySnippet };
   } catch {
     return empty;
   }

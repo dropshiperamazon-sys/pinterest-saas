@@ -1,4 +1,7 @@
-// Category Relevance Engine — scores URLs against a selected category
+// Category Relevance Engine — generic, multi-signal, weighted scoring
+// Works for any topic without hard-coded category rules.
+
+import type { TopicProfile } from "./topic-profiler";
 
 export const CATEGORIES = [
   "Home Decor",
@@ -17,122 +20,198 @@ export const CATEGORIES = [
 
 export type Category = (typeof CATEGORIES)[number] | string;
 
-// Keywords associated with each preset category
-const CATEGORY_SIGNALS: Record<string, string[]> = {
-  "Home Decor": [
-    "home decor", "home decoration", "living room", "bedroom", "kitchen", "bathroom",
-    "wall art", "furniture", "interior", "cozy", "apartment", "house", "room ideas",
-    "curtains", "pillows", "rugs", "shelves", "lighting", "aesthetic home",
-  ],
-  "Interior Design": [
-    "interior design", "interior", "architecture", "floor plan", "renovation", "remodel",
-    "modern design", "minimalist", "scandinavian", "bohemian", "farmhouse", "industrial",
-    "color palette", "space design", "home office", "open concept",
-  ],
-  "Fashion": [
-    "fashion", "outfit", "style", "clothing", "dress", "wear", "wardrobe", "ootd",
-    "street style", "capsule", "trend", "seasonal", "spring outfit", "summer outfit",
-    "fall outfit", "winter outfit", "jeans", "blazer", "shoes", "accessories",
-  ],
-  "Beauty": [
-    "beauty", "makeup", "skincare", "skin care", "hair", "nail", "lipstick", "foundation",
-    "eyeliner", "eyeshadow", "moisturizer", "serum", "cleanser", "routine", "tutorial",
-    "glow", "brow", "lashes", "cosmetics",
-  ],
-  "Food": [
-    "food", "recipe", "meal", "dinner", "lunch", "breakfast", "snack", "dessert",
-    "bake", "baking", "cook", "cooking", "healthy eating", "vegan", "vegetarian",
-    "keto", "calories", "nutrition", "easy recipe", "quick meal",
-  ],
-  "Fitness": [
-    "fitness", "workout", "exercise", "gym", "yoga", "pilates", "run", "running",
-    "strength", "cardio", "weight loss", "abs", "training", "healthy lifestyle",
-    "motivation", "home workout", "routine",
-  ],
-  "Travel": [
-    "travel", "vacation", "trip", "destination", "explore", "adventure", "hotel",
-    "flight", "itinerary", "packing", "backpacking", "road trip", "beach", "mountains",
-    "europe", "asia", "bucket list", "guide", "tips",
-  ],
-  "Parenting": [
-    "parenting", "baby", "toddler", "kids", "child", "children", "mom", "dad",
-    "family", "school", "education", "pregnancy", "newborn", "nursery", "activities",
-    "motherhood", "fatherhood", "raising",
-  ],
-  "Wedding": [
-    "wedding", "bride", "groom", "bridal", "ceremony", "reception", "engagement",
-    "venue", "flowers", "bouquet", "invitation", "cake", "decoration", "vow",
-    "honeymoon", "dress", "suit", "ring",
-  ],
-  "DIY": [
-    "diy", "do it yourself", "craft", "handmade", "tutorial", "project",
-    "upcycle", "repurpose", "paint", "build", "woodwork", "sewing", "knit",
-    "candle", "decoupage", "macrame", "printable",
-  ],
-  "Lifestyle": [
-    "lifestyle", "self care", "wellness", "mental health", "productivity",
-    "morning routine", "minimalism", "journal", "gratitude", "vision board",
-    "budgeting", "finance", "reading", "hobbies", "personal development",
-  ],
-};
+// ── Score weights (must sum to 1.0) ─────────────────────────────────────────
+const WEIGHTS = {
+  urlSlug:         0.20,
+  pageTitle:       0.25,
+  h1:              0.15,
+  headings:        0.15,
+  metaDescription: 0.10,
+  bodyText:        0.10,
+  phraseBonus:     0.05,  // extra credit when multi-word phrases from profile match
+} as const;
 
-function tokenize(text: string): string {
-  return text.toLowerCase().replace(/[-_\/]/g, " ").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+export interface ScoredSignal {
+  field: keyof typeof WEIGHTS;
+  raw: number;        // 0–100
+  weighted: number;
 }
 
-export function scoreRelevance(url: string, keyword: string, category: Category): number {
-  const urlText = tokenize(url);
-  const kwText = tokenize(keyword);
-  const combined = `${urlText} ${kwText}`;
+export interface RelevanceResult {
+  score: number;        // 0–100 overall
+  matchReason: string;  // human-readable explanation
+  signals: ScoredSignal[];
+}
 
-  // Get signals for this category
-  const categoryKey = Object.keys(CATEGORY_SIGNALS).find(
-    (k) => k.toLowerCase() === category.toLowerCase()
-  );
-  const signals: string[] = categoryKey ? CATEGORY_SIGNALS[categoryKey] : [];
+// ── Tokenization ─────────────────────────────────────────────────────────────
 
-  // Custom category: use the category name itself as a signal
-  const customSignals: string[] = !categoryKey && category !== "Other"
-    ? [category.toLowerCase(), ...category.toLowerCase().split(/\s+/)]
-    : [];
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => w.length > 1);
+}
 
-  const allSignals = [...signals, ...customSignals];
-  if (allSignals.length === 0) return 50; // "Other" — accept everything at neutral score
+function normalizeText(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// ── Core scoring for a single field ─────────────────────────────────────────
+// Returns 0–100 for how well the text matches the topic profile.
+
+function scoreField(text: string, profile: TopicProfile): number {
+  if (!text.trim()) return 0;
+
+  const norm = normalizeText(text);
+  const tokens = tokenize(text);
+
+  if (tokens.length === 0) return 0;
 
   let score = 0;
-  let matched = 0;
 
-  for (const signal of allSignals) {
-    if (combined.includes(signal.toLowerCase())) {
-      score += signal.split(" ").length > 1 ? 20 : 8; // multi-word matches score higher
-      matched++;
+  // 1. Primary terms — each term that appears adds significant score
+  const primaryHits = profile.primaryTerms.filter((t) => norm.includes(t));
+  const primaryRatio = profile.primaryTerms.length > 0
+    ? primaryHits.length / profile.primaryTerms.length
+    : 0;
+  score += primaryRatio * 50; // up to 50 points for primary term coverage
+
+  // 2. Phrase matches — multi-word phrases score higher than individual words
+  let phraseBonus = 0;
+  for (const phrase of profile.phrases) {
+    if (phrase.split(" ").length >= 2 && norm.includes(phrase)) {
+      phraseBonus = Math.max(phraseBonus, 30);
     }
   }
+  score += phraseBonus;
 
-  // Cap at 100
+  // 3. Synonym hits — each synonym that appears adds modest score
+  const synHits = profile.synonyms.filter((s) => norm.includes(s));
+  const synScore = Math.min(20, synHits.length * 5);
+  score += synScore;
+
+  // 4. Anti-term penalty — if an anti-term appears and primary coverage is low,
+  //    reduce score to avoid false positives
+  const antiHits = profile.antiTerms.filter((a) => norm.includes(a));
+  if (antiHits.length > 0 && primaryRatio < 0.5) {
+    score *= 0.4; // heavy penalty for anti-term without primary coverage
+  }
+
+  // Clamp 0–100
   return Math.min(100, Math.round(score));
 }
+
+// ── URL slug scoring ─────────────────────────────────────────────────────────
+
+function scoreUrlSlug(url: string, profile: TopicProfile): number {
+  try {
+    const parsed = new URL(url);
+    // Use the full path, not just the final segment, to capture category paths
+    const text = parsed.pathname.replace(/\//g, " ").replace(/[-_]/g, " ");
+    return scoreField(text, profile);
+  } catch {
+    return 0;
+  }
+}
+
+// ── Aggregated scoring from all signals ─────────────────────────────────────
+
+export interface PageSignals {
+  url: string;
+  title?: string;
+  h1?: string;
+  headings?: string;   // concatenated H2/H3 text
+  metaDescription?: string;
+  bodySnippet?: string; // first ~500 chars of body text
+}
+
+export function scoreRelevanceFull(signals: PageSignals, profile: TopicProfile): RelevanceResult {
+  const slug = scoreUrlSlug(signals.url, profile);
+  const title = scoreField(signals.title ?? "", profile);
+  const h1 = scoreField(signals.h1 ?? "", profile);
+  const headings = scoreField(signals.headings ?? "", profile);
+  const meta = scoreField(signals.metaDescription ?? "", profile);
+  const body = scoreField(signals.bodySnippet ?? "", profile);
+
+  // Phrase bonus: did any multi-word phrase hit in ANY field?
+  const allText = [signals.title, signals.h1, signals.headings, signals.metaDescription, signals.bodySnippet]
+    .filter(Boolean).join(" ");
+  const norm = normalizeText(allText);
+  const phraseBonusRaw = profile.phrases.some(
+    (p) => p.split(" ").length >= 2 && norm.includes(p)
+  ) ? 100 : 0;
+
+  const overall = Math.round(
+    slug        * WEIGHTS.urlSlug +
+    title       * WEIGHTS.pageTitle +
+    h1          * WEIGHTS.h1 +
+    headings    * WEIGHTS.headings +
+    meta        * WEIGHTS.metaDescription +
+    body        * WEIGHTS.bodyText +
+    phraseBonusRaw * WEIGHTS.phraseBonus
+  );
+
+  // Build match reason
+  const reasons: string[] = [];
+  if (title >= 60) reasons.push("title");
+  if (h1 >= 60) reasons.push("H1");
+  if (slug >= 60) reasons.push("URL slug");
+  if (headings >= 60) reasons.push("headings");
+  if (meta >= 40) reasons.push("meta description");
+  if (body >= 40) reasons.push("page content");
+  if (phraseBonusRaw > 0) reasons.push("phrase match");
+
+  const matchReason = reasons.length > 0
+    ? `Matched via: ${reasons.join(", ")}`
+    : overall >= 30
+    ? "Weak match — partial keyword overlap"
+    : "Low relevance";
+
+  return {
+    score: Math.min(100, overall),
+    matchReason,
+    signals: [
+      { field: "urlSlug",         raw: slug,           weighted: Math.round(slug        * WEIGHTS.urlSlug) },
+      { field: "pageTitle",       raw: title,          weighted: Math.round(title       * WEIGHTS.pageTitle) },
+      { field: "h1",              raw: h1,             weighted: Math.round(h1          * WEIGHTS.h1) },
+      { field: "headings",        raw: headings,       weighted: Math.round(headings    * WEIGHTS.headings) },
+      { field: "metaDescription", raw: meta,           weighted: Math.round(meta        * WEIGHTS.metaDescription) },
+      { field: "bodyText",        raw: body,           weighted: Math.round(body        * WEIGHTS.bodyText) },
+      { field: "phraseBonus",     raw: phraseBonusRaw, weighted: Math.round(phraseBonusRaw * WEIGHTS.phraseBonus) },
+    ],
+  };
+}
+
+// Stage-1 fast pre-filter: URL slug only, no page fetch
+export function scoreUrlOnly(url: string, profile: TopicProfile): number {
+  return scoreUrlSlug(url, profile);
+}
+
+// ── Article URL detection (unchanged) ────────────────────────────────────────
 
 export function isArticleUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
     const path = parsed.pathname;
-
-    // Must have a path beyond just "/"
     if (path === "/" || path === "") return false;
-
-    // Exclude static assets, images, feeds, admin pages
     if (/\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|css|js|ico|xml|json)$/i.test(path)) return false;
     if (/\/(wp-admin|wp-json|feed|rss|api|cdn|assets|static|images|img|js|css|fonts)\//i.test(path)) return false;
     if (/\/(author|tag|tags|search|page\/\d+)\/?$/i.test(path)) return false;
-
-    // Likely an article if the final segment looks like a slug (contains hyphens or is long)
     const slug = path.split("/").filter(Boolean).at(-1) ?? "";
-    const hasHyphen = slug.includes("-");
-    const isLong = slug.length > 15;
-
-    return hasHyphen || isLong;
+    return slug.includes("-") || slug.length > 15;
   } catch {
     return false;
   }
+}
+
+// ── Label helpers ─────────────────────────────────────────────────────────────
+
+export function relevanceLabel(score: number): { label: string; color: string } {
+  if (score >= 90) return { label: "Highly Relevant", color: "bg-green-100 text-green-700" };
+  if (score >= 75) return { label: "Relevant",         color: "bg-blue-100 text-blue-700" };
+  if (score >= 60) return { label: "Possibly Relevant", color: "bg-yellow-100 text-yellow-700" };
+  return                  { label: "Low Relevance",    color: "bg-gray-100 text-gray-500" };
 }
