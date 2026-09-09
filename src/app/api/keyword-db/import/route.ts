@@ -139,15 +139,24 @@ export async function POST(req: NextRequest) {
     if (row.every(f => !f)) continue; // skip blank lines
 
     const keyword = row[idx("keyword")]?.trim();
-    const country = row[idx("country")]?.trim().toUpperCase();
+    const countryRaw = row[idx("country")]?.trim().toUpperCase() ?? "";
 
     if (!keyword || keyword.length < 2) {
       errors.push(`Row ${i + 1}: keyword is empty or too short`);
       invalidRows++;
       continue;
     }
-    if (!country || country.length !== 2) {
-      errors.push(`Row ${i + 1}: country '${country}' must be a 2-letter ISO code`);
+
+    // Support multiple countries separated by | e.g. "US|GB|AU"
+    const countries = countryRaw.split("|").map(c => c.trim()).filter(Boolean);
+    if (countries.length === 0) {
+      errors.push(`Row ${i + 1}: country is required`);
+      invalidRows++;
+      continue;
+    }
+    const invalidCountries = countries.filter(c => c.length !== 2);
+    if (invalidCountries.length > 0) {
+      errors.push(`Row ${i + 1}: invalid country code(s): ${invalidCountries.join(", ")} — must be 2-letter ISO codes`);
       invalidRows++;
       continue;
     }
@@ -162,29 +171,31 @@ export async function POST(req: NextRequest) {
     const source = mapSource(sourceRaw);
     const sourceReference = row[idx("source_reference")]?.trim() || sourceRaw || null;
 
-    try {
-      const result = await upsertKeyword({
-        keyword,
-        country,
-        language,
-        monthlySearches,
-        competition,
-        avgCpc,
-        trend,
-        category,
-        source,
-        sourceReference,
-        confidence: "VERIFIED",
-        lastVerifiedAt: Date.now(),
-      });
+    for (const country of countries) {
+      try {
+        const result = await upsertKeyword({
+          keyword,
+          country,
+          language,
+          monthlySearches,
+          competition,
+          avgCpc,
+          trend,
+          category,
+          source,
+          sourceReference,
+          confidence: "VERIFIED",
+          lastVerifiedAt: Date.now(),
+        });
 
-      validRows++;
-      if (result.action === "created") newKeywords++;
-      else if (result.action === "updated") updatedKeywords++;
-      else duplicateRows++;
-    } catch (e) {
-      errors.push(`Row ${i + 1}: ${String(e)}`);
-      invalidRows++;
+        validRows++;
+        if (result.action === "created") newKeywords++;
+        else if (result.action === "updated") updatedKeywords++;
+        else duplicateRows++;
+      } catch (e) {
+        errors.push(`Row ${i + 1} (${country}): ${String(e)}`);
+        invalidRows++;
+      }
     }
   }
 

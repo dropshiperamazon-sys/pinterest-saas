@@ -274,10 +274,11 @@ export default function AdminKeywordsPage() {
               <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
                 <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Example CSV</p>
                 <pre className="text-xs text-gray-600 font-mono leading-relaxed overflow-x-auto">{`keyword,monthly_searches,competition,avg_cpc,trend,country,language,category,source
-room decor,135000,high,1.20,8,US,en,Home Decor,Pinterest
+room decor,135000,high,1.20,8,US|GB|AU,en,Home Decor,Pinterest
 bedroom decor,90000,high,1.15,5,US,en,Home Decor,Pinterest
-room decor ideas,74000,medium,1.05,12,US,en,Home Decor,Pinterest`}</pre>
-                <p className="text-[10px] text-gray-400 mt-1.5">Valid sources: <span className="font-mono">Pinterest, Google Keyword Planner, SEMrush, Ahrefs, Manual</span></p>
+room decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Pinterest`}</pre>
+                <p className="text-[10px] text-gray-400 mt-1.5">Tip: Use <span className="font-mono">US|GB|AU</span> in the country column to apply the same keyword to multiple countries at once.</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">Valid sources: <span className="font-mono">Pinterest, Google Keyword Planner, SEMrush, Ahrefs, Manual</span></p>
               </div>
 
               {/* File picker */}
@@ -348,7 +349,7 @@ room decor ideas,74000,medium,1.05,12,US,en,Home Decor,Pinterest`}</pre>
             {/* Download template */}
             <button
               onClick={() => {
-                const csv = "keyword,monthly_searches,competition,avg_cpc,trend,country,language,category,source,source_reference\nroom decor,135000,high,1.20,8,US,en,Home Decor,Pinterest,\nbedroom decor,90000,high,1.15,5,US,en,Home Decor,Pinterest,\nroom decor ideas,74000,medium,1.05,12,US,en,Home Decor,Pinterest,\n";
+                const csv = "keyword,monthly_searches,competition,avg_cpc,trend,country,language,category,source,source_reference\nroom decor,135000,high,1.20,8,US|GB|AU,en,Home Decor,Pinterest,\nbedroom decor,90000,high,1.15,5,US,en,Home Decor,Pinterest,\nroom decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Pinterest,\n";
                 const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
                 const a = document.createElement("a"); a.href = url; a.download = "keyword-import-template.csv"; a.click();
                 URL.revokeObjectURL(url);
