@@ -186,18 +186,21 @@ function estimateMetrics(
 }
 
 export function expandKeywords(
-  importedKeywords: { keyword: string; category: string | null; subcategory?: string | null; country: string; monthlySearches?: number | null; avgCpc?: number | null }[],
+  seedKeywords: { keyword: string; category: string | null; subcategory?: string | null; country: string; monthlySearches?: number | null; avgCpc?: number | null }[],
   existingKeywords: Set<string>, // normalized existing keywords to avoid dupes
+  // Additional records used only for metric averaging (e.g. historical DB data).
+  // These are NOT expanded — they only improve the quality of estimates.
+  metricOnlyPool: { category: string | null; subcategory?: string | null; monthlySearches?: number | null; avgCpc?: number | null }[] = [],
 ): GeneratedKeyword[] {
   const generated: GeneratedKeyword[] = [];
   const seen = new Set<string>(existingKeywords);
 
-  // Build metric lookup maps from real imported data
-  const { bySubcat, byCat } = buildMetricMaps(importedKeywords);
+  // Build metric lookup maps from BOTH seeds and historical pool
+  const { bySubcat, byCat } = buildMetricMaps([...seedKeywords, ...metricOnlyPool]);
 
-  // Group by category
-  const byCategory = new Map<string, typeof importedKeywords>();
-  for (const kw of importedKeywords) {
+  // Group seeds by category for pattern expansion
+  const byCategory = new Map<string, typeof seedKeywords>();
+  for (const kw of seedKeywords) {
     const catKey = detectCategory(kw.category);
     if (!byCategory.has(catKey)) byCategory.set(catKey, []);
     byCategory.get(catKey)!.push(kw);

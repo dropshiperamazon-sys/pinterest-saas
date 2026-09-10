@@ -387,6 +387,37 @@ export async function updateGapStatus(id: string, status: GapStatus): Promise<vo
   await redis.set(gapKey(id), JSON.stringify({ ...gap, status }));
 }
 
+// ── Category metric lookup ────────────────────────────────────────────────────
+// Fetches real (non-AI-inferred) keywords for a category so the expander can
+// build metric estimates from the full historical dataset, not just the current upload.
+
+export async function getVerifiedKeywordsByCategory(
+  category: string,
+  limit = 200,
+): Promise<Pick<KeywordRecord, "category" | "subcategory" | "monthlySearches" | "avgCpc">[]> {
+  const catKey = category.toLowerCase().replace(/\s+/g, "_");
+  const ids = await redis.smembers(`kwdb:idx:cat:${catKey}`);
+  if (!ids || ids.length === 0) return [];
+
+  const records = await Promise.all(
+    (ids as string[]).slice(0, limit).map(id => getKeyword(id))
+  );
+
+  return records
+    .filter((r): r is KeywordRecord =>
+      r != null &&
+      r.source !== "AI_INFERRED" &&
+      r.source !== "USER_SEARCH_SIGNAL" &&
+      (r.monthlySearches != null || r.avgCpc != null)
+    )
+    .map(r => ({
+      category: r.category,
+      subcategory: r.subcategory,
+      monthlySearches: r.monthlySearches,
+      avgCpc: r.avgCpc,
+    }));
+}
+
 // ── Import History ────────────────────────────────────────────────────────────
 
 export async function recordImport(rec: Omit<ImportRecord, "id" | "importedAt">): Promise<ImportRecord> {

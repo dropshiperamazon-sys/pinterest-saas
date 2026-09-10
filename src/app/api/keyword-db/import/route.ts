@@ -15,6 +15,7 @@ import {
   recordImport,
   recordDataGap,
   normalizeKeyword,
+  getVerifiedKeywordsByCategory,
   type DataSource,
 } from "@/lib/keyword-db";
 import { expandKeywords } from "@/lib/keyword-expander";
@@ -240,12 +241,25 @@ export async function POST(req: NextRequest) {
   const totalRows = rows.length - 1;
 
   // ── Pattern expansion ─────────────────────────────────────────────────────
-  // Generate new keyword suggestions based on patterns in the imported data.
-  // Suggestions are stored as AI_INFERRED (no metrics) and logged as data gaps.
+  // Generate sibling keyword suggestions from imported patterns.
+  // Metric estimates are built from ALL real data for the category:
+  //   1. The current upload's verified metrics
+  //   2. Every previously imported keyword in the same category from the DB
+  // The larger the real dataset grows, the more accurate estimates become.
   let suggestionsGenerated = 0;
   const suggestionIds: string[] = [];
   if (importedForExpansion.length > 0) {
-    const suggestions = expandKeywords(importedForExpansion, importedNormalized);
+    // Pull historical real metrics from DB for every category in this upload
+    const uniqueCategories = [...new Set(
+      importedForExpansion.map(k => k.category).filter(Boolean) as string[]
+    )];
+    const historicalMetrics = (
+      await Promise.all(uniqueCategories.map(cat => getVerifiedKeywordsByCategory(cat, 200)))
+    ).flat();
+
+    // importedForExpansion = seeds (used for pattern generation + metrics)
+    // historicalMetrics    = metric-only pool (improves estimates, not expanded)
+    const suggestions = expandKeywords(importedForExpansion, importedNormalized, historicalMetrics);
     // Use the country from the first imported keyword as default
     const defaultCountry = importedForExpansion[0]?.country ?? "US";
     await Promise.allSettled(
