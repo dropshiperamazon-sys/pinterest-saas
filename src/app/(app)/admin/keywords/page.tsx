@@ -355,11 +355,20 @@ export default function AdminKeywordsPage() {
             {/* Unified table — AI suggestions first (pending approval), then regular gaps */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
 
-              {/* AI Suggestions section */}
+              {/* AI Suggestions section — grouped by keyword, all countries on one row */}
               {suggestions.length > 0 && (() => {
-                const totalPages = Math.ceil(suggestions.length / SUGG_PER_PAGE);
-                const pageSuggs = suggestions.slice((suggPage - 1) * SUGG_PER_PAGE, suggPage * SUGG_PER_PAGE);
-                // Page numbers to show: always first, last, current ±2, with ellipsis
+                // Group by normalized keyword
+                const groups = new Map<string, typeof suggestions>();
+                for (const s of suggestions) {
+                  const key = s.keyword.toLowerCase().trim();
+                  if (!groups.has(key)) groups.set(key, []);
+                  groups.get(key)!.push(s);
+                }
+                const groupList = [...groups.values()];
+                const totalGroups = groupList.length;
+                const totalPages = Math.ceil(totalGroups / SUGG_PER_PAGE);
+                const pageGroups = groupList.slice((suggPage - 1) * SUGG_PER_PAGE, suggPage * SUGG_PER_PAGE);
+
                 const pageNums: (number | "…")[] = [];
                 for (let p = 1; p <= totalPages; p++) {
                   if (p === 1 || p === totalPages || (p >= suggPage - 2 && p <= suggPage + 2)) {
@@ -368,77 +377,83 @@ export default function AdminKeywordsPage() {
                     pageNums.push("…");
                   }
                 }
+
+                const allIds = suggestions.map(s => s.id);
+                const allSelected = allIds.every(id => selectedSuggIds.has(id));
+
                 return (
                   <>
                     <div className="flex items-center gap-3 px-4 py-2.5 bg-purple-50 border-b border-purple-100">
                       <input
                         type="checkbox"
-                        checked={selectedSuggIds.size === suggestions.length}
-                        onChange={e => setSelectedSuggIds(e.target.checked ? new Set(suggestions.map(s => s.id)) : new Set())}
+                        checked={allSelected}
+                        onChange={e => setSelectedSuggIds(e.target.checked ? new Set(allIds) : new Set())}
                         className="w-4 h-4 accent-purple-600 cursor-pointer"
                       />
                       <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">
-                        ✦ AI Suggestions — {suggestions.length} pending · page {suggPage}/{totalPages} · select to push to dataset
+                        ✦ AI Suggestions — {totalGroups.toLocaleString()} keywords · {suggestions.length.toLocaleString()} total records · page {suggPage}/{totalPages} · select to push to dataset
                       </span>
                     </div>
-                    {pageSuggs.map(s => (
-                      <div key={s.id} className={cn("flex items-center gap-3 px-4 py-2.5 border-b border-purple-50 hover:bg-purple-50/50 transition-colors", selectedSuggIds.has(s.id) && "bg-purple-50")}>
-                        <input
-                          type="checkbox"
-                          checked={selectedSuggIds.has(s.id)}
-                          onChange={e => {
-                            const next = new Set(selectedSuggIds);
-                            e.target.checked ? next.add(s.id) : next.delete(s.id);
-                            setSelectedSuggIds(next);
-                          }}
-                          className="w-4 h-4 accent-purple-600 cursor-pointer flex-shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-800 truncate">{s.keyword}</span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 flex-shrink-0">AI</span>
+                    {pageGroups.map(group => {
+                      const rep = group[0]; // representative record for display
+                      const groupIds = group.map(s => s.id);
+                      const groupSelected = groupIds.every(id => selectedSuggIds.has(id));
+                      const countries = group.map(s => s.country).sort();
+                      const estimate = group.find(s => s.monthlySearches != null);
+
+                      return (
+                        <div key={rep.keyword} className={cn("flex items-center gap-3 px-4 py-2.5 border-b border-purple-50 hover:bg-purple-50/50 transition-colors", groupSelected && "bg-purple-50")}>
+                          <input
+                            type="checkbox"
+                            checked={groupSelected}
+                            onChange={e => {
+                              const next = new Set(selectedSuggIds);
+                              groupIds.forEach(id => e.target.checked ? next.add(id) : next.delete(id));
+                              setSelectedSuggIds(next);
+                            }}
+                            className="w-4 h-4 accent-purple-600 cursor-pointer flex-shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm font-medium text-gray-800 truncate">{rep.keyword}</span>
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 flex-shrink-0">AI</span>
+                              {/* Country badges — all on the same row */}
+                              {countries.map(c => (
+                                <span key={c} className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 flex-shrink-0">{c}</span>
+                              ))}
+                            </div>
+                            <div className="text-[10px] text-gray-400 mt-0.5">
+                              {rep.category ?? ""}{rep.subcategory ? ` / ${rep.subcategory}` : ""}
+                            </div>
                           </div>
-                          <div className="text-[10px] text-gray-400">{s.country}{s.category ? ` · ${s.category}` : ""}{s.subcategory ? ` / ${s.subcategory}` : ""}</div>
+                          <div className="flex gap-1 flex-wrap justify-end flex-shrink-0">
+                            {!estimate?.monthlySearches && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">monthly_searches</span>}
+                            {!estimate?.avgCpc && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">avg_cpc</span>}
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">competition</span>
+                          </div>
+                          <div className="text-right w-28 flex-shrink-0">
+                            {estimate?.monthlySearches != null
+                              ? <span className="text-xs text-gray-600">~{estimate.monthlySearches.toLocaleString()} <span className="text-gray-400">searches</span></span>
+                              : <span className="text-xs text-gray-300">no estimate</span>}
+                          </div>
                         </div>
-                        <div className="flex gap-1 flex-wrap justify-end">
-                          {s.monthlySearches == null && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">monthly_searches</span>}
-                          {s.avgCpc == null && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">avg_cpc</span>}
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">competition</span>
-                        </div>
-                        <div className="text-right w-28 flex-shrink-0">
-                          {s.monthlySearches != null
-                            ? <span className="text-xs text-gray-600">~{s.monthlySearches.toLocaleString()} <span className="text-gray-400">searches</span></span>
-                            : <span className="text-xs text-gray-300">no estimate</span>}
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                     {/* Pagination */}
                     {totalPages > 1 && (
                       <div className="flex items-center justify-center gap-1 px-4 py-3 bg-purple-50/50 border-b border-purple-100">
-                        <button
-                          onClick={() => setSuggPage(p => Math.max(1, p - 1))}
-                          disabled={suggPage === 1}
-                          className="px-2.5 py-1 text-xs text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >‹</button>
+                        <button onClick={() => setSuggPage(p => Math.max(1, p - 1))} disabled={suggPage === 1}
+                          className="px-2.5 py-1 text-xs text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">‹</button>
                         {pageNums.map((p, i) =>
                           p === "…"
                             ? <span key={`e${i}`} className="px-1.5 text-xs text-gray-400">…</span>
-                            : <button
-                                key={p}
-                                onClick={() => setSuggPage(p as number)}
-                                className={cn(
-                                  "min-w-[28px] px-2 py-1 text-xs rounded-lg border transition-colors",
-                                  suggPage === p
-                                    ? "bg-purple-600 text-white border-purple-600 font-semibold"
-                                    : "text-purple-600 border-purple-200 hover:bg-purple-100"
-                                )}
-                              >{p}</button>
+                            : <button key={p} onClick={() => setSuggPage(p as number)}
+                                className={cn("min-w-[28px] px-2 py-1 text-xs rounded-lg border transition-colors",
+                                  suggPage === p ? "bg-purple-600 text-white border-purple-600 font-semibold" : "text-purple-600 border-purple-200 hover:bg-purple-100"
+                                )}>{p}</button>
                         )}
-                        <button
-                          onClick={() => setSuggPage(p => Math.min(totalPages, p + 1))}
-                          disabled={suggPage === totalPages}
-                          className="px-2.5 py-1 text-xs text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                        >›</button>
+                        <button onClick={() => setSuggPage(p => Math.min(totalPages, p + 1))} disabled={suggPage === totalPages}
+                          className="px-2.5 py-1 text-xs text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">›</button>
                       </div>
                     )}
                   </>
