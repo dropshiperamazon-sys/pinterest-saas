@@ -27,9 +27,7 @@ import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
 import {
   searchKeywords,
-  addRelationship,
   logSearchSignal,
-  upsertKeyword,
   normalizeKeyword as dbNorm,
 } from "@/lib/keyword-db";
 
@@ -733,23 +731,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // ── Step 6: Store Pinterest related terms back into knowledge base ─────
-      for (const kw of keywords.filter(k => k.source === "PINTEREST_RELATED")) {
-        upsertKeyword({
-          keyword: kw.keyword,
-          country,
-          language: "en",
-          monthlySearches: kbByNorm.get(dbNorm(kw.keyword))?.monthlySearches ?? null,
-          competition: null,
-          avgCpc: null,
-          trend: kw.weeklyChange ?? null,
-          category: kbByNorm.get(dbNorm(kw.keyword))?.category ?? null,
-          source: "PINTEREST_RELATED",
-          sourceReference: `/v5/terms/related?terms=${encodeURIComponent(seed)}`,
-          confidence: "UNVERIFIED",
-          lastVerifiedAt: Date.now(),
-        }).catch(() => {});
-      }
+      // Step 6: Pinterest-sourced terms are NOT stored in the shared knowledge
+      // base to comply with Pinterest API ToS (no persistent cross-user storage
+      // of API data). They remain in the short-term per-keyword cache only.
 
       const hasRealData = keywords.some(
         (k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_API",

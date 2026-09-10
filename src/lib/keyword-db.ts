@@ -38,6 +38,11 @@ export type ConfidenceStatus = "VERIFIED" | "ESTIMATED" | "UNVERIFIED" | "STALE"
 export type RelationshipType = "RELATED" | "PHRASE_MATCH" | "SEMANTIC" | "CATEGORY" | "PINTEREST_API" | "HUMAN_VERIFIED";
 export type GapStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "REJECTED";
 
+// Pinterest-sourced data must not be stored indefinitely (Pinterest API ToS).
+// These sources get a 7-day TTL on their Redis keys.
+const PINTEREST_SOURCES = new Set<DataSource>(["PINTEREST_API", "PINTEREST_RELATED"]);
+const PINTEREST_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
+
 // Source priority — lower number = higher authority. Never overwrite higher with lower.
 export const SOURCE_PRIORITY: Record<DataSource, number> = {
   PINTEREST_API: 1,
@@ -156,6 +161,9 @@ export async function upsertKeyword(
       const incomingPriority = SOURCE_PRIORITY[data.source] ?? 10;
       const existingPriority = SOURCE_PRIORITY[existing.source] ?? 10;
 
+      const isPinterestUpdate = PINTEREST_SOURCES.has(data.source);
+      const updateOpts = isPinterestUpdate ? { ex: PINTEREST_TTL_SECONDS } : undefined;
+
       if (incomingPriority > existingPriority) {
         // Incoming data has lower quality — only update null fields
         const merged: KeywordRecord = {
@@ -167,7 +175,7 @@ export async function upsertKeyword(
           category: existing.category ?? data.category,
           updatedAt: now,
         };
-        await redis.set(kwKey(existingId), JSON.stringify(merged));
+        await redis.set(kwKey(existingId), JSON.stringify(merged), updateOpts);
         return { action: "skipped", id: existingId };
       }
 
@@ -189,7 +197,7 @@ export async function upsertKeyword(
         lastVerifiedAt: data.lastVerifiedAt ?? now,
         updatedAt: now,
       };
-      await redis.set(kwKey(existingId), JSON.stringify(updated));
+      await redis.set(kwKey(existingId), JSON.stringify(updated), updateOpts);
       return { action: "updated", id: existingId };
     }
   }
@@ -215,9 +223,12 @@ export async function upsertKeyword(
     updatedAt: now,
   };
 
+  const isPinterestSource = PINTEREST_SOURCES.has(data.source);
+  const setOpts = isPinterestSource ? { ex: PINTEREST_TTL_SECONDS } : undefined;
+
   await Promise.all([
-    redis.set(kwKey(id), JSON.stringify(record)),
-    redis.set(lookupKey(norm, country), id),
+    redis.set(kwKey(id), JSON.stringify(record), setOpts),
+    redis.set(lookupKey(norm, country), id, setOpts),
     redis.zadd("kwdb:idx:all", { score: now, member: id }),
     redis.sadd(`kwdb:idx:country:${country}`, id),
     ...(data.category ? [redis.sadd(`kwdb:idx:cat:${data.category.toLowerCase().replace(/\s+/g, "_")}`, id)] : []),
