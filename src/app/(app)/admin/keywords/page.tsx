@@ -46,6 +46,8 @@ interface ImportResult {
   suggestionsGenerated: number;
   importId?: string;
   errors: string[];
+  expansionSeeds?: { keyword: string; category: string | null; subcategory: string | null; country: string; monthlySearches: number | null; avgCpc: number | null }[];
+  importedNormalizedKeywords?: string[];
 }
 
 const PRIORITY_COLOR: Record<string, string> = {
