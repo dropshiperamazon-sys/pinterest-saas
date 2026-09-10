@@ -86,10 +86,7 @@ export default function AdminKeywordsPage() {
   const [kwModal, setKwModal] = useState<{ importId: string; type: "new" | "updated" | "suggestions"; label: string } | null>(null);
   const [kwModalData, setKwModalData] = useState<{ keyword: string; country: string; category: string | null; subcategory: string | null; monthlySearches: number | null; competition: string | null; source: string }[]>([]);
   const [kwModalLoading, setKwModalLoading] = useState(false);
-  // AI Suggestions sub-view inside Data Requests tab
-  const [gapsView, setGapsView] = useState<"missing" | "suggestions">("missing");
   const [suggestions, setSuggestions] = useState<{ id: string; keyword: string; country: string; category: string | null; subcategory: string | null; monthlySearches: number | null; avgCpc: number | null; confidence: string }[]>([]);
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [selectedSuggIds, setSelectedSuggIds] = useState<Set<string>>(new Set());
   const [pushing, setPushing] = useState(false);
 
@@ -112,15 +109,10 @@ export default function AdminKeywordsPage() {
   }, []);
 
   const loadSuggestions = useCallback(async () => {
-    setSuggestionsLoading(true);
-    try {
-      const res = await fetch("/api/keyword-db/suggestions?limit=500");
-      const data = await res.json();
-      setSuggestions(data.suggestions ?? []);
-      setSelectedSuggIds(new Set());
-    } finally {
-      setSuggestionsLoading(false);
-    }
+    const res = await fetch("/api/keyword-db/suggestions?limit=500");
+    const data = await res.json();
+    setSuggestions(data.suggestions ?? []);
+    setSelectedSuggIds(new Set());
   }, []);
 
   const loadTopSearched = useCallback(async (days: number) => {
@@ -134,8 +126,7 @@ export default function AdminKeywordsPage() {
     }
   }, []);
 
-  useEffect(() => { if (tab === "gaps" && gapsView === "missing") loadGaps(); }, [tab, gapsView, loadGaps]);
-  useEffect(() => { if (tab === "gaps" && gapsView === "suggestions") loadSuggestions(); }, [tab, gapsView, loadSuggestions]);
+  useEffect(() => { if (tab === "gaps") { loadGaps(); loadSuggestions(); } }, [tab, loadGaps, loadSuggestions]);
   useEffect(() => { if (tab === "history") loadHistory(); }, [tab, loadHistory]);
   useEffect(() => { if (tab === "top") loadTopSearched(topDays); }, [tab, topDays, loadTopSearched]);
 
@@ -235,83 +226,9 @@ export default function AdminKeywordsPage() {
         {/* ── DATA GAPS TAB ── */}
         {tab === "gaps" && (
           <div className="space-y-4">
-            {/* Sub-view toggle */}
-            <div className="flex items-center justify-between">
-              <div className="flex gap-1 p-1 bg-gray-100 rounded-xl">
-                <button onClick={() => setGapsView("missing")}
-                  className={cn("text-xs font-semibold px-4 py-1.5 rounded-lg transition-all",
-                    gapsView === "missing" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                  )}>
-                  Missing Data
-                </button>
-                <button onClick={() => setGapsView("suggestions")}
-                  className={cn("text-xs font-semibold px-4 py-1.5 rounded-lg transition-all flex items-center gap-1.5",
-                    gapsView === "suggestions" ? "bg-white text-purple-700 shadow-sm" : "text-gray-500 hover:text-gray-700"
-                  )}>
-                  ✦ AI Suggestions
-                  {suggestions.length > 0 && (
-                    <span className="bg-purple-100 text-purple-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">{suggestions.length}</span>
-                  )}
-                </button>
-              </div>
-
-              {gapsView === "missing" && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      const visibleGaps = gaps.filter(g => statusFilter === "ALL" || g.status === statusFilter);
-                      if (visibleGaps.length === 0) return;
-                      const header = "keyword,country,monthly_searches,competition,avg_cpc,trend,language,category,subcategory,source,source_reference";
-                      const rows = visibleGaps.map(g => `${g.keyword},${g.country},,,,,,,,Pinterest,`);
-                      const csv = [header, ...rows].join("\n");
-                      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-                      const a = document.createElement("a");
-                      a.href = url;
-                      a.download = `data-requests-${statusFilter.toLowerCase()}.csv`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    }}
-                    disabled={gaps.length === 0}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <Download className="w-3.5 h-3.5" /> Download CSV
-                  </button>
-                  <button onClick={loadGaps} className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-                    <RefreshCw className="w-3.5 h-3.5" /> Refresh
-                  </button>
-                </div>
-              )}
-
-              {gapsView === "suggestions" && (
-                <div className="flex items-center gap-2">
-                  {selectedSuggIds.size > 0 && (
-                    <span className="text-xs text-purple-700 font-semibold">{selectedSuggIds.size} selected</span>
-                  )}
-                  <button
-                    onClick={() => pushSuggestions(Array.from(selectedSuggIds))}
-                    disabled={selectedSuggIds.size === 0 || pushing}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-white bg-purple-600 px-3 py-1.5 rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {pushing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                    Push to Dataset
-                  </button>
-                  <button
-                    onClick={() => pushSuggestions(suggestions.map(s => s.id))}
-                    disabled={suggestions.length === 0 || pushing}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 border border-purple-200 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Push All ({suggestions.length})
-                  </button>
-                  <button onClick={loadSuggestions} className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-                    <RefreshCw className="w-3.5 h-3.5" /> Refresh
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Status filter — only for Missing Data view */}
-            {gapsView === "missing" && (
-              <div className="flex gap-2">
+            {/* Toolbar */}
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {(["ALL", "PENDING", "IN_PROGRESS", "COMPLETED", "REJECTED"] as const).map(s => (
                   <button key={s} onClick={() => setStatusFilter(s)}
                     className={cn("text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all",
@@ -321,10 +238,105 @@ export default function AdminKeywordsPage() {
                   </button>
                 ))}
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                {/* Push controls — shown when suggestions exist */}
+                {suggestions.length > 0 && (
+                  <>
+                    {selectedSuggIds.size > 0 && (
+                      <span className="text-xs text-purple-700 font-semibold">{selectedSuggIds.size} selected</span>
+                    )}
+                    <button
+                      onClick={() => pushSuggestions(Array.from(selectedSuggIds))}
+                      disabled={selectedSuggIds.size === 0 || pushing}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-white bg-purple-600 px-3 py-1.5 rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {pushing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                      Push Selected
+                    </button>
+                    <button
+                      onClick={() => pushSuggestions(suggestions.map(s => s.id))}
+                      disabled={pushing}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 border border-purple-200 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Push All AI ({suggestions.length})
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    const visibleGaps = gaps.filter(g => statusFilter === "ALL" || g.status === statusFilter);
+                    if (visibleGaps.length === 0) return;
+                    const header = "keyword,country,monthly_searches,competition,avg_cpc,trend,language,category,subcategory,source,source_reference";
+                    const rows = visibleGaps.map(g => `${g.keyword},${g.country},,,,,,,,Pinterest,`);
+                    const csv = [header, ...rows].join("\n");
+                    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `data-requests-${statusFilter.toLowerCase()}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  disabled={gaps.length === 0}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Download className="w-3.5 h-3.5" /> Download CSV
+                </button>
+                <button onClick={() => { loadGaps(); loadSuggestions(); }} className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                </button>
+              </div>
+            </div>
 
-            {/* ── Missing Data table ── */}
-            {gapsView === "missing" && <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            {/* Unified table — AI suggestions first (pending approval), then regular gaps */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+
+              {/* AI Suggestions section */}
+              {suggestions.length > 0 && (
+                <>
+                  <div className="flex items-center gap-3 px-4 py-2.5 bg-purple-50 border-b border-purple-100">
+                    <input
+                      type="checkbox"
+                      checked={selectedSuggIds.size === suggestions.length}
+                      onChange={e => setSelectedSuggIds(e.target.checked ? new Set(suggestions.map(s => s.id)) : new Set())}
+                      className="w-4 h-4 accent-purple-600 cursor-pointer"
+                    />
+                    <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">✦ AI Suggestions — {suggestions.length} pending · select to push to dataset</span>
+                  </div>
+                  {suggestions.map(s => (
+                    <div key={s.id} className={cn("flex items-center gap-3 px-4 py-2.5 border-b border-purple-50 hover:bg-purple-50/50 transition-colors", selectedSuggIds.has(s.id) && "bg-purple-50")}>
+                      <input
+                        type="checkbox"
+                        checked={selectedSuggIds.has(s.id)}
+                        onChange={e => {
+                          const next = new Set(selectedSuggIds);
+                          e.target.checked ? next.add(s.id) : next.delete(s.id);
+                          setSelectedSuggIds(next);
+                        }}
+                        className="w-4 h-4 accent-purple-600 cursor-pointer flex-shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-800 truncate">{s.keyword}</span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 flex-shrink-0">AI</span>
+                        </div>
+                        <div className="text-[10px] text-gray-400">{s.country}{s.category ? ` · ${s.category}` : ""}{s.subcategory ? ` / ${s.subcategory}` : ""}</div>
+                      </div>
+                      <div className="flex gap-1 flex-wrap justify-end">
+                        {s.monthlySearches == null && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">monthly_searches</span>}
+                        {s.avgCpc == null && <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">avg_cpc</span>}
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-100">competition</span>
+                      </div>
+                      <div className="text-right w-28 flex-shrink-0">
+                        {s.monthlySearches != null
+                          ? <span className="text-xs text-gray-600">~{s.monthlySearches.toLocaleString()} <span className="text-gray-400">searches</span></span>
+                          : <span className="text-xs text-gray-300">no estimate</span>}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Regular gaps header */}
               <div className="grid grid-cols-12 bg-gray-50 px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
                 <span className="col-span-3">Keyword</span>
                 <span className="col-span-1">Country</span>
@@ -339,7 +351,7 @@ export default function AdminKeywordsPage() {
                   <div className="w-6 h-6 border-2 border-gray-200 border-t-gray-500 rounded-full animate-spin" />
                 </div>
               ) : gaps.length === 0 ? (
-                <div className="text-center py-12 text-sm text-gray-400">
+                <div className="text-center py-10 text-sm text-gray-400">
                   <Database className="w-8 h-8 mx-auto mb-3 opacity-30" />
                   No data requests found
                 </div>
@@ -393,69 +405,7 @@ export default function AdminKeywordsPage() {
                   ))}
                 </div>
               )}
-            </div>}
-
-            {/* ── AI Suggestions table ── */}
-            {gapsView === "suggestions" && (
-              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                {/* Select-all header row */}
-                <div className="flex items-center gap-3 px-4 py-3 bg-purple-50 border-b border-purple-100">
-                  <input
-                    type="checkbox"
-                    checked={suggestions.length > 0 && selectedSuggIds.size === suggestions.length}
-                    onChange={e => setSelectedSuggIds(e.target.checked ? new Set(suggestions.map(s => s.id)) : new Set())}
-                    className="w-4 h-4 accent-purple-600 cursor-pointer"
-                  />
-                  <span className="text-xs font-semibold text-purple-700 uppercase tracking-wider flex-1">
-                    Select All — {suggestions.length} pending suggestions
-                  </span>
-                  <span className="text-[10px] text-purple-500 uppercase tracking-wider">Est. Searches</span>
-                  <span className="text-[10px] text-purple-500 uppercase tracking-wider w-20 text-right">Est. CPC</span>
-                  <span className="text-[10px] text-purple-500 uppercase tracking-wider w-24 text-right">Category</span>
-                  <span className="text-[10px] text-purple-500 uppercase tracking-wider w-24 text-right">Subcategory</span>
-                </div>
-
-                {suggestionsLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <div className="w-6 h-6 border-2 border-purple-200 border-t-purple-500 rounded-full animate-spin" />
-                  </div>
-                ) : suggestions.length === 0 ? (
-                  <div className="text-center py-12 text-sm text-gray-400">
-                    <span className="text-3xl block mb-3 opacity-30">✦</span>
-                    No pending AI suggestions — import a CSV to generate some
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-50 max-h-[560px] overflow-y-auto">
-                    {suggestions.map(s => (
-                      <div key={s.id} className={cn("flex items-center gap-3 px-4 py-2.5 hover:bg-purple-50/40 transition-colors", selectedSuggIds.has(s.id) && "bg-purple-50")}>
-                        <input
-                          type="checkbox"
-                          checked={selectedSuggIds.has(s.id)}
-                          onChange={e => {
-                            const next = new Set(selectedSuggIds);
-                            e.target.checked ? next.add(s.id) : next.delete(s.id);
-                            setSelectedSuggIds(next);
-                          }}
-                          className="w-4 h-4 accent-purple-600 cursor-pointer flex-shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium text-gray-800 truncate">{s.keyword}</div>
-                          <div className="text-[10px] text-gray-400">{s.country}</div>
-                        </div>
-                        <span className="text-xs text-gray-600 w-24 text-right">
-                          {s.monthlySearches != null ? s.monthlySearches.toLocaleString() : <span className="text-gray-300">—</span>}
-                        </span>
-                        <span className="text-xs text-gray-600 w-20 text-right">
-                          {s.avgCpc != null ? `$${s.avgCpc.toFixed(2)}` : <span className="text-gray-300">—</span>}
-                        </span>
-                        <span className="text-[10px] text-gray-500 w-24 text-right truncate">{s.category ?? "—"}</span>
-                        <span className="text-[10px] text-gray-500 w-24 text-right truncate">{s.subcategory ?? "—"}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            </div>
           </div>
         )}
 
