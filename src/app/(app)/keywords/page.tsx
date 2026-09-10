@@ -729,6 +729,7 @@ export default function KeywordsPage() {
   const [relatedResults, setRelatedResults] = useState<KeywordResult[]>([]);
   const [trendingResults, setTrendingResults] = useState<KeywordResult[]>([]);
   const [dataTab, setDataTab] = useState<"related" | "trending">("related");
+  const [relatedPage, setRelatedPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
@@ -829,6 +830,7 @@ export default function KeywordsPage() {
     setTrendingResults([]);
     setResults([]);
     setDataTab("related");
+    setRelatedPage(1);
     // Kick off AI analysis in parallel (non-blocking)
     runAIAnalysis(trimmed);
 
@@ -919,6 +921,12 @@ export default function KeywordsPage() {
     else if (sortKey === "competition") { const r = { low: 0, medium: 1, high: 2 }; diff = r[a.competition] - r[b.competition]; }
     return sortAsc ? diff : -diff;
   });
+
+  const RELATED_PER_PAGE = 50;
+  const relatedTotalPages = Math.ceil(sorted.length / RELATED_PER_PAGE);
+  const pagedSorted = dataTab === "related" && relatedResults.length > 0
+    ? sorted.slice((relatedPage - 1) * RELATED_PER_PAGE, relatedPage * RELATED_PER_PAGE)
+    : sorted;
 
   const toggleSort = (key: SortKey) => { if (sortKey === key) setSortAsc(p => !p); else { setSortKey(key); setSortAsc(false); } };
   const toggleSave = (kw: string) => setSaved(prev => { const n = new Set(prev); n.has(kw) ? n.delete(kw) : n.add(kw); return n; });
@@ -1091,7 +1099,7 @@ export default function KeywordsPage() {
                 {(relatedResults.length > 0 || trendingResults.length > 0) && (
                   <div className="flex items-center gap-1 px-4 pt-3 pb-0 border-b border-gray-100">
                     <button
-                      onClick={() => setDataTab("related")}
+                      onClick={() => { setDataTab("related"); setRelatedPage(1); }}
                       className={cn(
                         "text-xs font-semibold px-4 py-2 rounded-t-lg border-b-2 transition-colors",
                         dataTab === "related"
@@ -1151,7 +1159,7 @@ export default function KeywordsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {sorted.map(kw => (
+                      {pagedSorted.map(kw => (
                         <tr key={kw.keyword} className="hover:bg-gray-50/50 transition-colors">
                           <td className="px-4 py-3"><span className="text-sm font-medium text-gray-800">{kw.keyword}</span></td>
                           <td className="px-4 py-3"><span className="text-sm font-semibold text-gray-900">{formatNumber(kw.volume)}</span></td>
@@ -1180,6 +1188,53 @@ export default function KeywordsPage() {
                     </tbody>
                   </table>
                 </div>
+                {/* Pagination — only for Related Keywords from DB */}
+                {dataTab === "related" && relatedResults.length > 0 && relatedTotalPages > 1 && (
+                  <div className="flex items-center justify-center gap-1 px-4 py-3 border-t border-gray-100">
+                    <button
+                      onClick={() => setRelatedPage(p => Math.max(1, p - 1))}
+                      disabled={relatedPage === 1}
+                      className="px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      ‹
+                    </button>
+                    {Array.from({ length: relatedTotalPages }, (_, i) => i + 1)
+                      .filter(p => p === 1 || p === relatedTotalPages || Math.abs(p - relatedPage) <= 2)
+                      .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                        if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push("…");
+                        acc.push(p);
+                        return acc;
+                      }, [])
+                      .map((p, idx) =>
+                        p === "…" ? (
+                          <span key={`ellipsis-${idx}`} className="px-1 text-xs text-gray-400">…</span>
+                        ) : (
+                          <button
+                            key={p}
+                            onClick={() => setRelatedPage(p as number)}
+                            className={cn(
+                              "min-w-[28px] px-2 py-1.5 text-xs rounded-lg border transition-colors",
+                              relatedPage === p
+                                ? "bg-[#e60023] text-white border-[#e60023] font-semibold"
+                                : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                            )}
+                          >
+                            {p}
+                          </button>
+                        )
+                      )}
+                    <button
+                      onClick={() => setRelatedPage(p => Math.min(relatedTotalPages, p + 1))}
+                      disabled={relatedPage === relatedTotalPages}
+                      className="px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      ›
+                    </button>
+                    <span className="ml-2 text-xs text-gray-400">
+                      {(relatedPage - 1) * RELATED_PER_PAGE + 1}–{Math.min(relatedPage * RELATED_PER_PAGE, sorted.length)} of {sorted.length}
+                    </span>
+                  </div>
+                )}
               </div>
             ) : null}
 

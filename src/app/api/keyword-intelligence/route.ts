@@ -508,7 +508,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Fetch related keywords from our own database
-  const dbRelatedKeywords = await searchKeywords({ query: keyword, country, limit: 50 }).catch(() => []);
+  const dbRelatedKeywords = await searchKeywords({ query: keyword, country, limit: 500 }).catch(() => []);
 
   return NextResponse.json({
     pinterestData,

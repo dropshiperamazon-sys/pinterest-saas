@@ -387,7 +387,7 @@ export async function searchKeywords(opts: {
   const batchSize = 100;
   const normWords = norm.split(" ");
 
-  for (let i = 0; i < Math.min(countryIds.length, 500) && results.length < limit; i += batchSize) {
+  for (let i = 0; i < Math.min(countryIds.length, 5000) && results.length < limit; i += batchSize) {
     const batch = countryIds.slice(i, i + batchSize);
     const records = await Promise.all(batch.map(id => getKeyword(id)));
     for (const rec of records) {
