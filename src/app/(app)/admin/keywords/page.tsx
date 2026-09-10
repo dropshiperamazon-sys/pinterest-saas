@@ -115,7 +115,7 @@ export default function AdminKeywordsPage() {
   }, []);
 
   const loadSuggestions = useCallback(async () => {
-    const res = await fetch("/api/keyword-db/suggestions?limit=500");
+    const res = await fetch("/api/keyword-db/suggestions?limit=10000");
     const data = await res.json();
     setSuggestions(data.suggestions ?? []);
     setSelectedSuggIds(new Set());
@@ -416,7 +416,6 @@ export default function AdminKeywordsPage() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-sm font-medium text-gray-800 truncate">{rep.keyword}</span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-600 flex-shrink-0">AI</span>
                               {/* Country badges — all on the same row */}
                               {countries.map(c => (
                                 <span key={c} className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 flex-shrink-0">{c}</span>

@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 
   const { searchParams } = new URL(req.url);
-  const limit = Math.min(parseInt(searchParams.get("limit") ?? "200"), 500);
+  const limit = Math.min(parseInt(searchParams.get("limit") ?? "5000"), 10000);
 
   const suggestions = await listPendingSuggestions(limit);
   return NextResponse.json({ suggestions, total: suggestions.length });

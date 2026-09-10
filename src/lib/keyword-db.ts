@@ -258,7 +258,7 @@ export async function upsertKeyword(
 
 // ── Pending suggestion management ─────────────────────────────────────────────
 
-export async function listPendingSuggestions(limit = 200): Promise<KeywordRecord[]> {
+export async function listPendingSuggestions(limit = 5000): Promise<KeywordRecord[]> {
   const ids = await redis.zrange(PENDING_IDX, 0, limit - 1, { rev: true });
   if (!ids || ids.length === 0) return [];
   const records = await Promise.all((ids as string[]).map(id => getKeyword(id)));
@@ -405,10 +405,15 @@ export async function searchKeywords(opts: {
     }
   }
 
-  // Sort: exact first, then by monthly_searches desc, then by source priority
+  // Sort: exact match first → real data before AI → monthly searches desc → source priority
+  const isAi = (r: KeywordRecord) => r.source === "AI_INFERRED";
   results.sort((a, b) => {
-    if (a.normalizedKeyword === norm) return -1;
-    if (b.normalizedKeyword === norm) return 1;
+    if (a.normalizedKeyword === norm && b.normalizedKeyword !== norm) return -1;
+    if (b.normalizedKeyword === norm && a.normalizedKeyword !== norm) return 1;
+    // Real data always before AI-inferred
+    if (!isAi(a) && isAi(b)) return -1;
+    if (isAi(a) && !isAi(b)) return 1;
+    // Within the same tier: higher monthly searches first
     const volDiff = (b.monthlySearches ?? 0) - (a.monthlySearches ?? 0);
     if (volDiff !== 0) return volDiff;
     return (SOURCE_PRIORITY[a.source] ?? 10) - (SOURCE_PRIORITY[b.source] ?? 10);
