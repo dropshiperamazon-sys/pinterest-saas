@@ -406,8 +406,60 @@ export async function logSearchSignal(keyword: string, country: string): Promise
   const d = new Date();
   const day = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
   const member = `${norm}:::${country.toUpperCase()}`;
-  // Increment score in sorted set (score = cumulative search count)
   await redis.zincrby(`kwdb:search:${day}`, 1, member);
-  // Keep 30 days
   await redis.expire(`kwdb:search:${day}`, 60 * 60 * 24 * 30);
+}
+
+export interface TopSearchedEntry {
+  keyword: string;
+  country: string;
+  searchCount: number;
+  hasData: boolean; // whether keyword exists in knowledge store
+}
+
+// Aggregate search signals across the last N days and return top keywords
+export async function getTopSearched(opts: { days?: number; limit?: number } = {}): Promise<TopSearchedEntry[]> {
+  const days = opts.days ?? 30;
+  const limit = opts.limit ?? 50;
+
+  // Collect all day keys within range
+  const scores = new Map<string, number>();
+  const now = new Date();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - i);
+    const day = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    const entries = await redis.zrange(`kwdb:search:${day}`, 0, -1, { withScores: true });
+    // entries alternates [member, score, member, score, ...]
+    for (let j = 0; j < entries.length - 1; j += 2) {
+      const member = entries[j] as string;
+      const score = Number(entries[j + 1]);
+      scores.set(member, (scores.get(member) ?? 0) + score);
+    }
+  }
+
+  // Sort by total count desc
+  const sorted = Array.from(scores.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit);
+
+  // Check which have KB data
+  const results: TopSearchedEntry[] = await Promise.all(
+    sorted.map(async ([member, count]) => {
+      const [norm, country] = member.split(":::");
+      const existing = await getKeywordByNorm(norm, country ?? "US");
+      return {
+        keyword: norm,
+        country: country ?? "US",
+        searchCount: count,
+        hasData: existing !== null && (
+          existing.monthlySearches !== null ||
+          existing.competition !== null ||
+          existing.avgCpc !== null
+        ),
+      };
+    })
+  );
+
+  return results;
 }

@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
 import {
   Upload, AlertCircle, CheckCircle, Clock, XCircle,
-  RefreshCw, Download, Database, BarChart2, FileText,
+  RefreshCw, Download, Database, BarChart2, FileText, TrendingUp,
 } from "lucide-react";
 
 type GapStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "REJECTED";
@@ -67,7 +67,7 @@ const StatusIcon = ({ status }: { status: GapStatus }) => {
 };
 
 export default function AdminKeywordsPage() {
-  const [tab, setTab] = useState<"gaps" | "import" | "history">("gaps");
+  const [tab, setTab] = useState<"gaps" | "import" | "history" | "top">("gaps");
   const [gaps, setGaps] = useState<DataGap[]>([]);
   const [gapsLoading, setGapsLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<GapStatus | "ALL">("PENDING");
@@ -78,6 +78,9 @@ export default function AdminKeywordsPage() {
   const [csvText, setCsvText] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [topSearched, setTopSearched] = useState<{ keyword: string; country: string; searchCount: number; hasData: boolean }[]>([]);
+  const [topLoading, setTopLoading] = useState(false);
+  const [topDays, setTopDays] = useState(30);
 
   const loadGaps = useCallback(async () => {
     setGapsLoading(true);
@@ -97,8 +100,20 @@ export default function AdminKeywordsPage() {
     setImports(data.imports ?? []);
   }, []);
 
+  const loadTopSearched = useCallback(async (days: number) => {
+    setTopLoading(true);
+    try {
+      const res = await fetch(`/api/keyword-db/top-searched?days=${days}&limit=50`);
+      const data = await res.json();
+      setTopSearched(data.results ?? []);
+    } finally {
+      setTopLoading(false);
+    }
+  }, []);
+
   useEffect(() => { if (tab === "gaps") loadGaps(); }, [tab, loadGaps]);
   useEffect(() => { if (tab === "history") loadHistory(); }, [tab, loadHistory]);
+  useEffect(() => { if (tab === "top") loadTopSearched(topDays); }, [tab, topDays, loadTopSearched]);
 
   async function updateStatus(id: string, status: GapStatus) {
     setUpdatingId(id);
@@ -153,12 +168,12 @@ export default function AdminKeywordsPage() {
 
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl w-fit">
-          {(["gaps", "import", "history"] as const).map(t => (
+          {(["gaps", "import", "history", "top"] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={cn("text-sm font-semibold px-5 py-2 rounded-lg transition-all",
                 tab === t ? "bg-white text-gray-900 shadow-sm" : "text-gray-500 hover:text-gray-700"
               )}>
-              {t === "gaps" ? "Data Requests" : t === "import" ? "CSV Import" : "Import History"}
+              {t === "gaps" ? "Data Requests" : t === "import" ? "CSV Import" : t === "history" ? "Import History" : "Top Searched"}
             </button>
           ))}
         </div>
@@ -400,6 +415,96 @@ room decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Pinterest`}</pre>
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TOP SEARCHED TAB ── */}
+        {tab === "top" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex gap-2">
+                {([7, 14, 30] as const).map(d => (
+                  <button key={d} onClick={() => setTopDays(d)}
+                    className={cn("text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all",
+                      topDays === d ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                    )}>
+                    Last {d} days
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => loadTopSearched(topDays)} className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              </button>
+            </div>
+
+            {topLoading ? (
+              <div className="flex items-center justify-center py-16 text-gray-400">
+                <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading...
+              </div>
+            ) : topSearched.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-12 text-center">
+                <TrendingUp className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-sm font-semibold text-gray-500">No search data yet</p>
+                <p className="text-xs text-gray-400 mt-1">Search signals are logged as users search on the Keyword Research page.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="grid grid-cols-12 bg-gray-50 px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                  <span className="col-span-1">#</span>
+                  <span className="col-span-5">Keyword</span>
+                  <span className="col-span-1">Country</span>
+                  <span className="col-span-2 text-center">Searches</span>
+                  <span className="col-span-2 text-center">Data Status</span>
+                  <span className="col-span-1"></span>
+                </div>
+                {topSearched.map((entry, i) => (
+                  <div key={`${entry.keyword}:::${entry.country}`}
+                    className="grid grid-cols-12 px-4 py-3 items-center border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+                    <span className="col-span-1 text-sm font-bold text-gray-300">{i + 1}</span>
+                    <span className="col-span-5 text-sm font-semibold text-gray-800 truncate">{entry.keyword}</span>
+                    <span className="col-span-1 text-xs font-mono text-gray-500">{entry.country}</span>
+                    <div className="col-span-2 flex items-center justify-center gap-1.5">
+                      <div className="flex-1 max-w-20 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="h-full bg-[#e60023] rounded-full"
+                          style={{ width: `${Math.min(100, (entry.searchCount / (topSearched[0]?.searchCount || 1)) * 100)}%` }} />
+                      </div>
+                      <span className="text-xs font-semibold text-gray-700 w-6 text-right">{entry.searchCount}</span>
+                    </div>
+                    <div className="col-span-2 flex justify-center">
+                      {entry.hasData ? (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">
+                          <CheckCircle className="w-3 h-3" /> Has data
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs font-semibold text-orange-700 bg-orange-50 px-2 py-0.5 rounded-full">
+                          <AlertCircle className="w-3 h-3" /> Missing
+                        </span>
+                      )}
+                    </div>
+                    <div className="col-span-1 flex justify-end">
+                      {!entry.hasData && (
+                        <button
+                          onClick={() => {
+                            const csv = `keyword,country\n${entry.keyword},${entry.country}`;
+                            navigator.clipboard.writeText(csv).catch(() => {});
+                          }}
+                          title="Copy as CSV row"
+                          className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 rounded-lg px-2 py-1 hover:bg-gray-50">
+                          Copy
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {topSearched.length > 0 && (
+              <p className="text-xs text-gray-400 text-center">
+                {topSearched.filter(e => !e.hasData).length} of {topSearched.length} keywords are missing data —
+                import their metrics via CSV to enrich future results.
+              </p>
             )}
           </div>
         )}
