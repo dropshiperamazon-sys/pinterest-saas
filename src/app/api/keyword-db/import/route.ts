@@ -292,15 +292,17 @@ export async function POST(req: NextRequest) {
             lastVerifiedAt: null,
             pendingApproval: true, // stays in Data Requests until admin pushes it
           });
-          if (result.action === "created") {
+          if (result.action === "created" || result.action === "updated") {
             suggestionsGenerated++;
             suggestionIds.push(result.id);
             // Log as a data gap so admin knows to source real metrics
-            await recordDataGap({
-              keyword: s.keyword,
-              country: defaultCountry,
-              missingFields: ["monthly_searches", "competition", "avg_cpc"],
-            });
+            if (result.action === "created") {
+              await recordDataGap({
+                keyword: s.keyword,
+                country: defaultCountry,
+                missingFields: ["monthly_searches", "competition", "avg_cpc"],
+              });
+            }
           }
         } catch {
           // Non-critical — don't fail the import

@@ -188,6 +188,7 @@ export async function upsertKeyword(
       }
 
       // Incoming data is same or higher quality — update all provided non-null fields
+      const shouldBePending = data.pendingApproval === true && !existing.pendingApproval;
       const updated: KeywordRecord = {
         ...existing,
         keyword: data.keyword,
@@ -205,8 +206,12 @@ export async function upsertKeyword(
         confidence: data.confidence,
         lastVerifiedAt: data.lastVerifiedAt ?? now,
         updatedAt: now,
+        // If incoming wants pending and existing isn't already, mark it pending
+        ...(shouldBePending ? { pendingApproval: true } : {}),
       };
-      await redis.set(kwKey(existingId), JSON.stringify(updated), updateOpts);
+      const ops: Promise<unknown>[] = [redis.set(kwKey(existingId), JSON.stringify(updated), updateOpts)];
+      if (shouldBePending) ops.push(redis.zadd(PENDING_IDX, { score: existing.createdAt, member: existingId }));
+      await Promise.all(ops);
       return { action: "updated", id: existingId };
     }
   }
@@ -259,6 +264,34 @@ export async function listPendingSuggestions(limit = 200): Promise<KeywordRecord
   const records = await Promise.all((ids as string[]).map(id => getKeyword(id)));
   // Filter out any that were approved or deleted since indexing
   return records.filter((r): r is KeywordRecord => r != null && r.pendingApproval === true);
+}
+
+// Repair: scan all AI_INFERRED keywords and add any without pendingApproval to the pending index.
+// Handles keywords created before the pendingApproval system was introduced.
+export async function repairPendingSuggestions(): Promise<{ repaired: number; total: number }> {
+  const allIds = await redis.zrange("kwdb:idx:all", 0, -1);
+  if (!allIds || allIds.length === 0) return { repaired: 0, total: 0 };
+
+  let repaired = 0;
+  let total = 0;
+  const batchSize = 50;
+  for (let i = 0; i < (allIds as string[]).length; i += batchSize) {
+    const batch = (allIds as string[]).slice(i, i + batchSize);
+    const records = await Promise.all(batch.map(id => getKeyword(id)));
+    for (const r of records) {
+      if (!r || r.source !== "AI_INFERRED") continue;
+      total++;
+      if (!r.pendingApproval) {
+        const updated: KeywordRecord = { ...r, pendingApproval: true, updatedAt: Date.now() };
+        await Promise.all([
+          redis.set(kwKey(r.id), JSON.stringify(updated)),
+          redis.zadd(PENDING_IDX, { score: r.createdAt, member: r.id }),
+        ]);
+        repaired++;
+      }
+    }
+  }
+  return { repaired, total };
 }
 
 export async function approveSuggestions(ids: string[]): Promise<number> {

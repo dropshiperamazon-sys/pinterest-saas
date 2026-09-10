@@ -89,6 +89,8 @@ export default function AdminKeywordsPage() {
   const [suggestions, setSuggestions] = useState<{ id: string; keyword: string; country: string; category: string | null; subcategory: string | null; monthlySearches: number | null; avgCpc: number | null; confidence: string }[]>([]);
   const [selectedSuggIds, setSelectedSuggIds] = useState<Set<string>>(new Set());
   const [pushing, setPushing] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [repairResult, setRepairResult] = useState<{ repaired: number; total: number } | null>(null);
 
   const loadGaps = useCallback(async () => {
     setGapsLoading(true);
@@ -204,6 +206,19 @@ export default function AdminKeywordsPage() {
     }
   }
 
+  async function runRepair() {
+    setRepairing(true);
+    setRepairResult(null);
+    try {
+      const res = await fetch("/api/keyword-db/suggestions/repair", { method: "POST" });
+      const data = await res.json();
+      setRepairResult({ repaired: data.repaired ?? 0, total: data.total ?? 0 });
+      if (data.repaired > 0) await loadSuggestions();
+    } finally {
+      setRepairing(false);
+    }
+  }
+
   const fmt = (n: number) => new Date(n).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
   return (
@@ -284,6 +299,22 @@ export default function AdminKeywordsPage() {
                 <button onClick={() => { loadGaps(); loadSuggestions(); }} className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
                   <RefreshCw className="w-3.5 h-3.5" /> Refresh
                 </button>
+                <button
+                  onClick={runRepair}
+                  disabled={repairing}
+                  title="Find existing AI keywords and move them to Data Requests pending list"
+                  className="flex items-center gap-1.5 text-xs text-indigo-600 border border-indigo-200 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {repairing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+                  Sync AI
+                </button>
+                {repairResult && (
+                  <span className="text-xs text-indigo-600 font-medium">
+                    {repairResult.repaired > 0
+                      ? `✓ ${repairResult.repaired} AI keywords moved to pending`
+                      : `✓ ${repairResult.total} AI keywords already indexed`}
+                  </span>
+                )}
               </div>
             </div>
 
