@@ -96,6 +96,9 @@ export default function AdminKeywordsPage() {
   const [repairResult, setRepairResult] = useState<{ repaired: number; total: number } | null>(null);
   const [expanding, setExpanding] = useState(false);
   const [expandResult, setExpandResult] = useState<{ created: number; skipped: number } | null>(null);
+  const [wiping, setWiping] = useState(false);
+  const [wipeResult, setWipeResult] = useState<{ deleted: number } | null>(null);
+  const [wipeConfirm, setWipeConfirm] = useState(false);
 
   const loadGaps = useCallback(async () => {
     setGapsLoading(true);
@@ -238,6 +241,24 @@ export default function AdminKeywordsPage() {
     }
   }
 
+  async function runWipe() {
+    setWiping(true);
+    setWipeResult(null);
+    try {
+      const res = await fetch("/api/keyword-db/wipe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: "yes delete everything" }),
+      });
+      const data = await res.json();
+      setWipeResult({ deleted: data.deleted ?? 0 });
+      setWipeConfirm(false);
+      await loadSuggestions();
+    } finally {
+      setWiping(false);
+    }
+  }
+
   const fmt = (n: number) => new Date(n).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
   return (
@@ -350,6 +371,29 @@ export default function AdminKeywordsPage() {
                       : `✓ Already expanded to all countries`}
                   </span>
                 )}
+                {/* Wipe database */}
+                <div className="flex items-center gap-2 ml-auto">
+                  {wipeResult && (
+                    <span className="text-xs text-red-600 font-medium">✓ {wipeResult.deleted.toLocaleString()} keys deleted</span>
+                  )}
+                  {wipeConfirm ? (
+                    <>
+                      <span className="text-xs text-red-600 font-semibold">Are you sure? This deletes everything.</span>
+                      <button onClick={runWipe} disabled={wiping}
+                        className="flex items-center gap-1.5 text-xs text-white bg-red-600 border border-red-700 px-3 py-1.5 rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                        {wiping ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                        {wiping ? "Wiping..." : "Yes, delete all"}
+                      </button>
+                      <button onClick={() => setWipeConfirm(false)} className="text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">Cancel</button>
+                    </>
+                  ) : (
+                    <button onClick={() => setWipeConfirm(true)}
+                      className="flex items-center gap-1.5 text-xs text-red-600 border border-red-200 bg-red-50 px-3 py-1.5 rounded-lg hover:bg-red-100 transition-colors">
+                      <Database className="w-3.5 h-3.5" />
+                      Wipe Database
+                    </button>
+                  )}
+                </div>
                 {/* Country filter tabs */}
                 {suggestions.length > 0 && (
                   <div className="flex gap-1 ml-2 border-l border-gray-200 pl-2">
