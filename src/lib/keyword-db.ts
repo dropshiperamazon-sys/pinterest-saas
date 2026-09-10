@@ -294,6 +294,57 @@ export async function repairPendingSuggestions(): Promise<{ repaired: number; to
   return { repaired, total };
 }
 
+const AI_DEFAULT_COUNTRIES = ["US", "GB", "CA", "AU"] as const;
+
+// Expand existing AI_INFERRED keywords to all 4 default countries (US, GB, CA, AU).
+// Skips combinations that already exist. Returns counts of newly created records.
+export async function expandAiKeywordsToAllCountries(): Promise<{ created: number; skipped: number }> {
+  const allIds = (await redis.zrange("kwdb:idx:all", 0, -1)) as string[];
+  if (!allIds.length) return { created: 0, skipped: 0 };
+
+  let created = 0;
+  let skipped = 0;
+  const batchSize = 50;
+
+  for (let i = 0; i < allIds.length; i += batchSize) {
+    const batch = allIds.slice(i, i + batchSize);
+    const records = await Promise.all(batch.map(id => getKeyword(id)));
+
+    for (const r of records) {
+      if (!r || r.source !== "AI_INFERRED") continue;
+      // Only expand from US (the original) to avoid re-expanding copies
+      if (r.country !== "US") continue;
+
+      for (const country of AI_DEFAULT_COUNTRIES) {
+        if (country === "US") continue; // already exists
+        const existing = await getKeywordByNorm(r.normalizedKeyword, country);
+        if (existing) { skipped++; continue; }
+
+        const result = await upsertKeyword({
+          keyword: r.keyword,
+          country,
+          language: r.language,
+          monthlySearches: r.monthlySearches,
+          competition: r.competition,
+          avgCpc: r.avgCpc,
+          trend: r.trend,
+          category: r.category,
+          subcategory: r.subcategory,
+          source: "AI_INFERRED",
+          sourceReference: r.sourceReference,
+          confidence: r.confidence,
+          lastVerifiedAt: r.lastVerifiedAt,
+          pendingApproval: r.pendingApproval,
+        });
+        if (result.action === "created") created++;
+        else skipped++;
+      }
+    }
+  }
+
+  return { created, skipped };
+}
+
 export async function approveSuggestions(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
   let approved = 0;

@@ -93,6 +93,8 @@ export default function AdminKeywordsPage() {
   const SUGG_PER_PAGE = 50;
   const [repairing, setRepairing] = useState(false);
   const [repairResult, setRepairResult] = useState<{ repaired: number; total: number } | null>(null);
+  const [expanding, setExpanding] = useState(false);
+  const [expandResult, setExpandResult] = useState<{ created: number; skipped: number } | null>(null);
 
   const loadGaps = useCallback(async () => {
     setGapsLoading(true);
@@ -222,6 +224,19 @@ export default function AdminKeywordsPage() {
     }
   }
 
+  async function runExpand() {
+    setExpanding(true);
+    setExpandResult(null);
+    try {
+      const res = await fetch("/api/keyword-db/suggestions/expand-countries", { method: "POST" });
+      const data = await res.json();
+      setExpandResult({ created: data.created ?? 0, skipped: data.skipped ?? 0 });
+      if ((data.created ?? 0) > 0) await loadSuggestions();
+    } finally {
+      setExpanding(false);
+    }
+  }
+
   const fmt = (n: number) => new Date(n).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
   return (
@@ -316,6 +331,22 @@ export default function AdminKeywordsPage() {
                     {repairResult.repaired > 0
                       ? `✓ ${repairResult.repaired} AI keywords moved to pending`
                       : `✓ ${repairResult.total} AI keywords already indexed`}
+                  </span>
+                )}
+                <button
+                  onClick={runExpand}
+                  disabled={expanding}
+                  title="Copy all US AI keywords to GB, CA, AU"
+                  className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-200 bg-teal-50 px-3 py-1.5 rounded-lg hover:bg-teal-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {expanding ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <TrendingUp className="w-3.5 h-3.5" />}
+                  Add GB/CA/AU
+                </button>
+                {expandResult && (
+                  <span className="text-xs text-teal-600 font-medium">
+                    {expandResult.created > 0
+                      ? `✓ ${expandResult.created.toLocaleString()} country copies created`
+                      : `✓ Already expanded to all countries`}
                   </span>
                 )}
               </div>
