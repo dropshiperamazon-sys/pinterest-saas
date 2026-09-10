@@ -298,8 +298,12 @@ export async function POST(req: NextRequest) {
     // historicalMetrics    = metric-only pool (improves estimates, not expanded)
     const suggestions = expandKeywords(importedForExpansion, skipSet, historicalMetrics);
 
+    // Only process the first 100 suggestions synchronously to avoid timeout.
+    // The rest are skipped here — re-estimate runs after and fills metric gaps.
+    const syncSuggestions = suggestions.slice(0, 100);
+
     await Promise.allSettled(
-      suggestions.map(async (s) => {
+      syncSuggestions.map(async (s) => {
         try {
           const hasEstimate = s.estimatedMonthlySearches != null || s.estimatedAvgCpc != null;
           // Create one record per default country — deduplication handled by upsertKeyword

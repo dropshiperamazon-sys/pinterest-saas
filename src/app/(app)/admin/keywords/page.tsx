@@ -166,7 +166,17 @@ export default function AdminKeywordsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ csv: csvText }),
       });
-      const data = await res.json();
+      const text = await res.text();
+      if (!text.trim()) {
+        // Empty response usually means the function timed out but keywords were saved
+        setImportError("The server timed out but your keywords may have been saved. Check Import History and refresh.");
+        return;
+      }
+      let data: ImportResult & { error?: string };
+      try { data = JSON.parse(text); } catch {
+        setImportError("Unexpected server response. Keywords may have been partially saved — check Import History.");
+        return;
+      }
       if (!res.ok) { setImportError(data.error ?? "Import failed"); return; }
       setImportResult(data);
       setCsvText("");
