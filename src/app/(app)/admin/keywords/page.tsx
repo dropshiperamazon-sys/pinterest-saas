@@ -90,6 +90,7 @@ export default function AdminKeywordsPage() {
   const [selectedSuggIds, setSelectedSuggIds] = useState<Set<string>>(new Set());
   const [pushing, setPushing] = useState(false);
   const [suggPage, setSuggPage] = useState(1);
+  const [suggCountry, setSuggCountry] = useState<"ALL" | "US" | "GB" | "CA" | "AU">("ALL");
   const SUGG_PER_PAGE = 50;
   const [repairing, setRepairing] = useState(false);
   const [repairResult, setRepairResult] = useState<{ repaired: number; total: number } | null>(null);
@@ -349,6 +350,19 @@ export default function AdminKeywordsPage() {
                       : `✓ Already expanded to all countries`}
                   </span>
                 )}
+                {/* Country filter tabs */}
+                {suggestions.length > 0 && (
+                  <div className="flex gap-1 ml-2 border-l border-gray-200 pl-2">
+                    {(["ALL", "US", "GB", "CA", "AU"] as const).map(c => (
+                      <button key={c} onClick={() => { setSuggCountry(c); setSuggPage(1); }}
+                        className={cn("text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-all",
+                          suggCountry === c ? "bg-blue-600 text-white border-blue-600" : "text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"
+                        )}>
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -357,9 +371,12 @@ export default function AdminKeywordsPage() {
 
               {/* AI Suggestions section — grouped by keyword, all countries on one row */}
               {suggestions.length > 0 && (() => {
+                // Filter by selected country, then group
+                const filtered = suggCountry === "ALL" ? suggestions : suggestions.filter(s => s.country === suggCountry);
+
                 // Group by normalized keyword
                 const groups = new Map<string, typeof suggestions>();
-                for (const s of suggestions) {
+                for (const s of filtered) {
                   const key = s.keyword.toLowerCase().trim();
                   if (!groups.has(key)) groups.set(key, []);
                   groups.get(key)!.push(s);
@@ -391,7 +408,7 @@ export default function AdminKeywordsPage() {
                         className="w-4 h-4 accent-purple-600 cursor-pointer"
                       />
                       <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">
-                        ✦ AI Suggestions — {totalGroups.toLocaleString()} keywords · {suggestions.length.toLocaleString()} total records · page {suggPage}/{totalPages} · select to push to dataset
+                        ✦ AI Suggestions — {totalGroups.toLocaleString()} keywords{suggCountry !== "ALL" ? ` · ${suggCountry}` : " · all countries"} · page {suggPage}/{totalPages} · select to push to dataset
                       </span>
                     </div>
                     {pageGroups.map(group => {
