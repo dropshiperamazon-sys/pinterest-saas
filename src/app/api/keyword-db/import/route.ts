@@ -251,58 +251,69 @@ export async function POST(req: NextRequest) {
   let suggestionsGenerated = 0;
   const suggestionIds: string[] = [];
   if (importedForExpansion.length > 0) {
-    // Pull historical real metrics from DB for every category in this upload
+    const AI_COUNTRIES = ["US", "GB", "CA", "AU"];
+
+    // Pull ALL existing keywords for every category in this upload.
+    // Their normalizedKeyword values feed the skip set so we never suggest
+    // anything that already exists in the DB (real OR AI, pending OR live).
     const uniqueCategories = [...new Set(
       importedForExpansion.map(k => k.category).filter(Boolean) as string[]
     )];
-    const historicalMetrics = (
-      await Promise.all(uniqueCategories.map(cat => getVerifiedKeywordsByCategory(cat, 200)))
+    const historicalRecords = (
+      await Promise.all(uniqueCategories.map(cat => getVerifiedKeywordsByCategory(cat, 500)))
     ).flat();
 
-    // Fetch already-pending suggestions so the expander doesn't re-generate them.
-    // This ensures uploading a second CSV never duplicates or overwrites pending
-    // suggestions from a previous upload that haven't been pushed yet.
-    const existingPending = await listPendingSuggestions(1000);
+    // Build skip set: current upload + all DB keywords in these categories + pending suggestions
+    const existingPending = await listPendingSuggestions(2000);
+    const alreadyInDb = new Set(historicalRecords.map(r => r.normalizedKeyword));
     const alreadyPendingNorms = new Set(existingPending.map(kw => normalizeKeyword(kw.keyword)));
+    const skipSet = new Set([...importedNormalized, ...alreadyInDb, ...alreadyPendingNorms]);
 
-    // Merge: current upload keywords + already-pending normalized keywords
-    const skipSet = new Set([...importedNormalized, ...alreadyPendingNorms]);
+    // historicalMetrics = records WITH real metric data (for averaging)
+    const historicalMetrics = historicalRecords.filter(
+      r => r.monthlySearches != null || r.avgCpc != null
+    );
 
-    // importedForExpansion = seeds (used for pattern generation + metrics)
+    // importedForExpansion = seeds (pattern generation + metrics)
     // historicalMetrics    = metric-only pool (improves estimates, not expanded)
     const suggestions = expandKeywords(importedForExpansion, skipSet, historicalMetrics);
-    // Use the country from the first imported keyword as default
-    const defaultCountry = importedForExpansion[0]?.country ?? "US";
+
     await Promise.allSettled(
       suggestions.map(async (s) => {
         try {
           const hasEstimate = s.estimatedMonthlySearches != null || s.estimatedAvgCpc != null;
-          const result = await upsertKeyword({
-            keyword: s.keyword,
-            country: defaultCountry,
-            language: "en",
-            monthlySearches: s.estimatedMonthlySearches ?? null,
-            competition: null,
-            avgCpc: s.estimatedAvgCpc ?? null,
-            trend: null,
-            category: s.category,
-            subcategory: s.subcategory,
-            source: "AI_INFERRED",
-            sourceReference: `expanded from: ${s.basedOn}`,
-            confidence: hasEstimate ? "ESTIMATED" : "UNVERIFIED",
-            lastVerifiedAt: null,
-            pendingApproval: true, // stays in Data Requests until admin pushes it
-          });
-          if (result.action === "created" || result.action === "updated") {
-            suggestionsGenerated++;
-            suggestionIds.push(result.id);
-            // Log as a data gap so admin knows to source real metrics
-            if (result.action === "created") {
-              await recordDataGap({
-                keyword: s.keyword,
-                country: defaultCountry,
-                missingFields: ["monthly_searches", "competition", "avg_cpc"],
-              });
+          // Create one record per default country — deduplication handled by upsertKeyword
+          let createdAny = false;
+          for (const country of AI_COUNTRIES) {
+            const result = await upsertKeyword({
+              keyword: s.keyword,
+              country,
+              language: "en",
+              monthlySearches: s.estimatedMonthlySearches ?? null,
+              competition: null,
+              avgCpc: s.estimatedAvgCpc ?? null,
+              trend: null,
+              category: s.category,
+              subcategory: s.subcategory,
+              source: "AI_INFERRED",
+              sourceReference: `expanded from: ${s.basedOn}`,
+              confidence: hasEstimate ? "ESTIMATED" : "UNVERIFIED",
+              lastVerifiedAt: null,
+              pendingApproval: true,
+            });
+            if (result.action === "created" || result.action === "updated") {
+              suggestionsGenerated++;
+              suggestionIds.push(result.id);
+              if (!createdAny) {
+                createdAny = true;
+                if (result.action === "created") {
+                  await recordDataGap({
+                    keyword: s.keyword,
+                    country,
+                    missingFields: ["monthly_searches", "competition", "avg_cpc"],
+                  });
+                }
+              }
             }
           }
         } catch {

@@ -460,8 +460,8 @@ export async function updateGapStatus(id: string, status: GapStatus): Promise<vo
 
 export async function getVerifiedKeywordsByCategory(
   category: string,
-  limit = 200,
-): Promise<Pick<KeywordRecord, "category" | "subcategory" | "monthlySearches" | "avgCpc">[]> {
+  limit = 500,
+): Promise<Pick<KeywordRecord, "normalizedKeyword" | "category" | "subcategory" | "monthlySearches" | "avgCpc">[]> {
   const catKey = category.toLowerCase().replace(/\s+/g, "_");
   const ids = await redis.smembers(`kwdb:idx:cat:${catKey}`);
   if (!ids || ids.length === 0) return [];
@@ -471,17 +471,13 @@ export async function getVerifiedKeywordsByCategory(
   );
 
   return records
-    .filter((r): r is KeywordRecord =>
-      r != null &&
-      r.source !== "AI_INFERRED" &&
-      r.source !== "USER_SEARCH_SIGNAL" &&
-      (r.monthlySearches != null || r.avgCpc != null)
-    )
+    .filter((r): r is KeywordRecord => r != null && r.source !== "USER_SEARCH_SIGNAL")
     .map(r => ({
+      normalizedKeyword: r.normalizedKeyword,
       category: r.category,
       subcategory: r.subcategory,
-      monthlySearches: r.monthlySearches,
-      avgCpc: r.avgCpc,
+      monthlySearches: r.source !== "AI_INFERRED" ? r.monthlySearches : null,
+      avgCpc: r.source !== "AI_INFERRED" ? r.avgCpc : null,
     }));
 }
 
