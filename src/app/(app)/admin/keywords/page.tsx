@@ -169,14 +169,32 @@ export default function AdminKeywordsPage() {
         body: JSON.stringify({ csv: csvText }),
       });
       const text = await res.text();
-      if (!text.trim()) {
-        // Empty response usually means the function timed out but keywords were saved
-        setImportError("The server timed out but your keywords may have been saved. Check Import History and refresh.");
+      if (!text.trim() || res.status === 504) {
+        // Empty/504 response: function timed out but keywords were likely saved.
+        // Auto-check Import History to confirm.
+        setImportError("Checking if import succeeded…");
+        await new Promise(r => setTimeout(r, 2000));
+        const histRes = await fetch("/api/keyword-db/gaps?type=imports&limit=1").catch(() => null);
+        if (histRes?.ok) {
+          const histData = await histRes.json() as { imports?: ImportRecord[] };
+          const latest = histData.imports?.[0];
+          // If there's a recent import (within last 5 minutes), treat as success
+          if (latest && Date.now() - latest.importedAt < 5 * 60 * 1000) {
+            setImports(prev => prev[0]?.id === latest.id ? prev : [latest, ...prev]);
+            setImportResult({ totalRows: latest.totalRows, validRows: latest.validRows, invalidRows: latest.invalidRows, newKeywords: latest.newKeywords, updatedKeywords: latest.updatedKeywords, duplicateRows: latest.duplicateRows, suggestionsGenerated: 0, importId: latest.id, errors: latest.errors ?? [] });
+            setCsvText("");
+            setImportError(null);
+            return;
+          }
+        }
+        setImportError("The server timed out. Check Import History — your keywords may have been saved.");
+        loadHistory();
         return;
       }
       let data: ImportResult & { error?: string };
       try { data = JSON.parse(text); } catch {
         setImportError("Unexpected server response. Keywords may have been partially saved — check Import History.");
+        loadHistory();
         return;
       }
       if (!res.ok) { setImportError(data.error ?? "Import failed"); return; }

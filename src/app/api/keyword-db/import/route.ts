@@ -40,7 +40,7 @@ function mapSource(raw: string): DataSource {
 
 function parseSingleNum(s: string): number | null {
   if (!s) return null;
-  const cleaned = s.replace(/[$%,\s]/g, "").toLowerCase();
+  const cleaned = s.replace(/[$%,\s+]/g, "").toLowerCase(); // strip + (e.g. "5m+")
   if (!cleaned || cleaned === "-") return null;
   // Handle k/m suffixes: "100k" → 100000, "1.5m" → 1500000
   const match = cleaned.match(/^([\d.]+)([km]?)$/);
