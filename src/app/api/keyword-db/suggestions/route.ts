@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { listPendingSuggestions, approveSuggestions } from "@/lib/keyword-db";
+import { listPendingSuggestions, approveSuggestions, reEstimateAiKeywords, getKeyword } from "@/lib/keyword-db";
 
 async function requireAdmin(req: NextRequest) {
   const session = await auth();
@@ -33,5 +33,16 @@ export async function POST(req: NextRequest) {
   }
 
   const approved = await approveSuggestions(body.ids);
+
+  // Immediately fill metric gaps from current DB averages for the pushed keywords.
+  // Fetch the records to find which categories they belong to, then re-estimate.
+  const records = await Promise.all(body.ids.map(id => getKeyword(id)));
+  const categories = [...new Set(
+    records.filter(Boolean).map(r => r!.category).filter(Boolean) as string[]
+  )];
+  if (categories.length > 0) {
+    reEstimateAiKeywords(categories).catch(() => {});
+  }
+
   return NextResponse.json({ approved, success: true });
 }

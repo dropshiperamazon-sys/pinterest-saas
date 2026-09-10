@@ -17,6 +17,7 @@ import {
   normalizeKeyword,
   getVerifiedKeywordsByCategory,
   listPendingSuggestions,
+  reEstimateAiKeywords,
   type DataSource,
 } from "@/lib/keyword-db";
 import { expandKeywords } from "@/lib/keyword-expander";
@@ -309,6 +310,15 @@ export async function POST(req: NextRequest) {
         }
       })
     );
+  }
+
+  // Re-estimate AI keywords in every category that received real data this upload.
+  // Fire-and-forget — don't block the response.
+  const categoriesImported = [
+    ...new Set(importedForExpansion.map(k => k.category).filter(Boolean) as string[])
+  ];
+  if (categoriesImported.length > 0) {
+    reEstimateAiKeywords(categoriesImported).catch(() => {});
   }
 
   // Record import history

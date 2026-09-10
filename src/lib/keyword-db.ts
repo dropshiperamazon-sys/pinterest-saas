@@ -485,6 +485,136 @@ export async function getVerifiedKeywordsByCategory(
     }));
 }
 
+// ── AI metric re-estimation ───────────────────────────────────────────────────
+// After any real data upload (or on push), re-compute estimated metrics for all
+// AI_INFERRED keywords in the affected categories using the latest real-data averages.
+// This keeps AI keyword estimates up-to-date as the dataset grows.
+
+const VARIANT_DISCOUNT = 0.7;
+
+function avgNums(nums: number[]): number | null {
+  const valid = nums.filter(n => !isNaN(n));
+  if (valid.length === 0) return null;
+  return valid.reduce((a, b) => a + b, 0) / valid.length;
+}
+
+function mostCommon(vals: string[]): string | null {
+  if (vals.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (const v of vals) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
+interface MetricBucket {
+  searches: number[];
+  cpcs: number[];
+  competitions: string[];
+}
+
+function buildBuckets(pool: Pick<KeywordRecord, "category" | "subcategory" | "monthlySearches" | "avgCpc" | "competition">[]) {
+  const bySubcat = new Map<string, MetricBucket>();
+  const byCat = new Map<string, MetricBucket>();
+  for (const kw of pool) {
+    const cat = (kw.category ?? "").toLowerCase().trim();
+    const sub = (kw.subcategory ?? "").toLowerCase().trim();
+    const addTo = (m: Map<string, MetricBucket>, key: string) => {
+      if (!key) return;
+      if (!m.has(key)) m.set(key, { searches: [], cpcs: [], competitions: [] });
+      const b = m.get(key)!;
+      if (kw.monthlySearches != null) b.searches.push(kw.monthlySearches);
+      if (kw.avgCpc != null) b.cpcs.push(kw.avgCpc);
+      if (kw.competition) b.competitions.push(kw.competition);
+    };
+    addTo(byCat, cat);
+    addTo(bySubcat, sub);
+  }
+  return { bySubcat, byCat };
+}
+
+function estimateFromBuckets(
+  subcategory: string | null,
+  category: string | null,
+  bySubcat: Map<string, MetricBucket>,
+  byCat: Map<string, MetricBucket>,
+): { monthlySearches: number | null; avgCpc: number | null; competition: "low" | "medium" | "high" | null } {
+  const sub = subcategory?.toLowerCase().trim() ?? "";
+  const cat = (category ?? "").toLowerCase().trim();
+  const bucket = (sub && bySubcat.get(sub)) || byCat.get(cat) || null;
+  if (!bucket) return { monthlySearches: null, avgCpc: null, competition: null };
+  const searches = avgNums(bucket.searches);
+  const cpc = avgNums(bucket.cpcs);
+  const competition = mostCommon(bucket.competitions) as "low" | "medium" | "high" | null;
+  return {
+    monthlySearches: searches != null ? Math.round(searches * VARIANT_DISCOUNT) : null,
+    avgCpc: cpc != null ? Math.round(cpc * VARIANT_DISCOUNT * 100) / 100 : null,
+    competition,
+  };
+}
+
+// Re-estimate metrics for all AI_INFERRED keywords in the given categories.
+// Pass categories=[] to re-estimate ALL AI keywords across the entire DB.
+export async function reEstimateAiKeywords(categories: string[]): Promise<number> {
+  // Build the pool of real data for the requested categories
+  const catKeys = categories.length > 0
+    ? [...new Set(categories.map(c => c.toLowerCase().replace(/\s+/g, "_")))]
+    : null; // null = all
+
+  // Gather AI_INFERRED keyword IDs to update
+  let aiIds: string[] = [];
+  if (catKeys) {
+    const idSets = await Promise.all(catKeys.map(k => redis.smembers(`kwdb:idx:cat:${k}`)));
+    aiIds = [...new Set(idSets.flat() as string[])];
+  } else {
+    aiIds = (await redis.zrange("kwdb:idx:all", 0, -1)) as string[];
+  }
+  if (aiIds.length === 0) return 0;
+
+  // Fetch all AI_INFERRED records
+  const allRecords = await Promise.all(aiIds.map(id => getKeyword(id)));
+  const aiRecords = allRecords.filter((r): r is KeywordRecord => r != null && r.source === "AI_INFERRED");
+  if (aiRecords.length === 0) return 0;
+
+  // Unique categories present in those records
+  const affectedCats = [...new Set(aiRecords.map(r => r.category).filter(Boolean) as string[])];
+
+  // Fetch real verified data pool for all affected categories
+  const poolRecords = (
+    await Promise.all(affectedCats.map(cat => getVerifiedKeywordsByCategory(cat, 500)))
+  ).flat() as (Pick<KeywordRecord, "category" | "subcategory" | "monthlySearches" | "avgCpc"> & { competition?: "low" | "medium" | "high" | null })[];
+
+  if (poolRecords.length === 0) return 0; // no real data yet — nothing to estimate from
+
+  const { bySubcat, byCat } = buildBuckets(poolRecords as any);
+
+  let updated = 0;
+  const now = Date.now();
+
+  await Promise.allSettled(
+    aiRecords.map(async (r) => {
+      const est = estimateFromBuckets(r.subcategory, r.category, bySubcat, byCat);
+      // Only update if we actually have new estimates to fill in
+      const changed =
+        (est.monthlySearches != null && est.monthlySearches !== r.monthlySearches) ||
+        (est.avgCpc != null && est.avgCpc !== r.avgCpc) ||
+        (est.competition != null && est.competition !== r.competition);
+      if (!changed) return;
+
+      const updatedRecord: KeywordRecord = {
+        ...r,
+        monthlySearches: est.monthlySearches ?? r.monthlySearches,
+        avgCpc: est.avgCpc ?? r.avgCpc,
+        competition: est.competition ?? r.competition,
+        confidence: "ESTIMATED",
+        updatedAt: now,
+      };
+      await redis.set(kwKey(r.id), JSON.stringify(updatedRecord));
+      updated++;
+    })
+  );
+
+  return updated;
+}
+
 // ── Import History ────────────────────────────────────────────────────────────
 
 export async function recordImport(rec: Omit<ImportRecord, "id" | "importedAt">): Promise<ImportRecord> {
