@@ -135,6 +135,8 @@ export async function POST(req: NextRequest) {
   let updatedKeywords = 0;
   let duplicateRows = 0;
   const errors: string[] = [];
+  const newKeywordIds: string[] = [];
+  const updatedKeywordIds: string[] = [];
   const importedForExpansion: { keyword: string; category: string | null; subcategory: string | null; country: string }[] = [];
   const importedNormalized = new Set<string>();
   // Track keyword+country combos seen in THIS file to reject within-file duplicates
@@ -214,8 +216,13 @@ export async function POST(req: NextRequest) {
           invalidRows++;
         } else {
           validRows++;
-          if (result.action === "created") newKeywords++;
-          else updatedKeywords++;
+          if (result.action === "created") {
+            newKeywords++;
+            newKeywordIds.push(result.id);
+          } else {
+            updatedKeywords++;
+            updatedKeywordIds.push(result.id);
+          }
         }
 
         // Track for pattern expansion only if actually saved (use first country only)
@@ -285,7 +292,9 @@ export async function POST(req: NextRequest) {
     newKeywords,
     updatedKeywords,
     duplicateRows,
-    errors: errors.slice(0, 50), // cap stored errors
+    errors: errors.slice(0, 50),
+    newKeywordIds: newKeywordIds.slice(0, 500), // cap to avoid huge payloads
+    updatedKeywordIds: updatedKeywordIds.slice(0, 500),
   });
 
   return NextResponse.json({

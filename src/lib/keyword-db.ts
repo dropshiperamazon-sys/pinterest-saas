@@ -111,6 +111,8 @@ export interface ImportRecord {
   duplicateRows: number;
   errors: string[];
   importedAt: number;
+  newKeywordIds?: string[];    // IDs of newly created keywords
+  updatedKeywordIds?: string[]; // IDs of updated keywords
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

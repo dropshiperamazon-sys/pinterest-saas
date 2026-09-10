@@ -82,6 +82,9 @@ export default function AdminKeywordsPage() {
   const [topSearched, setTopSearched] = useState<{ keyword: string; country: string; searchCount: number; hasData: boolean }[]>([]);
   const [topLoading, setTopLoading] = useState(false);
   const [topDays, setTopDays] = useState(30);
+  const [kwModal, setKwModal] = useState<{ importId: string; type: "new" | "updated"; label: string } | null>(null);
+  const [kwModalData, setKwModalData] = useState<{ keyword: string; country: string; category: string | null; subcategory: string | null; monthlySearches: number | null; competition: string | null; source: string }[]>([]);
+  const [kwModalLoading, setKwModalLoading] = useState(false);
 
   const loadGaps = useCallback(async () => {
     setGapsLoading(true);
@@ -158,6 +161,19 @@ export default function AdminKeywordsPage() {
     const reader = new FileReader();
     reader.onload = ev => setCsvText(ev.target?.result as string ?? "");
     reader.readAsText(file);
+  }
+
+  async function openKwModal(importId: string, type: "new" | "updated", label: string) {
+    setKwModal({ importId, type, label });
+    setKwModalLoading(true);
+    setKwModalData([]);
+    try {
+      const res = await fetch(`/api/keyword-db/import-keywords?importId=${importId}&type=${type}`);
+      const data = await res.json();
+      setKwModalData(data.keywords ?? []);
+    } finally {
+      setKwModalLoading(false);
+    }
   }
 
   const fmt = (n: number) => new Date(n).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -436,8 +452,16 @@ living room decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Living Room,Pin
                     <span className="col-span-2 text-xs text-gray-700 truncate">{imp.importedBy}</span>
                     <span className="col-span-2 text-xs text-gray-600 truncate">{imp.source}</span>
                     <span className="col-span-1 text-center text-sm font-bold text-gray-800">{imp.totalRows}</span>
-                    <span className="col-span-1 text-center text-sm font-bold text-green-700">{imp.newKeywords}</span>
-                    <span className="col-span-1 text-center text-sm font-bold text-blue-700">{imp.updatedKeywords}</span>
+                    <button
+                      onClick={() => imp.newKeywords > 0 && openKwModal(imp.id, "new", `New keywords — ${fmt(imp.importedAt)}`)}
+                      disabled={imp.newKeywords === 0}
+                      className="col-span-1 text-center text-sm font-bold text-green-700 underline decoration-dotted hover:text-green-900 disabled:no-underline disabled:cursor-default"
+                    >{imp.newKeywords}</button>
+                    <button
+                      onClick={() => imp.updatedKeywords > 0 && openKwModal(imp.id, "updated", `Updated keywords — ${fmt(imp.importedAt)}`)}
+                      disabled={imp.updatedKeywords === 0}
+                      className="col-span-1 text-center text-sm font-bold text-blue-700 underline decoration-dotted hover:text-blue-900 disabled:no-underline disabled:cursor-default"
+                    >{imp.updatedKeywords}</button>
                     <span className="col-span-1 text-center text-sm font-bold text-red-500">{imp.invalidRows}</span>
                     <div className="col-span-2 flex justify-center">
                       <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full",
@@ -450,6 +474,63 @@ living room decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Living Room,Pin
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── KEYWORD MODAL ── */}
+        {kwModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setKwModal(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-900">{kwModal.label}</h3>
+                <button onClick={() => setKwModal(null)} className="text-gray-400 hover:text-gray-700 text-lg font-bold">×</button>
+              </div>
+              <div className="overflow-y-auto flex-1">
+                {kwModalLoading ? (
+                  <div className="flex items-center justify-center py-12 text-gray-400">
+                    <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Loading...
+                  </div>
+                ) : kwModalData.length === 0 ? (
+                  <div className="text-center py-12 text-sm text-gray-400">No keyword data available for older imports.</div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-12 bg-gray-50 px-4 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                      <span className="col-span-5">Keyword</span>
+                      <span className="col-span-1">Country</span>
+                      <span className="col-span-2">Category</span>
+                      <span className="col-span-2 text-center">Searches</span>
+                      <span className="col-span-2 text-center">Competition</span>
+                    </div>
+                    <div className="divide-y divide-gray-50">
+                      {kwModalData.map((kw, i) => (
+                        <div key={i} className="grid grid-cols-12 items-center px-4 py-2.5 hover:bg-gray-50/50">
+                          <span className="col-span-5 text-sm font-medium text-gray-800 truncate">{kw.keyword}</span>
+                          <span className="col-span-1 text-xs font-mono text-gray-500">{kw.country}</span>
+                          <div className="col-span-2 text-xs text-gray-500 truncate">
+                            {kw.subcategory ? `${kw.category} / ${kw.subcategory}` : (kw.category ?? "—")}
+                          </div>
+                          <span className="col-span-2 text-center text-sm font-semibold text-gray-700">
+                            {kw.monthlySearches != null ? kw.monthlySearches.toLocaleString() : "—"}
+                          </span>
+                          <span className="col-span-2 text-center">
+                            {kw.competition ? (
+                              <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full",
+                                kw.competition === "high" ? "bg-red-100 text-red-700" :
+                                kw.competition === "medium" ? "bg-yellow-100 text-yellow-700" :
+                                "bg-green-100 text-green-700"
+                              )}>{kw.competition}</span>
+                            ) : "—"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="px-5 py-3 border-t border-gray-100 text-xs text-gray-400 text-right">
+                {kwModalData.length} keyword{kwModalData.length !== 1 ? "s" : ""}
+              </div>
+            </div>
           </div>
         )}
 
