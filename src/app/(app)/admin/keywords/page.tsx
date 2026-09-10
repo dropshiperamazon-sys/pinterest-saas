@@ -796,7 +796,8 @@ living room decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Living Room,Pin
                           if (res.ok) {
                             setImports(prev => prev.filter(r => r.id !== imp.id));
                           } else {
-                            alert(`Delete failed: ${res.status} ${res.statusText}`);
+                            const errData = await res.json().catch(() => ({})) as { error?: string };
+                            alert(`Delete failed: ${res.status} — ${errData.error ?? res.statusText}`);
                           }
                         }}
                         title="Delete import record"

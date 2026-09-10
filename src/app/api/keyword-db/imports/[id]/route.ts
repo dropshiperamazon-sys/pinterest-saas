@@ -13,6 +13,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   const { id } = await params;
-  await deleteImport(id);
+  try {
+    await deleteImport(id);
+  } catch (err) {
+    console.error("deleteImport error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
   return NextResponse.json({ success: true });
 }
