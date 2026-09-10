@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
   const errors: string[] = [];
   const newKeywordIds: string[] = [];
   const updatedKeywordIds: string[] = [];
-  const importedForExpansion: { keyword: string; category: string | null; subcategory: string | null; country: string }[] = [];
+  const importedForExpansion: { keyword: string; category: string | null; subcategory: string | null; country: string; monthlySearches: number | null; avgCpc: number | null }[] = [];
   const importedNormalized = new Set<string>();
   // Track keyword+country combos seen in THIS file to reject within-file duplicates
   const seenInFile = new Set<string>();
@@ -227,7 +227,7 @@ export async function POST(req: NextRequest) {
 
         // Track for pattern expansion only if actually saved (use first country only)
         if (result.action !== "skipped" && countries.indexOf(country) === 0) {
-          importedForExpansion.push({ keyword, category, subcategory, country });
+          importedForExpansion.push({ keyword, category, subcategory, country, monthlySearches, avgCpc });
           importedNormalized.add(norm);
         }
       } catch (e) {
@@ -251,19 +251,20 @@ export async function POST(req: NextRequest) {
     await Promise.allSettled(
       suggestions.map(async (s) => {
         try {
+          const hasEstimate = s.estimatedMonthlySearches != null || s.estimatedAvgCpc != null;
           const result = await upsertKeyword({
             keyword: s.keyword,
             country: defaultCountry,
             language: "en",
-            monthlySearches: null,
+            monthlySearches: s.estimatedMonthlySearches ?? null,
             competition: null,
-            avgCpc: null,
+            avgCpc: s.estimatedAvgCpc ?? null,
             trend: null,
             category: s.category,
             subcategory: s.subcategory,
             source: "AI_INFERRED",
             sourceReference: `expanded from: ${s.basedOn}`,
-            confidence: "UNVERIFIED",
+            confidence: hasEstimate ? "ESTIMATED" : "UNVERIFIED",
             lastVerifiedAt: null,
           });
           if (result.action === "created") {

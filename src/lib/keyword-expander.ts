@@ -1,8 +1,12 @@
 // Pattern-based keyword expander — no external AI API required.
 //
-// Learns patterns from imported keywords and generates new keyword suggestions
-// within the same category. All suggestions are stored as AI_INFERRED with
-// no fabricated metrics — they appear as Data Requests for the admin to fill.
+// Learns patterns from imported keywords and generates sibling keyword suggestions
+// within the same category. Metric estimates are derived from real imported data:
+//   - Averages monthly_searches and avg_cpc across same-subcategory seeds
+//   - Falls back to category-level averages if no subcategory match
+//   - Applies a 0.7× discount (variants are typically lower-volume than the seed)
+// Suggestions with real estimates are stored as AI_INFERRED / ESTIMATED.
+// Suggestions with no data at all remain UNVERIFIED / gap-only.
 
 // ── Category modifier dictionaries ───────────────────────────────────────────
 
@@ -119,14 +123,77 @@ export interface GeneratedKeyword {
   category: string;
   subcategory: string | null;
   basedOn: string; // the source keyword this was derived from
+  estimatedMonthlySearches: number | null;
+  estimatedAvgCpc: number | null;
+}
+
+// Compute average of non-null numbers, rounded to nearest integer (for searches) or 2dp (for CPC)
+function avg(nums: number[]): number | null {
+  const valid = nums.filter(n => n != null && !isNaN(n));
+  if (valid.length === 0) return null;
+  return valid.reduce((a, b) => a + b, 0) / valid.length;
+}
+
+// Build lookup maps: subcategory → avg metrics, category → avg metrics
+function buildMetricMaps(
+  importedKeywords: { category: string | null; subcategory?: string | null; monthlySearches?: number | null; avgCpc?: number | null }[],
+) {
+  const bySubcat = new Map<string, { searches: number[]; cpcs: number[] }>();
+  const byCat = new Map<string, { searches: number[]; cpcs: number[] }>();
+
+  for (const kw of importedKeywords) {
+    const cat = (kw.category ?? "").toLowerCase().trim();
+    const sub = (kw.subcategory ?? "").toLowerCase().trim();
+
+    if (cat) {
+      if (!byCat.has(cat)) byCat.set(cat, { searches: [], cpcs: [] });
+      const catBucket = byCat.get(cat)!;
+      if (kw.monthlySearches != null) catBucket.searches.push(kw.monthlySearches);
+      if (kw.avgCpc != null) catBucket.cpcs.push(kw.avgCpc);
+    }
+    if (sub) {
+      if (!bySubcat.has(sub)) bySubcat.set(sub, { searches: [], cpcs: [] });
+      const subBucket = bySubcat.get(sub)!;
+      if (kw.monthlySearches != null) subBucket.searches.push(kw.monthlySearches);
+      if (kw.avgCpc != null) subBucket.cpcs.push(kw.avgCpc);
+    }
+  }
+
+  return { bySubcat, byCat };
+}
+
+const VARIANT_DISCOUNT = 0.7; // siblings are ~70% of seed volume
+
+function estimateMetrics(
+  subcategory: string | null,
+  category: string,
+  bySubcat: Map<string, { searches: number[]; cpcs: number[] }>,
+  byCat: Map<string, { searches: number[]; cpcs: number[] }>,
+): { estimatedMonthlySearches: number | null; estimatedAvgCpc: number | null } {
+  const sub = subcategory?.toLowerCase().trim() ?? "";
+  const cat = category.toLowerCase().trim();
+
+  const bucket = (sub && bySubcat.get(sub)) || byCat.get(cat) || null;
+  if (!bucket) return { estimatedMonthlySearches: null, estimatedAvgCpc: null };
+
+  const searches = avg(bucket.searches);
+  const cpc = avg(bucket.cpcs);
+
+  return {
+    estimatedMonthlySearches: searches != null ? Math.round(searches * VARIANT_DISCOUNT) : null,
+    estimatedAvgCpc: cpc != null ? Math.round(cpc * VARIANT_DISCOUNT * 100) / 100 : null,
+  };
 }
 
 export function expandKeywords(
-  importedKeywords: { keyword: string; category: string | null; subcategory?: string | null; country: string }[],
+  importedKeywords: { keyword: string; category: string | null; subcategory?: string | null; country: string; monthlySearches?: number | null; avgCpc?: number | null }[],
   existingKeywords: Set<string>, // normalized existing keywords to avoid dupes
 ): GeneratedKeyword[] {
   const generated: GeneratedKeyword[] = [];
   const seen = new Set<string>(existingKeywords);
+
+  // Build metric lookup maps from real imported data
+  const { bySubcat, byCat } = buildMetricMaps(importedKeywords);
 
   // Group by category
   const byCategory = new Map<string, typeof importedKeywords>();
@@ -183,7 +250,8 @@ export function expandKeywords(
             seen.add(newKw);
             // Derived subcategory = the room type we expanded into
             const derivedSub = room.charAt(0).toUpperCase() + room.slice(1);
-            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: derivedSub, basedOn: keyword });
+            const est = estimateMetrics(derivedSub, category ?? catKey, bySubcat, byCat);
+            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: derivedSub, basedOn: keyword, ...est });
           }
         }
       }
@@ -196,7 +264,8 @@ export function expandKeywords(
           const newKw = `${style} ${keyword}`.trim();
           if (!seen.has(newKw) && newKw.length > 3) {
             seen.add(newKw);
-            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: subcategory ?? null, basedOn: keyword });
+            const est = estimateMetrics(subcategory ?? null, category ?? catKey, bySubcat, byCat);
+            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: subcategory ?? null, basedOn: keyword, ...est });
           }
         }
       }
@@ -209,7 +278,8 @@ export function expandKeywords(
           const newKw = `${keyword} ${qual}`.trim();
           if (!seen.has(newKw) && newKw.length > 3) {
             seen.add(newKw);
-            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: subcategory ?? null, basedOn: keyword });
+            const est = estimateMetrics(subcategory ?? null, category ?? catKey, bySubcat, byCat);
+            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: subcategory ?? null, basedOn: keyword, ...est });
           }
         }
       }
