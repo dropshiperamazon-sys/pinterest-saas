@@ -146,111 +146,92 @@ export async function POST(req: NextRequest) {
 
   const idx = (name: string) => header.indexOf(name);
 
-  // Process rows
+  // Parse all valid data rows first (synchronous, no I/O)
+  type ParsedRow = {
+    rowNum: number; keyword: string; countries: string[];
+    monthlySearches: number | null; avgCpc: number | null; trend: number | null;
+    competition: "low" | "medium" | "high" | null; language: string;
+    category: string | null; subcategory: string | null;
+    source: DataSource; sourceReference: string | null; norm: string;
+  };
+  const parsedRows: ParsedRow[] = [];
+  const seenInFile = new Set<string>();
+  const earlyErrors: string[] = [];
+  let earlyInvalid = 0;
+  let earlyDuplicates = 0;
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.every(f => !f)) continue;
+    const keyword = row[idx("keyword")]?.trim();
+    const countryRaw = row[idx("country")]?.trim().toUpperCase() ?? "";
+    if (!keyword || keyword.length < 2) { earlyErrors.push(`Row ${i + 1}: keyword is empty or too short`); earlyInvalid++; continue; }
+    const countries = countryRaw.split("|").map(c => c.trim()).filter(Boolean);
+    if (countries.length === 0) { earlyErrors.push(`Row ${i + 1}: country is required`); earlyInvalid++; continue; }
+    const invalidCountries = countries.filter(c => c.length !== 2);
+    if (invalidCountries.length > 0) { earlyErrors.push(`Row ${i + 1}: invalid country code(s): ${invalidCountries.join(", ")}`); earlyInvalid++; continue; }
+    const norm = normalizeKeyword(keyword);
+    const duplicateCountries = countries.filter(c => seenInFile.has(`${norm}:::${c}`));
+    if (duplicateCountries.length > 0) { earlyErrors.push(`Row ${i + 1}: duplicate "${keyword}" for ${duplicateCountries.join(", ")} in this file`); earlyDuplicates += duplicateCountries.length; earlyInvalid++; continue; }
+    for (const c of countries) seenInFile.add(`${norm}:::${c}`);
+    parsedRows.push({
+      rowNum: i + 1, keyword, countries, norm,
+      monthlySearches: parseNum(row[idx("monthly_searches")] ?? ""),
+      avgCpc: parseNum(row[idx("avg_cpc")] ?? ""),
+      trend: parseNum(row[idx("trend")] ?? ""),
+      competition: parseCompetition(row[idx("competition")] ?? ""),
+      language: row[idx("language")]?.trim() || "en",
+      category: row[idx("category")]?.trim() || null,
+      subcategory: row[idx("subcategory")]?.trim() || null,
+      source: mapSource(row[idx("source")]?.trim() || "ADMIN_IMPORTED"),
+      sourceReference: row[idx("source_reference")]?.trim() || row[idx("source")]?.trim() || null,
+    });
+  }
+
+  // Upsert all keyword×country pairs in parallel
   let validRows = 0;
-  let invalidRows = 0;
+  let invalidRows = earlyInvalid;
   let newKeywords = 0;
   let updatedKeywords = 0;
-  let duplicateRows = 0;
-  const errors: string[] = [];
+  let duplicateRows = earlyDuplicates;
+  const errors: string[] = [...earlyErrors];
   const newKeywordIds: string[] = [];
   const updatedKeywordIds: string[] = [];
   const importedForExpansion: { keyword: string; category: string | null; subcategory: string | null; country: string; monthlySearches: number | null; avgCpc: number | null }[] = [];
   const importedNormalized = new Set<string>();
-  // Track keyword+country combos seen in THIS file to reject within-file duplicates
-  const seenInFile = new Set<string>();
 
-  for (let i = 1; i < rows.length; i++) {
-    const row = rows[i];
-    if (row.every(f => !f)) continue; // skip blank lines
+  const upsertTasks = parsedRows.flatMap(p =>
+    p.countries.map(country => ({ p, country }))
+  );
 
-    const keyword = row[idx("keyword")]?.trim();
-    const countryRaw = row[idx("country")]?.trim().toUpperCase() ?? "";
+  const results = await Promise.allSettled(
+    upsertTasks.map(({ p, country }) =>
+      upsertKeyword({
+        keyword: p.keyword, country, language: p.language,
+        monthlySearches: p.monthlySearches, competition: p.competition,
+        avgCpc: p.avgCpc, trend: p.trend, category: p.category,
+        subcategory: p.subcategory, source: p.source,
+        sourceReference: p.sourceReference, confidence: "VERIFIED",
+        lastVerifiedAt: Date.now(),
+      }).then(result => ({ p, country, result }))
+    )
+  );
 
-    if (!keyword || keyword.length < 2) {
-      errors.push(`Row ${i + 1}: keyword is empty or too short`);
-      invalidRows++;
-      continue;
-    }
-
-    // Support multiple countries separated by | e.g. "US|GB|AU"
-    const countries = countryRaw.split("|").map(c => c.trim()).filter(Boolean);
-    if (countries.length === 0) {
-      errors.push(`Row ${i + 1}: country is required`);
-      invalidRows++;
-      continue;
-    }
-    const invalidCountries = countries.filter(c => c.length !== 2);
-    if (invalidCountries.length > 0) {
-      errors.push(`Row ${i + 1}: invalid country code(s): ${invalidCountries.join(", ")} — must be 2-letter ISO codes`);
-      invalidRows++;
-      continue;
-    }
-
-    const monthlySearches = parseNum(row[idx("monthly_searches")] ?? "");
-    const avgCpc = parseNum(row[idx("avg_cpc")] ?? "");
-    const trend = parseNum(row[idx("trend")] ?? "");
-    const competition = parseCompetition(row[idx("competition")] ?? "");
-    const language = row[idx("language")]?.trim() || "en";
-    const category = row[idx("category")]?.trim() || null;
-    const subcategory = row[idx("subcategory")]?.trim() || null;
-    const sourceRaw = row[idx("source")]?.trim() || "ADMIN_IMPORTED";
-    const source = mapSource(sourceRaw);
-    const sourceReference = row[idx("source_reference")]?.trim() || sourceRaw || null;
-    const norm = normalizeKeyword(keyword);
-
-    // Check for duplicates within this file before processing
-    const duplicateCountries = countries.filter(c => seenInFile.has(`${norm}:::${c}`));
-    if (duplicateCountries.length > 0) {
-      errors.push(`Row ${i + 1}: duplicate keyword "${keyword}" for country ${duplicateCountries.join(", ")} — already exists in this file, row rejected`);
-      duplicateRows += duplicateCountries.length;
-      invalidRows++;
-      continue;
-    }
-    // Mark all countries in this row as seen
-    for (const c of countries) seenInFile.add(`${norm}:::${c}`);
-
-    for (const country of countries) {
-      try {
-        const result = await upsertKeyword({
-          keyword,
-          country,
-          language,
-          monthlySearches,
-          competition,
-          avgCpc,
-          trend,
-          category,
-          subcategory,
-          source,
-          sourceReference,
-          confidence: "VERIFIED",
-          lastVerifiedAt: Date.now(),
-        });
-
-        if (result.action === "skipped") {
-          errors.push(`Row ${i + 1} (${country}): duplicate — "${keyword}" already exists with higher-quality data, rejected`);
-          duplicateRows++;
-          invalidRows++;
-        } else {
-          validRows++;
-          if (result.action === "created") {
-            newKeywords++;
-            newKeywordIds.push(result.id);
-          } else {
-            updatedKeywords++;
-            updatedKeywordIds.push(result.id);
-          }
-        }
-
-        // Track for pattern expansion only if actually saved (use first country only)
-        if (result.action !== "skipped" && countries.indexOf(country) === 0) {
-          importedForExpansion.push({ keyword, category, subcategory, country, monthlySearches, avgCpc });
-          importedNormalized.add(norm);
-        }
-      } catch (e) {
-        errors.push(`Row ${i + 1} (${country}): ${String(e)}`);
-        invalidRows++;
+  const firstCountryAdded = new Set<string>(); // norm — track first successful country per keyword
+  for (const settled of results) {
+    if (settled.status === "rejected") { invalidRows++; continue; }
+    const { p, country, result } = settled.value;
+    if (result.action === "skipped") {
+      errors.push(`Row ${p.rowNum} (${country}): duplicate — skipped`);
+      duplicateRows++; invalidRows++;
+    } else {
+      validRows++;
+      if (result.action === "created") { newKeywords++; newKeywordIds.push(result.id); }
+      else { updatedKeywords++; updatedKeywordIds.push(result.id); }
+      if (!firstCountryAdded.has(p.norm)) {
+        firstCountryAdded.add(p.norm);
+        importedForExpansion.push({ keyword: p.keyword, category: p.category, subcategory: p.subcategory, country, monthlySearches: p.monthlySearches, avgCpc: p.avgCpc });
+        importedNormalized.add(p.norm);
       }
     }
   }
