@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
-  upsertKeyword,
+  batchUpsertKeywords,
   recordImport,
   normalizeKeyword,
   type DataSource,
@@ -204,23 +204,22 @@ export async function POST(req: NextRequest) {
     p.countries.map(country => ({ p, country }))
   );
 
-  const results = await Promise.allSettled(
-    upsertTasks.map(({ p, country }) =>
-      upsertKeyword({
-        keyword: p.keyword, country, language: p.language,
-        monthlySearches: p.monthlySearches, competition: p.competition,
-        avgCpc: p.avgCpc, trend: p.trend, category: p.category,
-        subcategory: p.subcategory, source: p.source,
-        sourceReference: p.sourceReference, confidence: "VERIFIED",
-        lastVerifiedAt: Date.now(),
-      }).then(result => ({ p, country, result }))
-    )
-  );
+  const batchItems = upsertTasks.map(({ p, country }) => ({
+    keyword: p.keyword, country, language: p.language,
+    monthlySearches: p.monthlySearches, competition: p.competition,
+    avgCpc: p.avgCpc, trend: p.trend, category: p.category,
+    subcategory: p.subcategory, source: p.source,
+    sourceReference: p.sourceReference, confidence: "VERIFIED" as const,
+    lastVerifiedAt: Date.now(),
+  }));
 
-  const firstCountryAdded = new Set<string>(); // norm — track first successful country per keyword
-  for (const settled of results) {
-    if (settled.status === "rejected") { invalidRows++; continue; }
-    const { p, country, result } = settled.value;
+  const batchResults = await batchUpsertKeywords(batchItems);
+
+  const firstCountryAdded = new Set<string>();
+  for (let i = 0; i < upsertTasks.length; i++) {
+    const { p, country } = upsertTasks[i];
+    const result = batchResults[i];
+    if (!result) { invalidRows++; continue; }
     if (result.action === "skipped") {
       errors.push(`Row ${p.rowNum} (${country}): duplicate — skipped`);
       duplicateRows++; invalidRows++;

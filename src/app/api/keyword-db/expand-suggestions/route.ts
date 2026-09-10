@@ -5,13 +5,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
-  upsertKeyword,
+  batchUpsertKeywords,
   recordDataGap,
   normalizeKeyword,
   getVerifiedKeywordsByCategory,
   listPendingSuggestions,
   reEstimateAiKeywords,
-  type DataSource,
 } from "@/lib/keyword-db";
 import { expandKeywords } from "@/lib/keyword-expander";
 import { Redis } from "@upstash/redis";
@@ -60,47 +59,36 @@ export async function POST(req: NextRequest) {
 
   let suggestionsGenerated = 0;
 
-  await Promise.allSettled(
-    suggestions.map(async (s) => {
-      try {
-        const hasEstimate = s.estimatedMonthlySearches != null || s.estimatedAvgCpc != null;
-        let createdAny = false;
-        for (const country of AI_COUNTRIES) {
-          const result = await upsertKeyword({
-            keyword: s.keyword,
-            country,
-            language: "en",
-            monthlySearches: s.estimatedMonthlySearches ?? null,
-            competition: null,
-            avgCpc: s.estimatedAvgCpc ?? null,
-            trend: null,
-            category: s.category,
-            subcategory: s.subcategory,
-            source: "AI_INFERRED",
-            sourceReference: `expanded from: ${s.basedOn}`,
-            confidence: hasEstimate ? "ESTIMATED" : "UNVERIFIED",
-            lastVerifiedAt: null,
-            pendingApproval: true,
-          });
-          if (result.action === "created" || result.action === "updated") {
-            suggestionsGenerated++;
-            if (!createdAny) {
-              createdAny = true;
-              if (result.action === "created") {
-                await recordDataGap({
-                  keyword: s.keyword,
-                  country,
-                  missingFields: ["monthly_searches", "competition", "avg_cpc"],
-                });
-              }
-            }
-          }
-        }
-      } catch {
-        // Non-critical
+  const expandItems = suggestions.flatMap(s => {
+    const hasEstimate = s.estimatedMonthlySearches != null || s.estimatedAvgCpc != null;
+    return AI_COUNTRIES.map(country => ({
+      keyword: s.keyword, country, language: "en" as const,
+      monthlySearches: s.estimatedMonthlySearches ?? null, competition: null as null,
+      avgCpc: s.estimatedAvgCpc ?? null, trend: null as null,
+      category: s.category, subcategory: s.subcategory,
+      source: "AI_INFERRED" as const,
+      sourceReference: `expanded from: ${s.basedOn}`,
+      confidence: (hasEstimate ? "ESTIMATED" : "UNVERIFIED") as "ESTIMATED" | "UNVERIFIED",
+      lastVerifiedAt: null as null, pendingApproval: true,
+      _suggestion: s,
+    }));
+  });
+
+  const expandResults = await batchUpsertKeywords(expandItems).catch(() => [] as never[]);
+
+  const gapFiredFor = new Set<string>();
+  for (let i = 0; i < expandItems.length; i++) {
+    const item = expandItems[i];
+    const result = expandResults[i];
+    if (!result) continue;
+    if (result.action === "created" || result.action === "updated") {
+      suggestionsGenerated++;
+      if (result.action === "created" && !gapFiredFor.has(item.keyword)) {
+        gapFiredFor.add(item.keyword);
+        recordDataGap({ keyword: item.keyword, country: item.country, missingFields: ["monthly_searches", "competition", "avg_cpc"] }).catch(() => {});
       }
-    })
-  );
+    }
+  }
 
   // Re-estimate metrics for all affected categories
   if (uniqueCategories.length > 0) {

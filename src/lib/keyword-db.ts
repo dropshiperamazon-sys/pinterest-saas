@@ -256,6 +256,136 @@ export async function upsertKeyword(
   return { action: "created", id };
 }
 
+// Batch upsert — pipelines Redis reads then writes to minimize round-trips.
+// Processes up to 500 keyword×country pairs in ~3 HTTP round-trips instead of N*4.
+export async function batchUpsertKeywords(
+  items: Array<Omit<KeywordRecord, "id" | "normalizedKeyword" | "createdAt" | "updatedAt"> & { normalizedKeyword?: string; subcategory?: string | null; pendingApproval?: boolean }>
+): Promise<Array<{ action: "created" | "updated" | "skipped"; id: string }>> {
+  if (items.length === 0) return [];
+  const now = Date.now();
+
+  // Step 1: Pipeline all lookup GETs
+  const lookupPipeline = redis.pipeline();
+  const normsAndCountries = items.map(item => ({
+    norm: item.normalizedKeyword ?? normalizeKeyword(item.keyword),
+    country: item.country.toUpperCase(),
+  }));
+  for (const { norm, country } of normsAndCountries) {
+    lookupPipeline.get(lookupKey(norm, country));
+  }
+  const existingIds = (await lookupPipeline.exec()) as Array<string | null>;
+
+  // Step 2: Pipeline GETs for all existing records
+  const existingIdSet = new Set<string>();
+  for (const id of existingIds) { if (id) existingIdSet.add(id); }
+  const uniqueIds = [...existingIdSet];
+  let existingRecordsMap = new Map<string, KeywordRecord>();
+  if (uniqueIds.length > 0) {
+    const recPipeline = redis.pipeline();
+    for (const id of uniqueIds) recPipeline.get(kwKey(id));
+    const raws = (await recPipeline.exec()) as Array<string | null>;
+    for (let i = 0; i < uniqueIds.length; i++) {
+      const raw = raws[i];
+      if (raw) {
+        const rec = (typeof raw === "string" ? JSON.parse(raw) : raw) as KeywordRecord;
+        existingRecordsMap.set(uniqueIds[i], rec);
+      }
+    }
+  }
+
+  // Step 3: Get next IDs for new records (single incr per batch)
+  const newCount = existingIds.filter(id => !id || !existingRecordsMap.has(id)).length;
+  let nextSeq = 0;
+  if (newCount > 0) {
+    nextSeq = (await redis.incrby("kwdb:seq:kw", newCount)) - newCount + 1;
+  }
+
+  // Step 4: Build all write operations
+  const results: Array<{ action: "created" | "updated" | "skipped"; id: string }> = [];
+  const writePipeline = redis.pipeline();
+  let newIdx = 0;
+
+  for (let i = 0; i < items.length; i++) {
+    const data = items[i];
+    const { norm, country } = normsAndCountries[i];
+    const existingId = existingIds[i];
+    const isPinterestSrc = PINTEREST_SOURCES.has(data.source);
+    const setOpts = isPinterestSrc ? { ex: PINTEREST_TTL_SECONDS } : undefined;
+
+    if (existingId) {
+      const existing = existingRecordsMap.get(existingId);
+      if (existing) {
+        const incomingPriority = SOURCE_PRIORITY[data.source] ?? 10;
+        const existingPriority = SOURCE_PRIORITY[existing.source] ?? 10;
+
+        if (incomingPriority > existingPriority) {
+          // Lower quality — only fill nulls
+          const merged: KeywordRecord = {
+            ...existing,
+            monthlySearches: existing.monthlySearches ?? data.monthlySearches,
+            competition: existing.competition ?? data.competition,
+            avgCpc: existing.avgCpc ?? data.avgCpc,
+            trend: existing.trend ?? data.trend,
+            category: existing.category ?? data.category,
+            updatedAt: now,
+          };
+          writePipeline.set(kwKey(existingId), JSON.stringify(merged), setOpts as never);
+          results.push({ action: "skipped", id: existingId });
+        } else {
+          const shouldBePending = data.pendingApproval === true && !existing.pendingApproval;
+          const updated: KeywordRecord = {
+            ...existing,
+            keyword: data.keyword, normalizedKeyword: norm, country,
+            language: data.language || existing.language,
+            monthlySearches: data.monthlySearches ?? existing.monthlySearches,
+            competition: data.competition ?? existing.competition,
+            avgCpc: data.avgCpc ?? existing.avgCpc,
+            trend: data.trend ?? existing.trend,
+            category: data.category ?? existing.category,
+            subcategory: data.subcategory ?? existing.subcategory,
+            source: data.source, sourceReference: data.sourceReference ?? existing.sourceReference,
+            confidence: data.confidence, lastVerifiedAt: data.lastVerifiedAt ?? now,
+            updatedAt: now,
+            ...(shouldBePending ? { pendingApproval: true } : {}),
+          };
+          writePipeline.set(kwKey(existingId), JSON.stringify(updated), setOpts as never);
+          if (shouldBePending) writePipeline.zadd(PENDING_IDX, { score: existing.createdAt, member: existingId });
+          results.push({ action: "updated", id: existingId });
+        }
+        continue;
+      }
+    }
+
+    // New record
+    const id = `kw_${nextSeq + newIdx++}`;
+    const isPending = data.pendingApproval === true;
+    const record: KeywordRecord = {
+      id, keyword: data.keyword, normalizedKeyword: norm, country,
+      language: data.language || "en",
+      monthlySearches: data.monthlySearches ?? null,
+      competition: data.competition ?? null,
+      avgCpc: data.avgCpc ?? null,
+      trend: data.trend ?? null,
+      category: data.category ?? null,
+      subcategory: data.subcategory ?? null,
+      source: data.source, sourceReference: data.sourceReference ?? null,
+      confidence: data.confidence, lastVerifiedAt: data.lastVerifiedAt ?? now,
+      createdAt: now, updatedAt: now,
+      ...(isPending ? { pendingApproval: true } : {}),
+    };
+    writePipeline.set(kwKey(id), JSON.stringify(record), setOpts as never);
+    writePipeline.set(lookupKey(norm, country), id, setOpts as never);
+    writePipeline.zadd("kwdb:idx:all", { score: now, member: id });
+    writePipeline.sadd(`kwdb:idx:country:${country}`, id);
+    if (data.category) writePipeline.sadd(`kwdb:idx:cat:${data.category.toLowerCase().replace(/\s+/g, "_")}`, id);
+    if (isPending) writePipeline.zadd(PENDING_IDX, { score: now, member: id });
+    results.push({ action: "created", id });
+  }
+
+  await writePipeline.exec();
+  return results;
+}
+
 // ── Pending suggestion management ─────────────────────────────────────────────
 
 export async function listPendingSuggestions(limit = 5000): Promise<KeywordRecord[]> {
