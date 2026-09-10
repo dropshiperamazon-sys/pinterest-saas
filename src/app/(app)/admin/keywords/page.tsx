@@ -4,7 +4,7 @@ import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
 import {
   Upload, AlertCircle, CheckCircle, Clock, XCircle,
-  RefreshCw, Download, Database, BarChart2, FileText, TrendingUp,
+  RefreshCw, Download, Database, BarChart2, FileText, TrendingUp, Trash2,
 } from "lucide-react";
 
 type GapStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "REJECTED";
@@ -760,12 +760,23 @@ living room decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Living Room,Pin
                       className="col-span-1 text-center text-sm font-bold text-blue-700 underline decoration-dotted hover:text-blue-900 disabled:no-underline disabled:cursor-default"
                     >{imp.updatedKeywords}</button>
                     <span className="col-span-1 text-center text-sm font-bold text-red-500">{imp.invalidRows}</span>
-                    <div className="col-span-2 flex justify-center">
+                    <div className="col-span-2 flex items-center justify-center gap-2">
                       <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full",
                         imp.invalidRows === 0 ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
                       )}>
                         {imp.invalidRows === 0 ? "✓ Clean" : `${imp.invalidRows} errors`}
                       </span>
+                      <button
+                        onClick={async () => {
+                          if (!confirm("Delete this import record?")) return;
+                          await fetch(`/api/keyword-db/imports/${imp.id}`, { method: "DELETE" });
+                          setImports(prev => prev.filter(r => r.id !== imp.id));
+                        }}
+                        title="Delete import record"
+                        className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}

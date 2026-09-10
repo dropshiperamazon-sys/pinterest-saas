@@ -685,6 +685,13 @@ export async function listImports(limit = 20): Promise<ImportRecord[]> {
   return recs.filter(Boolean).map(r => (typeof r === "string" ? JSON.parse(r) : r) as ImportRecord);
 }
 
+export async function deleteImport(id: string): Promise<void> {
+  await Promise.all([
+    redis.del(importKey(id)),
+    redis.zrem("kwdb:import:idx", id),
+  ]);
+}
+
 // ── Search signal logging ─────────────────────────────────────────────────────
 
 export async function logSearchSignal(keyword: string, country: string): Promise<void> {
