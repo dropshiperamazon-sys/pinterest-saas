@@ -16,6 +16,7 @@ import {
   recordDataGap,
   normalizeKeyword,
   getVerifiedKeywordsByCategory,
+  listPendingSuggestions,
   type DataSource,
 } from "@/lib/keyword-db";
 import { expandKeywords } from "@/lib/keyword-expander";
@@ -257,9 +258,18 @@ export async function POST(req: NextRequest) {
       await Promise.all(uniqueCategories.map(cat => getVerifiedKeywordsByCategory(cat, 200)))
     ).flat();
 
+    // Fetch already-pending suggestions so the expander doesn't re-generate them.
+    // This ensures uploading a second CSV never duplicates or overwrites pending
+    // suggestions from a previous upload that haven't been pushed yet.
+    const existingPending = await listPendingSuggestions(1000);
+    const alreadyPendingNorms = new Set(existingPending.map(kw => normalizeKeyword(kw.keyword)));
+
+    // Merge: current upload keywords + already-pending normalized keywords
+    const skipSet = new Set([...importedNormalized, ...alreadyPendingNorms]);
+
     // importedForExpansion = seeds (used for pattern generation + metrics)
     // historicalMetrics    = metric-only pool (improves estimates, not expanded)
-    const suggestions = expandKeywords(importedForExpansion, importedNormalized, historicalMetrics);
+    const suggestions = expandKeywords(importedForExpansion, skipSet, historicalMetrics);
     // Use the country from the first imported keyword as default
     const defaultCountry = importedForExpansion[0]?.country ?? "US";
     await Promise.allSettled(
