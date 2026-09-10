@@ -117,11 +117,12 @@ function extractPattern(keyword: string, categoryKey: string): ExtractedPattern 
 export interface GeneratedKeyword {
   keyword: string;
   category: string;
+  subcategory: string | null;
   basedOn: string; // the source keyword this was derived from
 }
 
 export function expandKeywords(
-  importedKeywords: { keyword: string; category: string | null; country: string }[],
+  importedKeywords: { keyword: string; category: string | null; subcategory?: string | null; country: string }[],
   existingKeywords: Set<string>, // normalized existing keywords to avoid dupes
 ): GeneratedKeyword[] {
   const generated: GeneratedKeyword[] = [];
@@ -139,16 +140,23 @@ export function expandKeywords(
     const mods = CATEGORY_MODIFIERS[catKey];
     if (!mods && catKey !== "generic") continue;
 
-    for (const { keyword, category } of keywords) {
+    for (const { keyword, category, subcategory } of keywords) {
       const pattern = extractPattern(keyword, catKey);
+
+      // If a subcategory is provided (e.g. "Bedroom"), use it as a room hint —
+      // expand into sibling rooms within the same category
+      const subcatLower = subcategory?.toLowerCase() ?? null;
 
       // Strategy 1: Replace room type with all other room types
       if (mods) {
-        for (const room of mods.rooms) {
-          // Skip if this room modifier is already in the keyword
+        // If subcategory matches a known room, only expand into sibling rooms
+        const roomPool = subcatLower && mods.rooms.includes(subcatLower)
+          ? mods.rooms.filter(r => r !== subcatLower)
+          : mods.rooms;
+
+        for (const room of roomPool) {
           if (keyword.toLowerCase().includes(room)) continue;
 
-          // Build new keyword: replace existing room with new room
           let newKw = keyword.toLowerCase();
           let replaced = false;
           for (const existingRoom of mods.rooms) {
@@ -159,7 +167,6 @@ export function expandKeywords(
             }
           }
 
-          // If no room was found to replace, prepend room to core
           if (!replaced) {
             const core = pattern.coreTerms.join(" ");
             if (core) {
@@ -174,7 +181,9 @@ export function expandKeywords(
           newKw = newKw.replace(/\s+/g, " ").trim();
           if (!seen.has(newKw) && newKw.length > 3) {
             seen.add(newKw);
-            generated.push({ keyword: newKw, category: category ?? catKey, basedOn: keyword });
+            // Derived subcategory = the room type we expanded into
+            const derivedSub = room.charAt(0).toUpperCase() + room.slice(1);
+            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: derivedSub, basedOn: keyword });
           }
         }
       }
@@ -183,12 +192,11 @@ export function expandKeywords(
       const allStyles = mods?.styles ?? GENERIC_MODIFIERS.styles;
       const hasStyle = allStyles.some(s => keyword.toLowerCase().includes(s));
       if (!hasStyle) {
-        const coreSample = allStyles.slice(0, 5); // top 5 styles only to avoid explosion
-        for (const style of coreSample) {
+        for (const style of allStyles.slice(0, 5)) {
           const newKw = `${style} ${keyword}`.trim();
           if (!seen.has(newKw) && newKw.length > 3) {
             seen.add(newKw);
-            generated.push({ keyword: newKw, category: category ?? catKey, basedOn: keyword });
+            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: subcategory ?? null, basedOn: keyword });
           }
         }
       }
@@ -201,7 +209,7 @@ export function expandKeywords(
           const newKw = `${keyword} ${qual}`.trim();
           if (!seen.has(newKw) && newKw.length > 3) {
             seen.add(newKw);
-            generated.push({ keyword: newKw, category: category ?? catKey, basedOn: keyword });
+            generated.push({ keyword: newKw, category: category ?? catKey, subcategory: subcategory ?? null, basedOn: keyword });
           }
         }
       }

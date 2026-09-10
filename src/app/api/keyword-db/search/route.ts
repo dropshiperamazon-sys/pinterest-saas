@@ -99,6 +99,7 @@ export async function POST(req: NextRequest) {
     avgCpc: body.avgCpc ?? null,
     trend: body.trend ?? null,
     category: body.category ?? null,
+    subcategory: body.subcategory ?? null,
     source: body.source ?? "ADMIN_IMPORTED",
     sourceReference: body.sourceReference ?? null,
     confidence: body.confidence ?? "VERIFIED",

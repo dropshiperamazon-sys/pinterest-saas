@@ -1,12 +1,12 @@
 // CSV Keyword Import — admin only
 //
 // Expected CSV columns (header required):
-//   keyword, monthly_searches, competition, avg_cpc, trend, country, language, category, source
+//   keyword, monthly_searches, competition, avg_cpc, trend, country, language, category, subcategory, source
 //
-// Optional: source_reference
+// Optional: source_reference, subcategory
 //
 // Example:
-//   room decor,135000,high,1.20,8,US,en,Home Decor,Google Keyword Planner
+//   room decor,135000,high,1.20,8,US,en,Home Decor,Bedroom,Pinterest
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
   let updatedKeywords = 0;
   let duplicateRows = 0;
   const errors: string[] = [];
-  const importedForExpansion: { keyword: string; category: string | null; country: string }[] = [];
+  const importedForExpansion: { keyword: string; category: string | null; subcategory: string | null; country: string }[] = [];
   const importedNormalized = new Set<string>();
 
   for (let i = 1; i < rows.length; i++) {
@@ -171,6 +171,7 @@ export async function POST(req: NextRequest) {
     const competition = parseCompetition(row[idx("competition")] ?? "");
     const language = row[idx("language")]?.trim() || "en";
     const category = row[idx("category")]?.trim() || null;
+    const subcategory = row[idx("subcategory")]?.trim() || null;
     const sourceRaw = row[idx("source")]?.trim() || "ADMIN_IMPORTED";
     const source = mapSource(sourceRaw);
     const sourceReference = row[idx("source_reference")]?.trim() || sourceRaw || null;
@@ -186,6 +187,7 @@ export async function POST(req: NextRequest) {
           avgCpc,
           trend,
           category,
+          subcategory,
           source,
           sourceReference,
           confidence: "VERIFIED",
@@ -199,7 +201,7 @@ export async function POST(req: NextRequest) {
 
         // Track for pattern expansion (use first country only to avoid dupes)
         if (countries.indexOf(country) === 0) {
-          importedForExpansion.push({ keyword, category, country });
+          importedForExpansion.push({ keyword, category, subcategory, country });
           importedNormalized.add(normalizeKeyword(keyword));
         }
       } catch (e) {
@@ -231,6 +233,7 @@ export async function POST(req: NextRequest) {
             avgCpc: null,
             trend: null,
             category: s.category,
+            subcategory: s.subcategory,
             source: "AI_INFERRED",
             sourceReference: `expanded from: ${s.basedOn}`,
             confidence: "UNVERIFIED",

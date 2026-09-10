@@ -66,6 +66,7 @@ export interface KeywordRecord {
   avgCpc: number | null;
   trend: number | null;      // percentage, e.g. 12 means +12%
   category: string | null;
+  subcategory: string | null;
   source: DataSource;
   sourceReference: string | null;
   confidence: ConfidenceStatus;
@@ -147,7 +148,7 @@ export async function getKeywordByNorm(normalizedKeyword: string, country: strin
 // Upsert a keyword record respecting source priority.
 // Returns { action: "created" | "updated" | "skipped" (lower priority data rejected) }
 export async function upsertKeyword(
-  data: Omit<KeywordRecord, "id" | "normalizedKeyword" | "createdAt" | "updatedAt"> & { normalizedKeyword?: string }
+  data: Omit<KeywordRecord, "id" | "normalizedKeyword" | "createdAt" | "updatedAt"> & { normalizedKeyword?: string; subcategory?: string | null }
 ): Promise<{ action: "created" | "updated" | "skipped"; id: string }> {
   const norm = data.normalizedKeyword ?? normalizeKeyword(data.keyword);
   const country = data.country.toUpperCase();
@@ -191,6 +192,7 @@ export async function upsertKeyword(
         avgCpc: data.avgCpc ?? existing.avgCpc,
         trend: data.trend ?? existing.trend,
         category: data.category ?? existing.category,
+        subcategory: data.subcategory ?? existing.subcategory,
         source: data.source,
         sourceReference: data.sourceReference ?? existing.sourceReference,
         confidence: data.confidence,
@@ -215,6 +217,7 @@ export async function upsertKeyword(
     avgCpc: data.avgCpc ?? null,
     trend: data.trend ?? null,
     category: data.category ?? null,
+    subcategory: data.subcategory ?? null,
     source: data.source,
     sourceReference: data.sourceReference ?? null,
     confidence: data.confidence,
