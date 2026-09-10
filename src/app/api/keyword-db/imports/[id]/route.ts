@@ -8,7 +8,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
   const adminEmail = process.env.ADMIN_EMAIL;
-  if (adminEmail && session.user.email !== adminEmail) {
+  if (adminEmail && session.user.email?.toLowerCase() !== adminEmail.toLowerCase()) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 

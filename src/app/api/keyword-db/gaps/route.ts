@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   }
 
   const adminEmail = process.env.ADMIN_EMAIL;
-  if (adminEmail && session.user.email !== adminEmail) {
+  if (adminEmail && session.user.email?.toLowerCase() !== adminEmail.toLowerCase()) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
@@ -36,7 +36,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   const adminEmail = process.env.ADMIN_EMAIL;
-  if (adminEmail && session.user.email !== adminEmail) {
+  if (adminEmail && session.user.email?.toLowerCase() !== adminEmail.toLowerCase()) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 

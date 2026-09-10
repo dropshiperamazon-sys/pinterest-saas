@@ -6,7 +6,7 @@ async function requireAdmin(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.email) return { error: "Not authenticated", status: 401 };
   const adminEmail = process.env.ADMIN_EMAIL;
-  if (adminEmail && session.user.email !== adminEmail) return { error: "Admin access required", status: 403 };
+  if (adminEmail && session.user.email?.toLowerCase() !== adminEmail.toLowerCase()) return { error: "Admin access required", status: 403 };
   return null;
 }
 
