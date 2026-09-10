@@ -1198,14 +1198,15 @@ export default function KeywordsPage() {
                     >
                       ‹
                     </button>
-                    {Array.from({ length: relatedTotalPages }, (_, i) => i + 1)
-                      .filter(p => p === 1 || p === relatedTotalPages || Math.abs(p - relatedPage) <= 2)
-                      .reduce<(number | "…")[]>((acc, p, idx, arr) => {
-                        if (idx > 0 && (p as number) - (arr[idx - 1] as number) > 1) acc.push("…");
-                        acc.push(p);
-                        return acc;
-                      }, [])
-                      .map((p, idx) =>
+                    {(() => {
+                      const pages = Array.from({ length: relatedTotalPages }, (_, i) => i + 1);
+                      const filtered = pages.filter(p => p === 1 || p === relatedTotalPages || Math.abs(p - relatedPage) <= 2);
+                      const withEllipsis: (number | "…")[] = [];
+                      for (let i = 0; i < filtered.length; i++) {
+                        if (i > 0 && filtered[i] - filtered[i - 1] > 1) withEllipsis.push("…");
+                        withEllipsis.push(filtered[i]);
+                      }
+                      return withEllipsis.map((p, idx) =>
                         p === "…" ? (
                           <span key={`ellipsis-${idx}`} className="px-1 text-xs text-gray-400">…</span>
                         ) : (
@@ -1222,7 +1223,8 @@ export default function KeywordsPage() {
                             {p}
                           </button>
                         )
-                      )}
+                      );
+                    })()}
                     <button
                       onClick={() => setRelatedPage(p => Math.min(relatedTotalPages, p + 1))}
                       disabled={relatedPage === relatedTotalPages}
