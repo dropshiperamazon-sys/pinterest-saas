@@ -13,14 +13,9 @@ import { auth } from "@/auth";
 import {
   upsertKeyword,
   recordImport,
-  recordDataGap,
   normalizeKeyword,
-  getVerifiedKeywordsByCategory,
-  listPendingSuggestions,
-  reEstimateAiKeywords,
   type DataSource,
 } from "@/lib/keyword-db";
-import { expandKeywords } from "@/lib/keyword-expander";
 
 const REQUIRED_COLUMNS = ["keyword", "country"] as const;
 
@@ -262,99 +257,10 @@ export async function POST(req: NextRequest) {
 
   const totalRows = rows.length - 1;
 
-  // ── Pattern expansion ─────────────────────────────────────────────────────
-  // Generate sibling keyword suggestions from imported patterns.
-  // Metric estimates are built from ALL real data for the category:
-  //   1. The current upload's verified metrics
-  //   2. Every previously imported keyword in the same category from the DB
-  // The larger the real dataset grows, the more accurate estimates become.
-  let suggestionsGenerated = 0;
+  // AI expansion is handled by the frontend calling /api/keyword-db/expand-suggestions
+  // after this response returns, so we don't timeout here.
+  const suggestionsGenerated = 0;
   const suggestionIds: string[] = [];
-  if (importedForExpansion.length > 0) {
-    const AI_COUNTRIES = ["US", "GB", "CA", "AU"];
-
-    // Pull ALL existing keywords for every category in this upload.
-    // Their normalizedKeyword values feed the skip set so we never suggest
-    // anything that already exists in the DB (real OR AI, pending OR live).
-    const uniqueCategories = [...new Set(
-      importedForExpansion.map(k => k.category).filter(Boolean) as string[]
-    )];
-    const historicalRecords = (
-      await Promise.all(uniqueCategories.map(cat => getVerifiedKeywordsByCategory(cat, 500)))
-    ).flat();
-
-    // Build skip set: current upload + all DB keywords in these categories + pending suggestions
-    const existingPending = await listPendingSuggestions(2000);
-    const alreadyInDb = new Set(historicalRecords.map(r => r.normalizedKeyword));
-    const alreadyPendingNorms = new Set(existingPending.map(kw => normalizeKeyword(kw.keyword)));
-    const skipSet = new Set([...importedNormalized, ...alreadyInDb, ...alreadyPendingNorms]);
-
-    // historicalMetrics = records WITH real metric data (for averaging)
-    const historicalMetrics = historicalRecords.filter(
-      r => r.monthlySearches != null || r.avgCpc != null
-    );
-
-    // importedForExpansion = seeds (pattern generation + metrics)
-    // historicalMetrics    = metric-only pool (improves estimates, not expanded)
-    const suggestions = expandKeywords(importedForExpansion, skipSet, historicalMetrics);
-
-    // Only process the first 100 suggestions synchronously to avoid timeout.
-    // The rest are skipped here — re-estimate runs after and fills metric gaps.
-    const syncSuggestions = suggestions.slice(0, 100);
-
-    await Promise.allSettled(
-      syncSuggestions.map(async (s) => {
-        try {
-          const hasEstimate = s.estimatedMonthlySearches != null || s.estimatedAvgCpc != null;
-          // Create one record per default country — deduplication handled by upsertKeyword
-          let createdAny = false;
-          for (const country of AI_COUNTRIES) {
-            const result = await upsertKeyword({
-              keyword: s.keyword,
-              country,
-              language: "en",
-              monthlySearches: s.estimatedMonthlySearches ?? null,
-              competition: null,
-              avgCpc: s.estimatedAvgCpc ?? null,
-              trend: null,
-              category: s.category,
-              subcategory: s.subcategory,
-              source: "AI_INFERRED",
-              sourceReference: `expanded from: ${s.basedOn}`,
-              confidence: hasEstimate ? "ESTIMATED" : "UNVERIFIED",
-              lastVerifiedAt: null,
-              pendingApproval: true,
-            });
-            if (result.action === "created" || result.action === "updated") {
-              suggestionsGenerated++;
-              suggestionIds.push(result.id);
-              if (!createdAny) {
-                createdAny = true;
-                if (result.action === "created") {
-                  await recordDataGap({
-                    keyword: s.keyword,
-                    country,
-                    missingFields: ["monthly_searches", "competition", "avg_cpc"],
-                  });
-                }
-              }
-            }
-          }
-        } catch {
-          // Non-critical — don't fail the import
-        }
-      })
-    );
-  }
-
-  // Re-estimate AI keywords in every category that received real data this upload.
-  // Fire-and-forget — don't block the response.
-  const categoriesImported = [
-    ...new Set(importedForExpansion.map(k => k.category).filter(Boolean) as string[])
-  ];
-  if (categoriesImported.length > 0) {
-    reEstimateAiKeywords(categoriesImported).catch(() => {});
-  }
 
   // Record import history
   const importRecord = await recordImport({
@@ -384,5 +290,8 @@ export async function POST(req: NextRequest) {
     importId: importRecord.id,
     errors: errors.slice(0, 20),
     success: true,
+    // Seeds for the frontend to fire AI expansion in background
+    expansionSeeds: importedForExpansion,
+    importedNormalizedKeywords: [...importedNormalized],
   });
 }

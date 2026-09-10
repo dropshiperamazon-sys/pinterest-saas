@@ -180,6 +180,17 @@ export default function AdminKeywordsPage() {
       if (!res.ok) { setImportError(data.error ?? "Import failed"); return; }
       setImportResult(data);
       setCsvText("");
+      // Fire AI expansion in background — doesn't block the UI
+      if (Array.isArray(data.expansionSeeds) && data.expansionSeeds.length > 0) {
+        fetch("/api/keyword-db/expand-suggestions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            seeds: data.expansionSeeds,
+            importedNormalizedKeywords: data.importedNormalizedKeywords ?? [],
+          }),
+        }).catch(() => {});
+      }
     } catch (e) {
       setImportError(String(e));
     } finally {
