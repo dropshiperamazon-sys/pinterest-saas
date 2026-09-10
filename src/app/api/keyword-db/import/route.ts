@@ -243,6 +243,7 @@ export async function POST(req: NextRequest) {
   // Generate new keyword suggestions based on patterns in the imported data.
   // Suggestions are stored as AI_INFERRED (no metrics) and logged as data gaps.
   let suggestionsGenerated = 0;
+  const suggestionIds: string[] = [];
   if (importedForExpansion.length > 0) {
     const suggestions = expandKeywords(importedForExpansion, importedNormalized);
     // Use the country from the first imported keyword as default
@@ -267,6 +268,7 @@ export async function POST(req: NextRequest) {
           });
           if (result.action === "created") {
             suggestionsGenerated++;
+            suggestionIds.push(result.id);
             // Log as a data gap so admin knows to source real metrics
             await recordDataGap({
               keyword: s.keyword,
@@ -282,7 +284,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Record import history
-  await recordImport({
+  const importRecord = await recordImport({
     filename: "csv-import",
     importedBy: session.user.email,
     source: "ADMIN_IMPORTED",
@@ -295,6 +297,7 @@ export async function POST(req: NextRequest) {
     errors: errors.slice(0, 50),
     newKeywordIds: newKeywordIds.slice(0, 500), // cap to avoid huge payloads
     updatedKeywordIds: updatedKeywordIds.slice(0, 500),
+    suggestionIds: suggestionIds.slice(0, 500),
   });
 
   return NextResponse.json({
@@ -305,6 +308,7 @@ export async function POST(req: NextRequest) {
     updatedKeywords,
     duplicateRows,
     suggestionsGenerated,
+    importId: importRecord.id,
     errors: errors.slice(0, 20),
     success: true,
   });

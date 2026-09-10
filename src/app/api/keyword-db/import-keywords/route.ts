@@ -27,7 +27,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Import not found" }, { status: 404 });
   }
 
-  const ids = type === "updated" ? (record.updatedKeywordIds ?? []) : (record.newKeywordIds ?? []);
+  const ids =
+    type === "updated" ? (record.updatedKeywordIds ?? []) :
+    type === "suggestions" ? (record.suggestionIds ?? []) :
+    (record.newKeywordIds ?? []);
   const keywords = await Promise.all(ids.map(id => getKeyword(id)));
   const valid = keywords.filter(Boolean);
 

@@ -44,6 +44,7 @@ interface ImportResult {
   updatedKeywords: number;
   duplicateRows: number;
   suggestionsGenerated: number;
+  importId?: string;
   errors: string[];
 }
 
@@ -82,7 +83,7 @@ export default function AdminKeywordsPage() {
   const [topSearched, setTopSearched] = useState<{ keyword: string; country: string; searchCount: number; hasData: boolean }[]>([]);
   const [topLoading, setTopLoading] = useState(false);
   const [topDays, setTopDays] = useState(30);
-  const [kwModal, setKwModal] = useState<{ importId: string; type: "new" | "updated"; label: string } | null>(null);
+  const [kwModal, setKwModal] = useState<{ importId: string; type: "new" | "updated" | "suggestions"; label: string } | null>(null);
   const [kwModalData, setKwModalData] = useState<{ keyword: string; country: string; category: string | null; subcategory: string | null; monthlySearches: number | null; competition: string | null; source: string }[]>([]);
   const [kwModalLoading, setKwModalLoading] = useState(false);
 
@@ -163,7 +164,7 @@ export default function AdminKeywordsPage() {
     reader.readAsText(file);
   }
 
-  async function openKwModal(importId: string, type: "new" | "updated", label: string) {
+  async function openKwModal(importId: string, type: "new" | "updated" | "suggestions", label: string) {
     setKwModal({ importId, type, label });
     setKwModalLoading(true);
     setKwModalData([]);
@@ -383,13 +384,27 @@ living room decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Living Room,Pin
                       ["New keywords", importResult.newKeywords],
                       ["Updated", importResult.updatedKeywords],
                       ["Duplicates", importResult.duplicateRows],
-                      ["AI Suggestions", importResult.suggestionsGenerated],
                     ].map(([label, val]) => (
-                      <div key={label as string} className={`rounded-lg p-2 text-center ${label === "AI Suggestions" ? "bg-purple-50 border border-purple-100" : "bg-white"}`}>
-                        <div className={`text-lg font-bold ${label === "AI Suggestions" ? "text-purple-700" : "text-gray-900"}`}>{val}</div>
-                        <div className={`text-[10px] uppercase tracking-wider ${label === "AI Suggestions" ? "text-purple-500" : "text-gray-500"}`}>{label}</div>
+                      <div key={label as string} className="rounded-lg p-2 text-center bg-white">
+                        <div className="text-lg font-bold text-gray-900">{val}</div>
+                        <div className="text-[10px] uppercase tracking-wider text-gray-500">{label}</div>
                       </div>
                     ))}
+                    {/* AI Suggestions tile — clickable when importId available */}
+                    {importResult.importId && importResult.suggestionsGenerated > 0 ? (
+                      <button
+                        onClick={() => openKwModal(importResult.importId!, "suggestions", "AI Suggestions")}
+                        className="rounded-lg p-2 text-center bg-purple-50 border border-purple-100 hover:bg-purple-100 transition-colors cursor-pointer"
+                      >
+                        <div className="text-lg font-bold text-purple-700">{importResult.suggestionsGenerated}</div>
+                        <div className="text-[10px] uppercase tracking-wider text-purple-500 underline decoration-dotted">AI Suggestions</div>
+                      </button>
+                    ) : (
+                      <div className="rounded-lg p-2 text-center bg-purple-50 border border-purple-100">
+                        <div className="text-lg font-bold text-purple-700">{importResult.suggestionsGenerated}</div>
+                        <div className="text-[10px] uppercase tracking-wider text-purple-500">AI Suggestions</div>
+                      </div>
+                    )}
                   </div>
                   {importResult.suggestionsGenerated > 0 && (
                     <div className="flex items-start gap-2 p-2.5 rounded-lg bg-purple-50 border border-purple-100">

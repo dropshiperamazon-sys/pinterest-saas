@@ -113,6 +113,7 @@ export interface ImportRecord {
   importedAt: number;
   newKeywordIds?: string[];    // IDs of newly created keywords
   updatedKeywordIds?: string[]; // IDs of updated keywords
+  suggestionIds?: string[];    // IDs of AI-inferred suggestion keywords
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
