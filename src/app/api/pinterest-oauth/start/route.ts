@@ -8,7 +8,15 @@ const redis = new Redis({
 });
 
 export async function GET() {
-  const baseUrl = process.env.NEXTAUTH_URL!;
+  const baseUrl = process.env.NEXTAUTH_URL;
+  const clientId = process.env.PINTEREST_CLIENT_ID;
+
+  if (!baseUrl || !clientId) {
+    return NextResponse.json(
+      { error: "Pinterest OAuth is not configured. Set NEXTAUTH_URL and PINTEREST_CLIENT_ID environment variables." },
+      { status: 503 }
+    );
+  }
 
   // Get session token from cookie to identify the user
   const cookieStore = await cookies();
@@ -27,7 +35,7 @@ export async function GET() {
 
   const redirectUri = `${baseUrl}/api/pinterest-oauth/callback`;
   const url = new URL("https://www.pinterest.com/oauth/");
-  url.searchParams.set("client_id", process.env.PINTEREST_CLIENT_ID!);
+  url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", "boards:read,boards:write,pins:read,pins:write,user_accounts:read,ads:read");
