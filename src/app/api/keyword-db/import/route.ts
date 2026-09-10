@@ -1,3 +1,5 @@
+export const maxDuration = 300; // Vercel Pro allows up to 300s
+
 // CSV Keyword Import — admin only
 //
 // Expected CSV columns (header required):

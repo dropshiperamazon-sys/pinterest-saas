@@ -1,3 +1,5 @@
+export const maxDuration = 300;
+
 // Background AI suggestion expansion — called after CSV import completes.
 // Processes all expansion seeds stored by the import route and generates
 // AI keyword suggestions without blocking the import response.
