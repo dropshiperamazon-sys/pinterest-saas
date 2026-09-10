@@ -193,9 +193,32 @@ export default function AdminKeywordsPage() {
                   </button>
                 ))}
               </div>
-              <button onClick={loadGaps} className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
-                <RefreshCw className="w-3.5 h-3.5" /> Refresh
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const visibleGaps = gaps.filter(g => statusFilter === "ALL" || g.status === statusFilter);
+                    if (visibleGaps.length === 0) return;
+                    const header = "keyword,country,monthly_searches,competition,avg_cpc,trend,language,category,subcategory,source,source_reference";
+                    const rows = visibleGaps.map(g =>
+                      `${g.keyword},${g.country},,,,,,,,Pinterest,`
+                    );
+                    const csv = [header, ...rows].join("\n");
+                    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `data-requests-${statusFilter.toLowerCase()}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  disabled={gaps.length === 0}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Download className="w-3.5 h-3.5" /> Download CSV
+                </button>
+                <button onClick={loadGaps} className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
+                  <RefreshCw className="w-3.5 h-3.5" /> Refresh
+                </button>
+              </div>
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
