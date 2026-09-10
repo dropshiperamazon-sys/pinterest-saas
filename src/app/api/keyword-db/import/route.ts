@@ -41,12 +41,32 @@ function mapSource(raw: string): DataSource {
   return SOURCE_MAP[raw.toLowerCase().trim()] ?? "ADMIN_IMPORTED";
 }
 
+function parseSingleNum(s: string): number | null {
+  if (!s) return null;
+  const cleaned = s.replace(/[$%,\s]/g, "").toLowerCase();
+  if (!cleaned || cleaned === "-") return null;
+  // Handle k/m suffixes: "100k" → 100000, "1.5m" → 1500000
+  const match = cleaned.match(/^([\d.]+)([km]?)$/);
+  if (!match) return null;
+  const base = parseFloat(match[1]);
+  if (isNaN(base)) return null;
+  if (match[2] === "k") return Math.round(base * 1_000);
+  if (match[2] === "m") return Math.round(base * 1_000_000);
+  return base;
+}
+
 function parseNum(s: string): number | null {
   if (!s || s.trim() === "" || s.trim() === "-") return null;
-  // Strip %, $, commas
-  const cleaned = s.replace(/[$%,]/g, "").trim();
-  const n = parseFloat(cleaned);
-  return isNaN(n) ? null : n;
+  // Handle ranges like "1m-2m" or "100k-200k" — take the average
+  const rangeParts = s.trim().split(/\s*[-–]\s*/);
+  if (rangeParts.length === 2) {
+    const lo = parseSingleNum(rangeParts[0]);
+    const hi = parseSingleNum(rangeParts[1]);
+    if (lo != null && hi != null) return Math.round((lo + hi) / 2);
+    if (lo != null) return lo;
+    if (hi != null) return hi;
+  }
+  return parseSingleNum(s.trim());
 }
 
 function parseCompetition(s: string): "low" | "medium" | "high" | null {
