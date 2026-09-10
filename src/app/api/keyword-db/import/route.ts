@@ -13,9 +13,11 @@ import { auth } from "@/auth";
 import {
   upsertKeyword,
   recordImport,
+  recordDataGap,
   normalizeKeyword,
   type DataSource,
 } from "@/lib/keyword-db";
+import { expandKeywords } from "@/lib/keyword-expander";
 
 const REQUIRED_COLUMNS = ["keyword", "country"] as const;
 
@@ -133,6 +135,8 @@ export async function POST(req: NextRequest) {
   let updatedKeywords = 0;
   let duplicateRows = 0;
   const errors: string[] = [];
+  const importedForExpansion: { keyword: string; category: string | null; country: string }[] = [];
+  const importedNormalized = new Set<string>();
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
@@ -192,6 +196,12 @@ export async function POST(req: NextRequest) {
         if (result.action === "created") newKeywords++;
         else if (result.action === "updated") updatedKeywords++;
         else duplicateRows++;
+
+        // Track for pattern expansion (use first country only to avoid dupes)
+        if (countries.indexOf(country) === 0) {
+          importedForExpansion.push({ keyword, category, country });
+          importedNormalized.add(normalizeKeyword(keyword));
+        }
       } catch (e) {
         errors.push(`Row ${i + 1} (${country}): ${String(e)}`);
         invalidRows++;
@@ -200,6 +210,47 @@ export async function POST(req: NextRequest) {
   }
 
   const totalRows = rows.length - 1;
+
+  // ── Pattern expansion ─────────────────────────────────────────────────────
+  // Generate new keyword suggestions based on patterns in the imported data.
+  // Suggestions are stored as AI_INFERRED (no metrics) and logged as data gaps.
+  let suggestionsGenerated = 0;
+  if (importedForExpansion.length > 0) {
+    const suggestions = expandKeywords(importedForExpansion, importedNormalized);
+    // Use the country from the first imported keyword as default
+    const defaultCountry = importedForExpansion[0]?.country ?? "US";
+    await Promise.allSettled(
+      suggestions.map(async (s) => {
+        try {
+          const result = await upsertKeyword({
+            keyword: s.keyword,
+            country: defaultCountry,
+            language: "en",
+            monthlySearches: null,
+            competition: null,
+            avgCpc: null,
+            trend: null,
+            category: s.category,
+            source: "AI_INFERRED",
+            sourceReference: `expanded from: ${s.basedOn}`,
+            confidence: "UNVERIFIED",
+            lastVerifiedAt: null,
+          });
+          if (result.action === "created") {
+            suggestionsGenerated++;
+            // Log as a data gap so admin knows to source real metrics
+            await recordDataGap({
+              keyword: s.keyword,
+              country: defaultCountry,
+              missingFields: ["monthly_searches", "competition", "avg_cpc"],
+            });
+          }
+        } catch {
+          // Non-critical — don't fail the import
+        }
+      })
+    );
+  }
 
   // Record import history
   await recordImport({
@@ -222,6 +273,7 @@ export async function POST(req: NextRequest) {
     newKeywords,
     updatedKeywords,
     duplicateRows,
+    suggestionsGenerated,
     errors: errors.slice(0, 20),
     success: true,
   });

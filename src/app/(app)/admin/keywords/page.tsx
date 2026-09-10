@@ -43,6 +43,7 @@ interface ImportResult {
   newKeywords: number;
   updatedKeywords: number;
   duplicateRows: number;
+  suggestionsGenerated: number;
   errors: string[];
 }
 
@@ -342,13 +343,22 @@ room decor ideas,74000,medium,1.05,12,US|CA,en,Home Decor,Pinterest`}</pre>
                       ["New keywords", importResult.newKeywords],
                       ["Updated", importResult.updatedKeywords],
                       ["Duplicates", importResult.duplicateRows],
+                      ["AI Suggestions", importResult.suggestionsGenerated],
                     ].map(([label, val]) => (
-                      <div key={label as string} className="bg-white rounded-lg p-2 text-center">
-                        <div className="text-lg font-bold text-gray-900">{val}</div>
-                        <div className="text-[10px] text-gray-500 uppercase tracking-wider">{label}</div>
+                      <div key={label as string} className={`rounded-lg p-2 text-center ${label === "AI Suggestions" ? "bg-purple-50 border border-purple-100" : "bg-white"}`}>
+                        <div className={`text-lg font-bold ${label === "AI Suggestions" ? "text-purple-700" : "text-gray-900"}`}>{val}</div>
+                        <div className={`text-[10px] uppercase tracking-wider ${label === "AI Suggestions" ? "text-purple-500" : "text-gray-500"}`}>{label}</div>
                       </div>
                     ))}
                   </div>
+                  {importResult.suggestionsGenerated > 0 && (
+                    <div className="flex items-start gap-2 p-2.5 rounded-lg bg-purple-50 border border-purple-100">
+                      <span className="text-purple-600 text-xs">✦</span>
+                      <p className="text-xs text-purple-700">
+                        <span className="font-semibold">{importResult.suggestionsGenerated} new keyword suggestions</span> generated from patterns in your data — check the <button onClick={() => setTab("gaps")} className="underline font-semibold">Data Requests</button> tab to see them.
+                      </p>
+                    </div>
+                  )}
                   {importResult.errors.length > 0 && (
                     <div>
                       <p className="text-xs font-semibold text-red-600 mb-1">Errors (first {importResult.errors.length}):</p>
