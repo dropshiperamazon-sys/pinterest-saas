@@ -137,6 +137,8 @@ export async function POST(req: NextRequest) {
   const errors: string[] = [];
   const importedForExpansion: { keyword: string; category: string | null; subcategory: string | null; country: string }[] = [];
   const importedNormalized = new Set<string>();
+  // Track keyword+country combos seen in THIS file to reject within-file duplicates
+  const seenInFile = new Set<string>();
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
@@ -175,6 +177,18 @@ export async function POST(req: NextRequest) {
     const sourceRaw = row[idx("source")]?.trim() || "ADMIN_IMPORTED";
     const source = mapSource(sourceRaw);
     const sourceReference = row[idx("source_reference")]?.trim() || sourceRaw || null;
+    const norm = normalizeKeyword(keyword);
+
+    // Check for duplicates within this file before processing
+    const duplicateCountries = countries.filter(c => seenInFile.has(`${norm}:::${c}`));
+    if (duplicateCountries.length > 0) {
+      errors.push(`Row ${i + 1}: duplicate keyword "${keyword}" for country ${duplicateCountries.join(", ")} — already exists in this file, row rejected`);
+      duplicateRows += duplicateCountries.length;
+      invalidRows++;
+      continue;
+    }
+    // Mark all countries in this row as seen
+    for (const c of countries) seenInFile.add(`${norm}:::${c}`);
 
     for (const country of countries) {
       try {
@@ -194,15 +208,20 @@ export async function POST(req: NextRequest) {
           lastVerifiedAt: Date.now(),
         });
 
-        validRows++;
-        if (result.action === "created") newKeywords++;
-        else if (result.action === "updated") updatedKeywords++;
-        else duplicateRows++;
+        if (result.action === "skipped") {
+          errors.push(`Row ${i + 1} (${country}): duplicate — "${keyword}" already exists with higher-quality data, rejected`);
+          duplicateRows++;
+          invalidRows++;
+        } else {
+          validRows++;
+          if (result.action === "created") newKeywords++;
+          else updatedKeywords++;
+        }
 
-        // Track for pattern expansion (use first country only to avoid dupes)
-        if (countries.indexOf(country) === 0) {
+        // Track for pattern expansion only if actually saved (use first country only)
+        if (result.action !== "skipped" && countries.indexOf(country) === 0) {
           importedForExpansion.push({ keyword, category, subcategory, country });
-          importedNormalized.add(normalizeKeyword(keyword));
+          importedNormalized.add(norm);
         }
       } catch (e) {
         errors.push(`Row ${i + 1} (${country}): ${String(e)}`);
