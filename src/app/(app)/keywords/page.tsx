@@ -780,6 +780,21 @@ export default function KeywordsPage() {
         return;
       }
       setAiAnalysis(data.aiAnalysis);
+      // Populate Related Keywords tab from our own database results
+      if (Array.isArray(data.dbRelatedKeywords) && data.dbRelatedKeywords.length > 0) {
+        type DbKw = { keyword: string; monthlySearches: number | null; competition: string | null; avgCpc: number | null; trend: number | null; category: string | null };
+        const matchTypes: Array<"exact"|"phrase"|"broad"> = ["exact", "phrase", "broad"];
+        const dbRelated = (data.dbRelatedKeywords as DbKw[]).map((k, i): KeywordResult => ({
+          keyword: k.keyword,
+          volume: k.monthlySearches ?? 0,
+          trend: k.trend ?? 0,
+          competition: (k.competition as "low" | "medium" | "high") ?? "medium",
+          cpc: k.avgCpc ?? 0,
+          matchType: matchTypes[i % 3],
+          category: k.category ?? q,
+        }));
+        setRelatedResults(dbRelated);
+      }
     } catch {
       setAiError("Keyword analysis temporarily unavailable. Please try again.");
     } finally {
@@ -849,9 +864,8 @@ export default function KeywordsPage() {
         if (Array.isArray(data.relatedKeywords) || Array.isArray(data.trendingKeywords)) {
           const related: KeywordResult[] = (data.relatedKeywords ?? []).map(toKeywordResult);
           const trending: KeywordResult[] = (data.trendingKeywords ?? []).map(toKeywordResult);
-          setRelatedResults(related);
+          // Related Keywords tab is populated from our DB (via runAIAnalysis); only set trending here
           setTrendingResults(trending);
-          // results = union for export / legacy
           setResults([...related, ...trending]);
           setIsLive(true);
           setLoading(false);
@@ -864,11 +878,9 @@ export default function KeywordsPage() {
             r.keywords.filter((k) => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_API" || k.source === "PINTEREST_SUGGESTED")
         );
         if (allKws.length > 0) {
-          const rel = allKws.filter(k => k.source === "PINTEREST_RELATED" || k.source === "PINTEREST_SUGGESTED").map(toKeywordResult);
           const trend = allKws.filter(k => k.source === "PINTEREST_API").map(toKeywordResult);
-          setRelatedResults(rel);
           setTrendingResults(trend);
-          setResults([...rel, ...trend]);
+          setResults(allKws.map(toKeywordResult));
           setIsLive(true);
           setLoading(false);
           return;
@@ -877,7 +889,6 @@ export default function KeywordsPage() {
     } catch { /* fall through */ }
     const fallback = generateKeywords(q);
     setResults(fallback);
-    setRelatedResults(fallback);
     setLoading(false);
   }, [runAIAnalysis, searchRegion]);
 

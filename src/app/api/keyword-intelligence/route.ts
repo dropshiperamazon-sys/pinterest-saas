@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
 import type { PinterestKeywordData, KeywordIntelligenceResult, KeywordEntry, KeywordCluster, ContentIdea, SEORecommendations } from "@/lib/openai-keyword-analyzer";
+import { searchKeywords } from "@/lib/keyword-db";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -506,11 +507,15 @@ export async function POST(req: NextRequest) {
     await redis.set(analysisCacheKey, JSON.stringify(aiAnalysis), { ex: ANALYSIS_CACHE_TTL }).catch(() => {});
   }
 
+  // Fetch related keywords from our own database
+  const dbRelatedKeywords = await searchKeywords({ query: keyword, country, limit: 50 }).catch(() => []);
+
   return NextResponse.json({
     pinterestData,
     aiAnalysis,
     fromCache: !regenerate && !!cachedAnalysis,
     source: "pinterest",
+    dbRelatedKeywords,
   });
 }
 
