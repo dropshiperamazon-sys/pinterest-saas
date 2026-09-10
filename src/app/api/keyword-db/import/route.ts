@@ -215,7 +215,13 @@ export async function POST(req: NextRequest) {
     lastVerifiedAt: Date.now(),
   }));
 
-  const batchResults = await batchUpsertKeywords(batchItems);
+  let batchResults: Awaited<ReturnType<typeof batchUpsertKeywords>>;
+  try {
+    batchResults = await batchUpsertKeywords(batchItems);
+  } catch (err) {
+    console.error("batchUpsertKeywords failed:", err);
+    return NextResponse.json({ error: `Import failed: ${String(err)}` }, { status: 500 });
+  }
 
   const firstCountryAdded = new Set<string>();
   for (let i = 0; i < upsertTasks.length; i++) {

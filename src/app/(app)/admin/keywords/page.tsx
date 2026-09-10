@@ -197,7 +197,7 @@ export default function AdminKeywordsPage() {
         loadHistory();
         return;
       }
-      if (!res.ok) { setImportError(data.error ?? "Import failed"); return; }
+      if (!res.ok) { setImportError(`Import failed (${res.status}): ${data.error ?? res.statusText}`); return; }
       setImportResult(data);
       setCsvText("");
       // Fire AI expansion in background — doesn't block the UI
