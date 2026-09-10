@@ -280,6 +280,7 @@ export async function POST(req: NextRequest) {
             sourceReference: `expanded from: ${s.basedOn}`,
             confidence: hasEstimate ? "ESTIMATED" : "UNVERIFIED",
             lastVerifiedAt: null,
+            pendingApproval: true, // stays in Data Requests until admin pushes it
           });
           if (result.action === "created") {
             suggestionsGenerated++;

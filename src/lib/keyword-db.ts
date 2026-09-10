@@ -73,6 +73,9 @@ export interface KeywordRecord {
   lastVerifiedAt: number | null; // ms timestamp
   createdAt: number;
   updatedAt: number;
+  // AI-generated suggestions sit here until the admin explicitly pushes them.
+  // pendingApproval: true → invisible in search, visible in Data Requests.
+  pendingApproval?: boolean;
 }
 
 export interface KeywordRelationship {
@@ -128,6 +131,7 @@ function relKey(id: string) { return `kwdb:rel:${id}`; }
 function gapKey(id: string) { return `kwdb:gap:${id}`; }
 function gapLookupKey(norm: string, country: string) { return `kwdb:gap:lookup:${norm}:${country.toUpperCase()}`; }
 function importKey(id: string) { return `kwdb:import:${id}`; }
+const PENDING_IDX = "kwdb:pending:idx"; // sorted set: score=createdAt, member=id
 
 async function nextId(prefix: string): Promise<string> {
   const seq = await redis.incr(`kwdb:seq:${prefix}`);
@@ -151,7 +155,7 @@ export async function getKeywordByNorm(normalizedKeyword: string, country: strin
 // Upsert a keyword record respecting source priority.
 // Returns { action: "created" | "updated" | "skipped" (lower priority data rejected) }
 export async function upsertKeyword(
-  data: Omit<KeywordRecord, "id" | "normalizedKeyword" | "createdAt" | "updatedAt"> & { normalizedKeyword?: string; subcategory?: string | null }
+  data: Omit<KeywordRecord, "id" | "normalizedKeyword" | "createdAt" | "updatedAt"> & { normalizedKeyword?: string; subcategory?: string | null; pendingApproval?: boolean }
 ): Promise<{ action: "created" | "updated" | "skipped"; id: string }> {
   const norm = data.normalizedKeyword ?? normalizeKeyword(data.keyword);
   const country = data.country.toUpperCase();
@@ -209,6 +213,7 @@ export async function upsertKeyword(
 
   // New keyword
   const id = await nextId("kw");
+  const isPending = data.pendingApproval === true;
   const record: KeywordRecord = {
     id,
     keyword: data.keyword,
@@ -227,6 +232,7 @@ export async function upsertKeyword(
     lastVerifiedAt: data.lastVerifiedAt ?? now,
     createdAt: now,
     updatedAt: now,
+    ...(isPending ? { pendingApproval: true } : {}),
   };
 
   const isPinterestSource = PINTEREST_SOURCES.has(data.source);
@@ -238,9 +244,37 @@ export async function upsertKeyword(
     redis.zadd("kwdb:idx:all", { score: now, member: id }),
     redis.sadd(`kwdb:idx:country:${country}`, id),
     ...(data.category ? [redis.sadd(`kwdb:idx:cat:${data.category.toLowerCase().replace(/\s+/g, "_")}`, id)] : []),
+    // Pending suggestions go into their own index for fast listing
+    ...(isPending ? [redis.zadd(PENDING_IDX, { score: now, member: id })] : []),
   ]);
 
   return { action: "created", id };
+}
+
+// ── Pending suggestion management ─────────────────────────────────────────────
+
+export async function listPendingSuggestions(limit = 200): Promise<KeywordRecord[]> {
+  const ids = await redis.zrange(PENDING_IDX, 0, limit - 1, { rev: true });
+  if (!ids || ids.length === 0) return [];
+  const records = await Promise.all((ids as string[]).map(id => getKeyword(id)));
+  // Filter out any that were approved or deleted since indexing
+  return records.filter((r): r is KeywordRecord => r != null && r.pendingApproval === true);
+}
+
+export async function approveSuggestions(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  let approved = 0;
+  await Promise.all(ids.map(async (id) => {
+    const kw = await getKeyword(id);
+    if (!kw || !kw.pendingApproval) return;
+    const updated: KeywordRecord = { ...kw, pendingApproval: false, updatedAt: Date.now() };
+    await Promise.all([
+      redis.set(kwKey(id), JSON.stringify(updated)),
+      redis.zrem(PENDING_IDX, id),
+    ]);
+    approved++;
+  }));
+  return approved;
 }
 
 // Search keyword knowledge store — returns matching records
@@ -258,7 +292,7 @@ export async function searchKeywords(opts: {
   const results: KeywordRecord[] = [];
   const seen = new Set<string>();
 
-  if (exact) {
+  if (exact && !exact.pendingApproval) {
     results.push(exact);
     seen.add(exact.id);
   }
@@ -273,7 +307,7 @@ export async function searchKeywords(opts: {
     const batch = countryIds.slice(i, i + batchSize);
     const records = await Promise.all(batch.map(id => getKeyword(id)));
     for (const rec of records) {
-      if (!rec || seen.has(rec.id)) continue;
+      if (!rec || seen.has(rec.id) || rec.pendingApproval) continue;
       const recNorm = rec.normalizedKeyword;
       const isMatch =
         recNorm.startsWith(norm) ||
