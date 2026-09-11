@@ -239,6 +239,8 @@ export default function AdminKeywordsPage() {
     }
   }
 
+  const [deleting, setDeleting] = useState(false);
+
   async function pushSuggestions(ids: string[]) {
     if (ids.length === 0) return;
     setPushing(true);
@@ -248,11 +250,33 @@ export default function AdminKeywordsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
-      // Remove pushed items from local state
       setSuggestions(prev => prev.filter(s => !ids.includes(s.id)));
       setSelectedSuggIds(new Set());
     } finally {
       setPushing(false);
+    }
+  }
+
+  async function deleteSuggestionIds(ids: string[]) {
+    if (ids.length === 0) return;
+    const label = ids.length === suggestions.length ? "ALL AI suggestions" : `${ids.length} selected suggestion${ids.length !== 1 ? "s" : ""}`;
+    if (!confirm(`Permanently delete ${label}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/keyword-db/suggestions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (res.ok) {
+        setSuggestions(prev => prev.filter(s => !ids.includes(s.id)));
+        setSelectedSuggIds(new Set());
+      } else {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        alert(`Delete failed: ${data.error ?? res.statusText}`);
+      }
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -355,6 +379,24 @@ export default function AdminKeywordsPage() {
                       className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 border border-purple-200 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                       Push All AI ({suggestions.length})
+                    </button>
+                    {selectedSuggIds.size > 0 && (
+                      <button
+                        onClick={() => deleteSuggestionIds(Array.from(selectedSuggIds))}
+                        disabled={deleting}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-red-50 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                        Delete Selected
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteSuggestionIds(suggestions.map(s => s.id))}
+                      disabled={deleting || suggestions.length === 0}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-red-500 border border-red-100 bg-red-50/50 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      Delete All AI
                     </button>
                   </>
                 )}
@@ -537,6 +579,14 @@ export default function AdminKeywordsPage() {
                               ? <span className="text-xs text-gray-600">~{estimate.monthlySearches.toLocaleString()} <span className="text-gray-400">searches</span></span>
                               : <span className="text-xs text-gray-300">no estimate</span>}
                           </div>
+                          <button
+                            onClick={() => deleteSuggestionIds(groupIds)}
+                            disabled={deleting}
+                            title="Delete this suggestion"
+                            className="ml-2 p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
                       );
                     })}

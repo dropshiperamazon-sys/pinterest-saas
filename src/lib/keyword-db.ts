@@ -834,6 +834,38 @@ export async function listImports(limit = 20): Promise<ImportRecord[]> {
   return recs.filter(Boolean).map(r => (typeof r === "string" ? JSON.parse(r) : r) as ImportRecord);
 }
 
+// Delete pending AI suggestion keywords from the DB entirely (removes record + all index entries)
+export async function deleteSuggestions(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  let deleted = 0;
+  const CHUNK = 50;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    // Fetch records to get norm+country for lookup key cleanup
+    const p = redis.pipeline();
+    for (const id of chunk) p.get(kwKey(id));
+    const raws = await p.exec() as Array<string | null>;
+
+    const wp = redis.pipeline();
+    for (let j = 0; j < chunk.length; j++) {
+      const id = chunk[j];
+      const raw = raws[j];
+      if (raw) {
+        const rec = (typeof raw === "string" ? JSON.parse(raw) : raw) as KeywordRecord;
+        wp.del(lookupKey(rec.normalizedKeyword, rec.country));
+        wp.del(kwKey(id));
+        wp.zrem("kwdb:idx:all", id);
+        wp.zrem(PENDING_IDX, id);
+        wp.srem(`kwdb:idx:country:${rec.country}`, id);
+        if (rec.category) wp.srem(`kwdb:idx:cat:${rec.category}`, id);
+        deleted++;
+      }
+    }
+    await wp.exec();
+  }
+  return deleted;
+}
+
 export async function deleteImport(id: string): Promise<void> {
   await Promise.all([
     redis.del(importKey(id)),

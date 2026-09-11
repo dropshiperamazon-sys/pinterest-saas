@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { listPendingSuggestions, approveSuggestions, reEstimateAiKeywords, getKeyword } from "@/lib/keyword-db";
+import { listPendingSuggestions, approveSuggestions, reEstimateAiKeywords, getKeyword, deleteSuggestions } from "@/lib/keyword-db";
 
 async function requireAdmin(req: NextRequest) {
   const session = await auth();
@@ -45,4 +45,18 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ approved, success: true });
+}
+
+// DELETE — permanently remove selected pending AI suggestions
+export async function DELETE(req: NextRequest) {
+  const denied = await requireAdmin(req);
+  if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+
+  const body = await req.json() as { ids?: string[] };
+  if (!Array.isArray(body.ids) || body.ids.length === 0) {
+    return NextResponse.json({ error: "ids array required" }, { status: 400 });
+  }
+
+  const deleted = await deleteSuggestions(body.ids);
+  return NextResponse.json({ deleted, success: true });
 }
