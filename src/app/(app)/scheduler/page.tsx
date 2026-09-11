@@ -827,16 +827,31 @@ function PinSEOModal({ draft, onChange, onClose }: {
       } else {
         const res = await fetch(`/api/keyword-db/search?q=${encodeURIComponent(focusKw)}&limit=20`);
         const data = await res.json();
-        const allRecs: SeoKw[] = (data.keywords ?? []).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.trim().toLowerCase());
+        let allRecs: SeoKw[] = (data.keywords ?? []).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.trim().toLowerCase());
+
+        // Fallback: if DB has no results, generate via AI
+        if (allRecs.length === 0) {
+          try {
+            const aiRes = await fetch("/api/keyword-db/more-ideas", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ query: focusKw, existingKeywords: [] }),
+            });
+            const aiData = await aiRes.json();
+            const aiKws: string[] = aiData.keywords ?? [];
+            allRecs = aiKws.map(kw => ({ keyword: kw, monthlySearches: null, competition: null }));
+          } catch { /* ignore AI fallback failure */ }
+        }
+
         // Sort: low/medium competition first, then high/unknown
         allRecs.sort((a, b) => {
           const rank = (c: SeoKw["competition"]) => c === "low" ? 0 : c === "medium" ? 1 : 2;
           return rank(a.competition) - rank(b.competition);
         });
         recs = allRecs.slice(0, 8);
-        // Auto-select top 3 that are low or medium competition
+        // Auto-select top 3 that are low or medium competition (or first 3 for AI-generated ones with null competition)
         autoSelect = allRecs.filter(k => k.competition === "low" || k.competition === "medium").slice(0, 3).map(k => k.keyword);
-        if (autoSelect.length < 2) autoSelect = recs.slice(0, 3).map(k => k.keyword); // fallback
+        if (autoSelect.length < 2) autoSelect = recs.slice(0, 3).map(k => k.keyword);
         try { localStorage.setItem(cacheKey, JSON.stringify({ recs, autoSelect, ts: Date.now() })); } catch { /* storage full */ }
       }
 
