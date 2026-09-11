@@ -719,7 +719,7 @@ type SeoStep = "keyword" | "analysis" | "optimize" | "done";
 
 interface SeoKw { keyword: string; monthlySearches: number | null; competition: "low" | "medium" | "high" | null; }
 
-function calcSeoScore(title: string, description: string, focusKw: string, board: string, topics: string[], link: string) {
+function calcSeoScore(title: string, description: string, focusKw: string, board: string, topics: string[], link: string, altText: string = "") {
   const t = title.toLowerCase();
   const d = description.toLowerCase();
   const fk = focusKw.toLowerCase().trim();
@@ -737,7 +737,7 @@ function calcSeoScore(title: string, description: string, focusKw: string, board
   const descLen = description.length;
   const descScore = (fkInDesc ? 12 : 0) + (descLen >= 150 ? 8 : descLen >= 50 ? 4 : 0);
 
-  // Board relevance (15pts) — board name overlaps with focus keyword words
+  // Board relevance (15pts)
   const boardWords = board.toLowerCase().split(/\s+/);
   const fkWords = fk.split(/\s+/);
   const boardScore = board && fkWords.some(w => boardWords.some(bw => bw.includes(w) || w.includes(bw))) ? 15 : board ? 8 : 0;
@@ -749,7 +749,11 @@ function calcSeoScore(title: string, description: string, focusKw: string, board
   const hasUrl = link?.startsWith("https://");
   const urlScore = hasUrl ? 10 : link?.startsWith("http://") ? 6 : 0;
 
-  const total = Math.min(100, titleScore + titleLenScore + descScore + boardScore + topicsScore + urlScore);
+  // Alt Text (5pts)
+  const altLen = altText.trim().length;
+  const altScore = altLen >= 20 ? 5 : altLen > 0 ? 3 : 0;
+
+  const total = Math.min(100, titleScore + titleLenScore + descScore + boardScore + topicsScore + urlScore + altScore);
   return {
     total,
     breakdown: [
@@ -759,11 +763,13 @@ function calcSeoScore(title: string, description: string, focusKw: string, board
       { label: "Board Relevance",        score: boardScore, max: 15 },
       { label: "Topics",                 score: topicsScore, max: 10 },
       { label: "Destination URL",        score: urlScore, max: 10 },
+      { label: "Alt Text",               score: altScore, max: 5 },
     ],
     fkInTitle,
     fkInDesc,
     descLen,
     titleLen: tLen,
+    hasAltText: altLen > 0,
   };
 }
 
@@ -807,7 +813,7 @@ function PinSEOModal({ draft, onChange, onClose }: {
   const analyze = async () => {
     if (!focusKw.trim()) return;
     setAnalyzing(true);
-    const result = calcSeoScore(draft.title, draft.description, focusKw, draft.board, draft.topics, draft.link);
+    const result = calcSeoScore(draft.title, draft.description, focusKw, draft.board, draft.topics, draft.link, draft.altText);
     setSeoResult(result);
     // Load keyword recommendations from cache or fetch fresh
     try {
@@ -866,7 +872,7 @@ function PinSEOModal({ draft, onChange, onClose }: {
       description: useDesc ? aiSuggestion.description : draft.description,
     };
     onChange(updated);
-    const recheck = calcSeoScore(updated.title, updated.description, focusKw, draft.board, draft.topics, draft.link);
+    const recheck = calcSeoScore(updated.title, updated.description, focusKw, draft.board, draft.topics, draft.link, draft.altText);
     setRecheckResult(recheck);
     setStep("done");
   };
