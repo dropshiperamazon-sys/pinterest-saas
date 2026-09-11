@@ -471,7 +471,7 @@ function slotTo24h(slot: string): string {
   return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, daySlots, onDaySlotsChange }: {
+function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, daySlots, onDaySlotsChange, onReschedule }: {
   onApply: (date: string, time: string) => void;
   onEdit: (pin: ScheduledPin) => void;
   scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string; status: string; board: string; description?: string; link?: string }[];
@@ -479,6 +479,7 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
   onSlotsChange: (slots: { label: string; short: string }[]) => void;
   daySlots: Record<string, { label: string; short: string }[]>;
   onDaySlotsChange: (daySlots: Record<string, { label: string; short: string }[]>) => void;
+  onReschedule: (pinId: string, newDate: string, newTime: string) => void;
 }) {
   const customSlots = slots;
   const setCustomSlots = onSlotsChange;
@@ -486,6 +487,8 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
   const [newSlotTime, setNewSlotTime] = useState("");
   const [addingDaySlot, setAddingDaySlot] = useState<string | null>(null); // dateStr
   const [newDaySlotTime, setNewDaySlotTime] = useState("");
+  const [draggedPinId, setDraggedPinId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null); // "dateStr:HH:MM"
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
@@ -508,11 +511,11 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
   ];
 
   // index scheduled pins by date string
-  const pinsByDate: Record<string, { imageUrl?: string; title: string }[]> = {};
+  const pinsByDate: Record<string, { id: string; imageUrl?: string; title: string }[]> = {};
   for (const p of scheduled) {
     const d = p.scheduledAt.split("T")[0];
     if (!pinsByDate[d]) pinsByDate[d] = [];
-    pinsByDate[d].push({ imageUrl: p.imageUrl, title: p.title });
+    pinsByDate[d].push({ id: p.id, imageUrl: p.imageUrl, title: p.title });
   }
 
   const colCount = allSlots.length + 1;
@@ -530,7 +533,7 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
             <ChevronDown className="w-3 h-3 -rotate-90" />
           </button>
         </div>
-        <span className="text-[10px] text-gray-400">Click to apply</span>
+        <span className="text-[10px] text-gray-400">Click to apply · Drag pin to move</span>
       </div>
 
       {/* Column labels + Add button */}
@@ -596,15 +599,35 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
             <div key={dateStr}>
               <div className="flex items-center gap-1">
                 <div className="w-[76px] flex-shrink-0 text-[10px] text-gray-600 font-medium truncate pr-1 leading-tight">{label}</div>
-                {rowSlots.map((slot) => (
-                  <button
-                    key={slot.label}
-                    onClick={() => onApply(dateStr, slotTo24h(slot.label))}
-                    className={cn("flex-1 text-[9px] rounded-md py-1.5 font-semibold transition-colors text-center", slot.color, slot.text)}
-                  >
-                    {slot.short}
-                  </button>
-                ))}
+                {rowSlots.map((slot) => {
+                  const slotTime = slotTo24h(slot.label);
+                  const targetKey = `${dateStr}:${slotTime}`;
+                  const isOver = dropTarget === targetKey;
+                  return (
+                    <button
+                      key={slot.label}
+                      onClick={() => onApply(dateStr, slotTime)}
+                      onDragOver={(e) => { if (draggedPinId) { e.preventDefault(); setDropTarget(targetKey); } }}
+                      onDragLeave={() => setDropTarget(null)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedPinId) {
+                          onReschedule(draggedPinId, dateStr, slotTime);
+                          setDraggedPinId(null);
+                          setDropTarget(null);
+                        }
+                      }}
+                      className={cn(
+                        "flex-1 text-[9px] rounded-md py-1.5 font-semibold transition-all text-center",
+                        isOver
+                          ? "bg-[#e60023] text-white scale-110 ring-2 ring-[#e60023]/40 z-10"
+                          : cn(slot.color, slot.text)
+                      )}
+                    >
+                      {isOver ? "↓" : slot.short}
+                    </button>
+                  );
+                })}
                 {/* Per-day + button */}
                 {isAddingHere ? (
                   <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -647,23 +670,38 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                   </button>
                 )}
               </div>
-              {/* Scheduled thumbnails for this day */}
+              {/* Scheduled thumbnails for this day — draggable to reschedule */}
               {pins.length > 0 && (
                 <div className="flex gap-1 mt-1 pl-[76px] flex-wrap">
-                  {pins.map((p, i) => (
-                    <button key={i} title={`Edit: ${p.title}`} onClick={() => onEdit(p as ScheduledPin)}
-                      className="group/thumb w-7 h-7 rounded-md overflow-hidden bg-gray-100 border border-gray-200 flex-shrink-0 hover:ring-2 hover:ring-[#e60023] transition-all relative">
-                      {p.imageUrl && p.imageUrl.startsWith("http") ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={p.imageUrl} alt={p.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-[10px]">📌</div>
-                      )}
-                      <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                        <Edit2 className="w-3 h-3 text-white" />
-                      </div>
-                    </button>
-                  ))}
+                  {pins.map((p, i) => {
+                    const isDragging = draggedPinId === p.id;
+                    return (
+                      <button
+                        key={i}
+                        title={`Drag to reschedule · Click to edit: ${p.title}`}
+                        draggable
+                        onDragStart={() => setDraggedPinId(p.id)}
+                        onDragEnd={() => { setDraggedPinId(null); setDropTarget(null); }}
+                        onClick={() => onEdit(p as ScheduledPin)}
+                        className={cn(
+                          "group/thumb w-7 h-7 rounded-md overflow-hidden bg-gray-100 border flex-shrink-0 transition-all relative cursor-grab active:cursor-grabbing",
+                          isDragging
+                            ? "border-[#e60023] opacity-40 scale-95"
+                            : "border-gray-200 hover:ring-2 hover:ring-[#e60023]"
+                        )}
+                      >
+                        {p.imageUrl && p.imageUrl.startsWith("http") ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.imageUrl} alt={p.title} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-[10px]">📌</div>
+                        )}
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+                          <Edit2 className="w-3 h-3 text-white" />
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -2407,6 +2445,17 @@ export default function SchedulerPage() {
                   onSlotsChange={setSmartSlots}
                   daySlots={daySlots}
                   onDaySlotsChange={setDaySlots}
+                  onReschedule={async (pinId, newDate, newTime) => {
+                    const newScheduledAt = new Date(`${newDate}T${newTime}:00`).toISOString();
+                    setScheduled(s => s.map(p => p.id === pinId ? { ...p, scheduledAt: newScheduledAt } : p));
+                    try {
+                      await fetch("/api/schedule-pin", {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ pinId, scheduledAt: newScheduledAt }),
+                      });
+                    } catch { /* non-fatal — UI already updated */ }
+                  }}
                 />
               ) : (
                 /* Thumbnail list */
