@@ -2258,7 +2258,17 @@ export default function SchedulerPage() {
       const saved = localStorage.getItem(DRAFTS_STORAGE_KEY);
       if (saved) {
         const parsed: PinDraft[] = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Clear date/time if the stored slot is already in the past
+          const now = new Date();
+          return parsed.map(d => {
+            if (d.date && d.time) {
+              const slotDt = new Date(`${d.date}T${d.time}:00`);
+              if (slotDt <= now) return { ...d, date: "", time: "" };
+            }
+            return d;
+          });
+        }
       }
     } catch { /* ignore */ }
     return [newDraft(), newDraft(), newDraft()];
@@ -2426,18 +2436,19 @@ export default function SchedulerPage() {
   }
 
   // Schedule a single draft — one slot per board, serial across the slot calendar
-  const scheduleSingle = async (draftId: string) => {
-    const d = drafts.find((dr) => dr.id === draftId);
+  const scheduleSingle = async (d: PinDraft) => {
     if (!d || !d.title || !d.imageUrl) return;
-    setSchedulingId(draftId);
+    setSchedulingId(d.id);
     const boardList = d.boards?.length ? d.boards : [d.board || ""];
     const usedSoFar = new Set<string>();
     const saved: ScheduledPin[] = [];
     const effectiveSpacing = spacingLocked ? pinSpacing : 0;
     for (let i = 0; i < boardList.length; i++) {
-      const ms = (d.date && d.time && i === 0)
+      // Only honour the stored date/time if it's still in the future
+      const hasManualSlot = d.date && d.time && new Date(`${d.date}T${d.time}:00`) > new Date();
+      const ms = (hasManualSlot && i === 0)
         ? new Date(`${d.date}T${d.time}:00`).getTime()
-        : nextSlotMs(i === 0 ? d.date : "", i === 0 ? d.time : "", usedSoFar, d.link || undefined, effectiveSpacing);
+        : nextSlotMs(i === 0 && hasManualSlot ? d.date : "", i === 0 && hasManualSlot ? d.time : "", usedSoFar, d.link || undefined, effectiveSpacing);
       const scheduledAt = new Date(ms).toISOString();
       usedSoFar.add(scheduledAt);
       const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, altText: d.altText, scheduledAt });
@@ -2445,7 +2456,7 @@ export default function SchedulerPage() {
     }
     setSchedulingId(null);
     if (saved.length) {
-      setDrafts((prev) => prev.map((dr) => dr.id === draftId ? newDraft() : dr));
+      setDrafts((prev) => prev.map((dr) => dr.id === d.id ? newDraft() : dr));
       setSuccessPopup(true);
       setTimeout(() => setSuccessPopup(false), 3000);
       // Re-fetch from Redis to guarantee Queue is in sync
@@ -2918,7 +2929,7 @@ export default function SchedulerPage() {
                   onChange={(updated) => updateDraft(draft.id, updated)}
                   onRemove={() => removeDraft(draft.id)}
                   onAiOpen={() => setAiTarget(draft.id)}
-                  onSchedule={() => scheduleSingle(draft.id)}
+                  onSchedule={() => scheduleSingle(draft)}
                   isScheduling={schedulingId === draft.id}
                   isOnly={drafts.length === 1}
                   boards={boards}
