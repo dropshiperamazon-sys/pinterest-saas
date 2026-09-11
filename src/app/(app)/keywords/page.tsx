@@ -757,6 +757,7 @@ export default function KeywordsPage() {
   const [moreIdeas, setMoreIdeas] = useState<string[]>([]);
   const [moreIdeasLoading, setMoreIdeasLoading] = useState(false);
   const [moreIdeasShown, setMoreIdeasShown] = useState(false);
+  const [moreIdeasError, setMoreIdeasError] = useState<string | null>(null);
 
   // Fetch remaining searches on mount
   useEffect(() => {
@@ -833,6 +834,7 @@ export default function KeywordsPage() {
     setSuggestions([]);
     setMoreIdeas([]);
     setMoreIdeasShown(false);
+    setMoreIdeasError(null);
     setRelatedResults([]);
     setTrendingResults([]);
     setResults([]);
@@ -1267,6 +1269,7 @@ export default function KeywordsPage() {
                       onClick={async () => {
                         setMoreIdeasShown(true);
                         setMoreIdeasLoading(true);
+                        setMoreIdeasError(null);
                         try {
                           const existing = results.slice(0, 30).map(r => r.keyword);
                           const res = await fetch("/api/keyword-db/more-ideas", {
@@ -1275,9 +1278,10 @@ export default function KeywordsPage() {
                             body: JSON.stringify({ query: searchedQuery, country: searchRegion, existingKeywords: existing }),
                           });
                           const data = await res.json();
+                          if (!res.ok) { setMoreIdeasError(data.error ?? "Failed"); return; }
                           setMoreIdeas(data.keywords ?? []);
-                        } catch {
-                          setMoreIdeas([]);
+                        } catch (e) {
+                          setMoreIdeasError(e instanceof Error ? e.message : "Request failed");
                         } finally {
                           setMoreIdeasLoading(false);
                         }
@@ -1297,8 +1301,12 @@ export default function KeywordsPage() {
                         <span className="text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">AI generated · not stored</span>
                       </div>
                       <button
+                        disabled={moreIdeasLoading}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-40"
+                        title="Regenerate"
                         onClick={async () => {
                           setMoreIdeasLoading(true);
+                          setMoreIdeasError(null);
                           try {
                             const existing = results.slice(0, 30).map(r => r.keyword);
                             const res = await fetch("/api/keyword-db/more-ideas", {
@@ -1307,16 +1315,14 @@ export default function KeywordsPage() {
                               body: JSON.stringify({ query: searchedQuery, country: searchRegion, existingKeywords: existing }),
                             });
                             const data = await res.json();
+                            if (!res.ok) { setMoreIdeasError(data.error ?? "Failed"); return; }
                             setMoreIdeas(data.keywords ?? []);
-                          } catch {
-                            setMoreIdeas([]);
+                          } catch (e) {
+                            setMoreIdeasError(e instanceof Error ? e.message : "Request failed");
                           } finally {
                             setMoreIdeasLoading(false);
                           }
                         }}
-                        disabled={moreIdeasLoading}
-                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-40"
-                        title="Regenerate"
                       >
                         <RefreshCw className={cn("w-3.5 h-3.5", moreIdeasLoading && "animate-spin")} />
                       </button>
@@ -1327,6 +1333,8 @@ export default function KeywordsPage() {
                           <RefreshCw className="w-4 h-4 animate-spin" />
                           Generating keyword ideas…
                         </div>
+                      ) : moreIdeasError ? (
+                        <p className="text-sm text-red-500">{moreIdeasError}</p>
                       ) : moreIdeas.length > 0 ? (
                         <div className="flex flex-wrap gap-2">
                           {moreIdeas.map(kw => (

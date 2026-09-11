@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import OpenAI from "openai";
 
-const openai = new OpenAI();
-
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.email) {
@@ -40,6 +38,12 @@ Requirements:
 Return format (strict JSON array, no markdown):
 ["keyword one", "keyword two", ...]`;
 
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({ error: "OPENAI_API_KEY not configured" }, { status: 500 });
+  }
+  const openai = new OpenAI({ apiKey });
+
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -58,7 +62,8 @@ Return format (strict JSON array, no markdown):
     return NextResponse.json({
       keywords: keywords.filter(k => typeof k === "string" && k.trim()).slice(0, 20),
     });
-  } catch {
-    return NextResponse.json({ error: "Failed to generate ideas" }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: "Failed to generate ideas", detail: msg }, { status: 500 });
   }
 }
