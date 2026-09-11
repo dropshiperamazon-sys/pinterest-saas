@@ -603,25 +603,30 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                   const slotTime = slotTo24h(slot.label);
                   const targetKey = `${dateStr}:${slotTime}`;
                   const isOver = dropTarget === targetKey;
+                  const isPast = new Date(`${dateStr}T${slotTime}:00`) <= now;
                   return (
                     <button
                       key={slot.label}
-                      onClick={() => onApply(dateStr, slotTime)}
-                      onDragOver={(e) => { if (draggedPinId) { e.preventDefault(); setDropTarget(targetKey); } }}
+                      onClick={() => !isPast && onApply(dateStr, slotTime)}
+                      disabled={isPast}
+                      onDragOver={(e) => { if (draggedPinId && !isPast) { e.preventDefault(); setDropTarget(targetKey); } }}
                       onDragLeave={() => setDropTarget(null)}
                       onDrop={(e) => {
                         e.preventDefault();
-                        if (draggedPinId) {
+                        if (draggedPinId && !isPast) {
                           onReschedule(draggedPinId, dateStr, slotTime);
                           setDraggedPinId(null);
                           setDropTarget(null);
                         }
                       }}
+                      title={isPast ? "Past time slot" : slot.label}
                       className={cn(
                         "flex-1 text-[9px] rounded-md py-1.5 font-semibold transition-all text-center",
                         isOver
                           ? "bg-[#e60023] text-white scale-110 ring-2 ring-[#e60023]/40 z-10"
-                          : cn(slot.color, slot.text)
+                          : isPast
+                            ? "bg-gray-100 text-gray-300 cursor-not-allowed line-through"
+                            : cn(slot.color, slot.text)
                       )}
                     >
                       {isOver ? "↓" : slot.short}
