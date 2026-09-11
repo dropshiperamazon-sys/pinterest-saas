@@ -1161,10 +1161,9 @@ function DraftCard({
                       setLinkPreview(null);
                     }}
                     disabled={!productLinkInput.trim()}
-                    className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1 flex-shrink-0"
+                    className="px-3 py-2 bg-[#e60023] text-white hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center flex-shrink-0"
                   >
-                    <Plus className="w-3 h-3" />
-                    Add
+                    <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
                 {linkPreviewLoading && (
