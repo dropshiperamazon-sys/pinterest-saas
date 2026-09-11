@@ -147,7 +147,7 @@ export default function AdminKeywordsPage() {
     }
   }, []);
 
-  useEffect(() => { if (tab === "gaps") { loadGaps(); loadSuggestions(1, suggCountry); } }, [tab, loadGaps]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab === "gaps") { loadGaps(); } }, [tab, loadGaps]);
   useEffect(() => { if (tab === "history") loadHistory(); }, [tab, loadHistory]);
   useEffect(() => { if (tab === "top") loadTopSearched(topDays); }, [tab, topDays, loadTopSearched]);
 
@@ -228,17 +228,8 @@ export default function AdminKeywordsPage() {
       if (!res.ok) { setImportError(`Import failed (${res.status}): ${data.error ?? res.statusText}`); return; }
       setImportResult(data);
       setCsvText("");
-      // Fire AI expansion in background — doesn't block the UI
-      if (Array.isArray(data.expansionSeeds) && data.expansionSeeds.length > 0) {
-        fetch("/api/keyword-db/expand-suggestions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            seeds: data.expansionSeeds,
-            importedNormalizedKeywords: data.importedNormalizedKeywords ?? [],
-          }),
-        }).catch(() => {});
-      }
+      // AI expansion disabled — re-enable when ready
+      // fetch("/api/keyword-db/expand-suggestions", { ... })
     } catch (e) {
       setImportError(String(e));
     } finally {
@@ -388,46 +379,7 @@ export default function AdminKeywordsPage() {
               </div>
               <div className="flex items-center gap-2">
                 {/* Push controls — shown when suggestions exist */}
-                {suggTotal > 0 && (
-                  <>
-                    {selectedSuggIds.size > 0 && (
-                      <span className="text-xs text-purple-700 font-semibold">{selectedSuggIds.size} selected</span>
-                    )}
-                    <button
-                      onClick={() => pushSuggestions(Array.from(selectedSuggIds))}
-                      disabled={selectedSuggIds.size === 0 || pushing}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-white bg-purple-600 px-3 py-1.5 rounded-lg hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {pushing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-                      Push Selected
-                    </button>
-                    <button
-                      onClick={() => pushSuggestions(suggestions.map(s => s.id))}
-                      disabled={pushing || suggestions.length === 0}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-purple-700 border border-purple-200 bg-purple-50 px-3 py-1.5 rounded-lg hover:bg-purple-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Push Page ({suggestions.length})
-                    </button>
-                    {selectedSuggIds.size > 0 && (
-                      <button
-                        onClick={() => deleteSuggestionIds(Array.from(selectedSuggIds))}
-                        disabled={deleting}
-                        className="flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-200 bg-red-50 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                        Delete Selected
-                      </button>
-                    )}
-                    <button
-                      onClick={() => deleteSuggestionIds(suggestions.map(s => s.id))}
-                      disabled={deleting || suggestions.length === 0}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-red-500 border border-red-100 bg-red-50/50 px-3 py-1.5 rounded-lg hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                      Delete Page
-                    </button>
-                  </>
-                )}
+                {/* AI suggestion controls hidden — re-enable when AI expansion is turned back on */}
                 <button
                   onClick={() => {
                     const visibleGaps = gaps.filter(g => statusFilter === "ALL" || g.status === statusFilter);
@@ -450,38 +402,7 @@ export default function AdminKeywordsPage() {
                 <button onClick={() => { loadGaps(); loadSuggestions(1, suggCountry); setSuggPage(1); }} className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
                   <RefreshCw className="w-3.5 h-3.5" /> Refresh
                 </button>
-                <button
-                  onClick={runRepair}
-                  disabled={repairing}
-                  title="Find existing AI keywords and move them to Data Requests pending list"
-                  className="flex items-center gap-1.5 text-xs text-indigo-600 border border-indigo-200 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {repairing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
-                  Sync AI
-                </button>
-                {repairResult && (
-                  <span className="text-xs text-indigo-600 font-medium">
-                    {repairResult.repaired > 0
-                      ? `✓ ${repairResult.repaired} AI keywords moved to pending`
-                      : `✓ ${repairResult.total} AI keywords already indexed`}
-                  </span>
-                )}
-                <button
-                  onClick={runExpand}
-                  disabled={expanding}
-                  title="Copy all US AI keywords to GB, CA, AU"
-                  className="flex items-center gap-1.5 text-xs text-teal-600 border border-teal-200 bg-teal-50 px-3 py-1.5 rounded-lg hover:bg-teal-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {expanding ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <TrendingUp className="w-3.5 h-3.5" />}
-                  Add GB/CA/AU
-                </button>
-                {expandResult && (
-                  <span className="text-xs text-teal-600 font-medium">
-                    {expandResult.created > 0
-                      ? `✓ ${expandResult.created.toLocaleString()} country copies created`
-                      : `✓ Already expanded to all countries`}
-                  </span>
-                )}
+                {/* Sync AI / Add GB/CA/AU hidden — re-enable when AI expansion is turned back on */}
                 {/* Wipe database */}
                 <div className="flex items-center gap-2 ml-auto">
                   {wipeResult && (
@@ -506,26 +427,15 @@ export default function AdminKeywordsPage() {
                   )}
                 </div>
                 {/* Country filter tabs */}
-                {suggTotal > 0 && (
-                  <div className="flex gap-1 ml-2 border-l border-gray-200 pl-2">
-                    {(["ALL", "US", "GB", "CA", "AU"] as const).map(c => (
-                      <button key={c} onClick={() => { setSuggCountry(c); setSuggPage(1); loadSuggestions(1, c); }}
-                        className={cn("text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-all",
-                          suggCountry === c ? "bg-blue-600 text-white border-blue-600" : "text-blue-600 border-blue-200 bg-blue-50 hover:bg-blue-100"
-                        )}>
-                        {c}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {/* Country filter hidden — re-enable with AI suggestions */}
               </div>
             </div>
 
             {/* Unified table — AI suggestions first (pending approval), then regular gaps */}
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
 
-              {/* AI Suggestions section — server-side paginated, 50 per page */}
-              {(suggTotal > 0 || suggLoading) && (() => {
+              {/* AI Suggestions section disabled — re-enable when AI expansion is turned back on */}
+              {false && (suggTotal > 0 || suggLoading) && (() => {
                 const totalPages = Math.ceil(suggTotal / SUGG_PER_PAGE);
                 const allIds = suggestions.map(s => s.id);
                 const allSelected = allIds.length > 0 && allIds.every(id => selectedSuggIds.has(id));
