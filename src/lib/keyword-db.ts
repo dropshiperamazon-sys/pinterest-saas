@@ -410,9 +410,45 @@ export async function batchUpsertKeywords(
 export async function listPendingSuggestions(limit = 5000): Promise<KeywordRecord[]> {
   const ids = await redis.zrange(PENDING_IDX, 0, limit - 1, { rev: true });
   if (!ids || ids.length === 0) return [];
-  const records = await Promise.all((ids as string[]).map(id => getKeyword(id)));
-  // Filter out any that were approved or deleted since indexing
-  return records.filter((r): r is KeywordRecord => r != null && r.pendingApproval === true);
+  const p = redis.pipeline();
+  for (const id of ids as string[]) p.get(kwKey(id));
+  const raws = await p.exec() as Array<string | null>;
+  return raws
+    .map(r => r ? (typeof r === "string" ? JSON.parse(r) : r) as KeywordRecord : null)
+    .filter((r): r is KeywordRecord => r != null && r.pendingApproval === true);
+}
+
+export async function listPendingSuggestionsPaged(opts: {
+  page: number;
+  limit: number;
+  country?: string;
+}): Promise<{ suggestions: KeywordRecord[]; total: number }> {
+  const total = await redis.zcard(PENDING_IDX);
+  if (total === 0) return { suggestions: [], total: 0 };
+
+  // If filtering by country we must over-fetch then slice — fetch up to 2000 to find a page
+  if (opts.country) {
+    const ids = await redis.zrange(PENDING_IDX, 0, 1999, { rev: true }) as string[];
+    const p = redis.pipeline();
+    for (const id of ids) p.get(kwKey(id));
+    const raws = await p.exec() as Array<string | null>;
+    const all = raws
+      .map(r => r ? (typeof r === "string" ? JSON.parse(r) : r) as KeywordRecord : null)
+      .filter((r): r is KeywordRecord => r != null && r.pendingApproval === true && r.country === opts.country);
+    const start = (opts.page - 1) * opts.limit;
+    return { suggestions: all.slice(start, start + opts.limit), total: all.length };
+  }
+
+  const start = (opts.page - 1) * opts.limit;
+  const ids = await redis.zrange(PENDING_IDX, start, start + opts.limit - 1, { rev: true }) as string[];
+  if (!ids || ids.length === 0) return { suggestions: [], total };
+  const p = redis.pipeline();
+  for (const id of ids) p.get(kwKey(id));
+  const raws = await p.exec() as Array<string | null>;
+  const suggestions = raws
+    .map(r => r ? (typeof r === "string" ? JSON.parse(r) : r) as KeywordRecord : null)
+    .filter((r): r is KeywordRecord => r != null && r.pendingApproval === true);
+  return { suggestions, total };
 }
 
 // Repair: scan all AI_INFERRED keywords and add any without pendingApproval to the pending index.

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { listPendingSuggestions, approveSuggestions, reEstimateAiKeywords, getKeyword, deleteSuggestions } from "@/lib/keyword-db";
+import { listPendingSuggestionsPaged, approveSuggestions, reEstimateAiKeywords, getKeyword, deleteSuggestions } from "@/lib/keyword-db";
 
 async function requireAdmin(req: NextRequest) {
   const session = await auth();
@@ -10,16 +10,18 @@ async function requireAdmin(req: NextRequest) {
   return null;
 }
 
-// GET — list all pending AI suggestions
+// GET — list pending AI suggestions (paginated)
 export async function GET(req: NextRequest) {
   const denied = await requireAdmin(req);
   if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
 
   const { searchParams } = new URL(req.url);
-  const limit = Math.min(parseInt(searchParams.get("limit") ?? "5000"), 10000);
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
+  const limit = Math.min(parseInt(searchParams.get("limit") ?? "50"), 200);
+  const country = searchParams.get("country") ?? undefined;
 
-  const suggestions = await listPendingSuggestions(limit);
-  return NextResponse.json({ suggestions, total: suggestions.length });
+  const { suggestions, total } = await listPendingSuggestionsPaged({ page, limit, country });
+  return NextResponse.json({ suggestions, total, page, limit });
 }
 
 // POST — approve selected suggestions (push to dataset)
