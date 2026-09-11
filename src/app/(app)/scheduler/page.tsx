@@ -810,7 +810,11 @@ function PinSEOModal({ draft, onChange, onClose }: {
     try {
       const res = await fetch(`/api/keyword-db/search?q=${encodeURIComponent(focusKw)}&limit=20`);
       const data = await res.json();
-      setKwRecs((data.keywords ?? []).slice(0, 8).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.toLowerCase()));
+      const recs: SeoKw[] = (data.keywords ?? []).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.toLowerCase());
+      setKwRecs(recs.slice(0, 8));
+      // Auto-select top 2-3 as suggested secondaries
+      const autoSelect = recs.slice(0, 3).map((k: SeoKw) => k.keyword);
+      setSelectedKws(autoSelect);
     } catch { setKwRecs([]); }
     setAnalyzing(false);
     setStep("analysis");
@@ -978,11 +982,15 @@ function PinSEOModal({ draft, onChange, onClose }: {
               {/* Keyword Recommendations */}
               {kwRecs.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold text-gray-700">💡 Recommended Keywords</div>
-                  <p className="text-xs text-gray-400">Select keywords to include in your Pin</p>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-semibold text-gray-700">💡 Secondary Keywords</div>
+                    <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">{selectedKws.length} selected</span>
+                  </div>
+                  <p className="text-xs text-gray-400">Top suggestions pre-selected — uncheck or add more</p>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                    {kwRecs.map(kw => {
+                    {kwRecs.map((kw, idx) => {
                       const sel = selectedKws.includes(kw.keyword);
+                      const isSuggested = idx < 3;
                       return (
                         <button
                           key={kw.keyword}
@@ -992,7 +1000,10 @@ function PinSEOModal({ draft, onChange, onClose }: {
                             sel ? "border-blue-400 bg-blue-50 text-blue-700" : "border-gray-200 hover:border-gray-300 text-gray-600"
                           )}
                         >
-                          <span className="font-medium">{kw.keyword}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{kw.keyword}</span>
+                            {isSuggested && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">suggested</span>}
+                          </div>
                           <div className="flex items-center gap-2">
                             {kw.monthlySearches && <span className="text-gray-400">{kw.monthlySearches >= 1000000 ? `${(kw.monthlySearches/1000000).toFixed(1)}M` : kw.monthlySearches >= 1000 ? `${(kw.monthlySearches/1000).toFixed(0)}K` : kw.monthlySearches}+</span>}
                             <div className={cn("w-4 h-4 rounded border-2 flex items-center justify-center", sel ? "border-blue-500 bg-blue-500" : "border-gray-300")}>
