@@ -2370,35 +2370,55 @@ export default function SchedulerPage() {
 
   // Returns next available scheduledAt from the slot calendar, or falls back to next round hour.
   // `usedSoFar` is a set of ISO strings already claimed by earlier drafts in the same batch.
-  function nextSlotMs(date: string, time: string, usedSoFar: Set<string>): number {
+  // `link` + `spacingDays`: if provided, skips any slot within spacingDays of an existing scheduled
+  // pin (or a same-batch claim) that shares the same URL.
+  function nextSlotMs(date: string, time: string, usedSoFar: Set<string>, link?: string, spacingDays?: number): number {
     if (date && time) return new Date(`${date}T${time}:00`).getTime();
     const baseCheck = activeSlotTimes();
     if (baseCheck.length === 0) {
-      // No slots defined — fall back to next round hour
       const now = new Date();
       now.setMinutes(0, 0, 0);
       now.setHours(now.getHours() + 1);
       return now.getTime();
     }
-    // Walk forward day by day from today, slot by slot, until we find an unclaimed slot in the future
+
+    // Build the list of already-taken times for this link (existing + same-batch claims)
+    const spacingMs = (spacingDays ?? 0) * 86400000;
+    const sameUrlTimes: number[] = [];
+    if (link && spacingMs > 0) {
+      for (const p of scheduled) {
+        if (p.link && p.link === link) sameUrlTimes.push(new Date(p.scheduledAt).getTime());
+      }
+      // Also include same-batch claims tagged with this link
+      for (const iso of usedSoFar) {
+        if (iso.startsWith("link:")) {
+          const [, claimLink, claimIso] = iso.split("|");
+          if (claimLink === link) sameUrlTimes.push(new Date(claimIso).getTime());
+        }
+      }
+    }
+
     const now = new Date();
     for (let dayOffset = 0; dayOffset <= 365; dayOffset++) {
       const day = new Date(now);
       day.setDate(day.getDate() + dayOffset);
       day.setSeconds(0, 0);
       const dateStr = day.toISOString().split("T")[0];
-      const slotTimes = activeSlotTimes(dateStr); // includes per-day slots
+      const slotTimes = activeSlotTimes(dateStr);
       for (const t of slotTimes) {
         const candidate = new Date(`${dateStr}T${t}:00`);
-        if (candidate <= now) continue; // slot already passed today
+        if (candidate <= now) continue;
         const iso = candidate.toISOString();
-        if (!usedSoFar.has(iso) && !scheduled.some(p => p.scheduledAt === iso)) {
-          usedSoFar.add(iso);
-          return candidate.getTime();
-        }
+        // Skip if slot is already claimed (exact match)
+        if (usedSoFar.has(iso) || scheduled.some(p => p.scheduledAt === iso)) continue;
+        // Skip if too close to another pin with same URL
+        if (spacingMs > 0 && sameUrlTimes.some(t2 => Math.abs(candidate.getTime() - t2) < spacingMs)) continue;
+        usedSoFar.add(iso);
+        // Tag this claim with the link so subsequent same-URL pins in this batch see it
+        if (link && spacingMs > 0) usedSoFar.add(`link:|${link}|${iso}`);
+        return candidate.getTime();
       }
     }
-    // Absolute fallback
     const fb = new Date();
     fb.setMinutes(0, 0, 0);
     fb.setHours(fb.getHours() + 1);
@@ -2413,10 +2433,11 @@ export default function SchedulerPage() {
     const boardList = d.boards?.length ? d.boards : [d.board || ""];
     const usedSoFar = new Set<string>();
     const saved: ScheduledPin[] = [];
+    const effectiveSpacing = spacingLocked ? pinSpacing : 0;
     for (let i = 0; i < boardList.length; i++) {
       const ms = (d.date && d.time && i === 0)
         ? new Date(`${d.date}T${d.time}:00`).getTime()
-        : nextSlotMs(i === 0 ? d.date : "", i === 0 ? d.time : "", usedSoFar);
+        : nextSlotMs(i === 0 ? d.date : "", i === 0 ? d.time : "", usedSoFar, d.link || undefined, effectiveSpacing);
       const scheduledAt = new Date(ms).toISOString();
       usedSoFar.add(scheduledAt);
       const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, altText: d.altText, scheduledAt });
@@ -2441,12 +2462,13 @@ export default function SchedulerPage() {
     if (valid.length === 0) return;
     const usedSoFar = new Set<string>();
     const saved: ScheduledPin[] = [];
+    const effectiveSpacing = spacingLocked ? pinSpacing : 0;
     for (const d of valid) {
       const boardList = d.boards?.length ? d.boards : [d.board || ""];
       for (let i = 0; i < boardList.length; i++) {
         const ms = (d.date && d.time && i === 0)
           ? new Date(`${d.date}T${d.time}:00`).getTime()
-          : nextSlotMs(i === 0 ? d.date : "", i === 0 ? d.time : "", usedSoFar);
+          : nextSlotMs(i === 0 ? d.date : "", i === 0 ? d.time : "", usedSoFar, d.link || undefined, effectiveSpacing);
         const scheduledAt = new Date(ms).toISOString();
         usedSoFar.add(scheduledAt);
         const pin = await postPin({ title: d.title, description: d.description, imageUrl: d.imageUrl, board: boardList[i], link: d.link, pinType: d.pinType, taggedProducts: d.taggedProducts, altText: d.altText, scheduledAt });
