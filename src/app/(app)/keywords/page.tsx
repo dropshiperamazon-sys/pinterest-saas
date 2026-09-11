@@ -753,6 +753,11 @@ export default function KeywordsPage() {
   const [searchedQuery, setSearchedQuery] = useState("");
   const [aiTriggered, setAiTriggered] = useState(false);
 
+  // More Keyword Ideas state
+  const [moreIdeas, setMoreIdeas] = useState<string[]>([]);
+  const [moreIdeasLoading, setMoreIdeasLoading] = useState(false);
+  const [moreIdeasShown, setMoreIdeasShown] = useState(false);
+
   // Fetch remaining searches on mount
   useEffect(() => {
     fetch("/api/search-limit").then(r => r.json()).then(d => {
@@ -826,6 +831,8 @@ export default function KeywordsPage() {
     setLoading(true);
     setIsLive(false);
     setSuggestions([]);
+    setMoreIdeas([]);
+    setMoreIdeasShown(false);
     setRelatedResults([]);
     setTrendingResults([]);
     setResults([]);
@@ -1249,6 +1256,96 @@ export default function KeywordsPage() {
                 searchedQuery={searchedQuery}
                 onRegenerate={() => runAIAnalysis(searchedQuery, true)}
               />
+            )}
+
+            {/* More Keyword Ideas — on-demand AI generation, zero Redis */}
+            {searchedQuery && !loading && (
+              <div className="mt-4">
+                {!moreIdeasShown ? (
+                  <div className="flex justify-center">
+                    <button
+                      onClick={async () => {
+                        setMoreIdeasShown(true);
+                        setMoreIdeasLoading(true);
+                        try {
+                          const existing = results.slice(0, 30).map(r => r.keyword);
+                          const res = await fetch("/api/keyword-db/more-ideas", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ query: searchedQuery, country: searchRegion, existingKeywords: existing }),
+                          });
+                          const data = await res.json();
+                          setMoreIdeas(data.keywords ?? []);
+                        } catch {
+                          setMoreIdeas([]);
+                        } finally {
+                          setMoreIdeasLoading(false);
+                        }
+                      }}
+                      className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:border-[#e60023] hover:text-[#e60023] transition-colors shadow-sm"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      More Keyword Ideas
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-[#e60023]" />
+                        <span className="text-sm font-semibold text-gray-800">More Keyword Ideas</span>
+                        <span className="text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">AI generated · not stored</span>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          setMoreIdeasLoading(true);
+                          try {
+                            const existing = results.slice(0, 30).map(r => r.keyword);
+                            const res = await fetch("/api/keyword-db/more-ideas", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ query: searchedQuery, country: searchRegion, existingKeywords: existing }),
+                            });
+                            const data = await res.json();
+                            setMoreIdeas(data.keywords ?? []);
+                          } catch {
+                            setMoreIdeas([]);
+                          } finally {
+                            setMoreIdeasLoading(false);
+                          }
+                        }}
+                        disabled={moreIdeasLoading}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-40"
+                        title="Regenerate"
+                      >
+                        <RefreshCw className={cn("w-3.5 h-3.5", moreIdeasLoading && "animate-spin")} />
+                      </button>
+                    </div>
+                    <div className="px-5 py-4">
+                      {moreIdeasLoading ? (
+                        <div className="flex items-center gap-2 text-sm text-gray-400">
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          Generating keyword ideas…
+                        </div>
+                      ) : moreIdeas.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {moreIdeas.map(kw => (
+                            <button
+                              key={kw}
+                              onClick={() => handleSearch(kw)}
+                              className="text-sm bg-gray-50 border border-gray-200 text-gray-700 px-3 py-1.5 rounded-lg hover:border-[#e60023] hover:text-[#e60023] hover:bg-[#e60023]/5 transition-colors"
+                            >
+                              {kw}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400">No ideas generated. Try regenerating.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {results.length === 0 && !loading && !searchedQuery && (
