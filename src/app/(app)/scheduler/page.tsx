@@ -1641,37 +1641,44 @@ function DraftCard({
             />
           </div>
 
-          {/* Check SEO button */}
-          <button
-            onClick={() => setSeoOpen(true)}
-            disabled={!draft.title}
-            className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Search className="w-3.5 h-3.5" />
-            Check Pin SEO
-          </button>
+          {/* Check SEO + Schedule — only visible when title, description, and board are all set */}
+          {draft.title && draft.description && draft.board ? (
+            <>
+              <button
+                onClick={() => setSeoOpen(true)}
+                className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors"
+              >
+                <Search className="w-3.5 h-3.5" />
+                Check Pin SEO
+              </button>
 
-          {/* Schedule button */}
-          <button
-            onClick={onSchedule}
-            disabled={!draft.title || !draft.imageUrl || isScheduling}
-            className="w-full flex items-center justify-center gap-2 bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {isScheduling ? (
-              <>
-                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                </svg>
-                Scheduling…
-              </>
-            ) : (
-              <>
-                <Calendar className="w-3.5 h-3.5" />
-                Schedule
-              </>
-            )}
-          </button>
+              <button
+                onClick={onSchedule}
+                disabled={!draft.imageUrl || isScheduling}
+                className="w-full flex items-center justify-center gap-2 bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {isScheduling ? (
+                  <>
+                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    Scheduling…
+                  </>
+                ) : (
+                  <>
+                    <Calendar className="w-3.5 h-3.5" />
+                    Schedule
+                  </>
+                )}
+              </button>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 text-xs text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-xl px-3 py-2.5">
+              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              <span>Add a title, description, and board to unlock scheduling</span>
+            </div>
+          )}
 
         </div>
       )}
