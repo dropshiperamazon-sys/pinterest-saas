@@ -66,34 +66,12 @@ export async function GET(req: NextRequest) {
   // Cache the result
   if (keywords.length > 0) setCache(norm, country, keywords);
 
-  // For each result, also pull its stored relationships
-  const withRelationships = await Promise.all(
-    keywords.slice(0, 10).map(async (kw) => {
-      const rels = await getRelationships(kw.id);
-      return { ...kw, relationships: rels };
-    })
-  );
+  // Relationships disabled to save Redis reads
+  const withRelationships = keywords.slice(0, 10).map(kw => ({ ...kw, relationships: [] }));
   const rest = keywords.slice(10);
 
-  // Detect missing data and record gaps
-  for (const kw of keywords.slice(0, 5)) {
-    const missing: string[] = [];
-    if (kw.monthlySearches === null) missing.push("monthly_searches");
-    if (kw.competition === null) missing.push("competition");
-    if (kw.avgCpc === null) missing.push("avg_cpc");
-    if (missing.length > 0) {
-      recordDataGap({ keyword: kw.keyword, country, missingFields: missing }).catch(() => {});
-    }
-  }
-
-  // If exact keyword has no entry at all, create a gap request
-  if (keywords.length === 0) {
-    recordDataGap({
-      keyword: query,
-      country,
-      missingFields: ["monthly_searches", "competition", "avg_cpc", "trend", "related_keywords"],
-    }).catch(() => {});
-  }
+  // Data gap recording disabled to save Redis writes — re-enable when AI suggestions are back
+  // recordDataGap(...)
 
   return NextResponse.json({
     query,
