@@ -1129,7 +1129,7 @@ function DraftCard({
               </div>
             )}
             <div className="space-y-2">
-                <div className="flex gap-1.5">
+                <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-[#e60023]/20 focus-within:border-[#e60023]">
                   <input
                     value={productLinkInput}
                     onChange={async (e) => {
@@ -1149,7 +1149,7 @@ function DraftCard({
                       }
                     }}
                     placeholder="Paste product URL…"
-                    className="flex-1 px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+                    className="flex-1 px-3 py-2 text-xs bg-transparent focus:outline-none"
                   />
                   <button
                     onClick={() => {
@@ -1161,7 +1161,7 @@ function DraftCard({
                       setLinkPreview(null);
                     }}
                     disabled={!productLinkInput.trim()}
-                    className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1"
+                    className="px-3 py-2 bg-[#e60023] text-white text-xs font-semibold hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center gap-1 flex-shrink-0"
                   >
                     <Plus className="w-3 h-3" />
                     Add
