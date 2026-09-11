@@ -2209,11 +2209,12 @@ export default function SchedulerPage() {
       })
       .finally(() => setBoardsLoading(false));
 
-    // Load real scheduled pins
+    // Load real scheduled pins (only when session is ready)
+    if (!session?.user?.email) return;
     fetch("/api/schedule-pin")
       .then((r) => r.json())
       .then((data) => {
-        if (data.pins) setScheduled(data.pins);
+        if (Array.isArray(data.pins)) setScheduled(data.pins);
       })
       .catch(() => {});
   }, [session]);
@@ -2317,10 +2318,14 @@ export default function SchedulerPage() {
     }
     setSchedulingId(null);
     if (saved.length) {
-      setScheduled((s) => [...saved, ...s]);
       setDrafts((prev) => prev.map((dr) => dr.id === draftId ? newDraft() : dr));
       setSuccessPopup(true);
       setTimeout(() => setSuccessPopup(false), 3000);
+      // Re-fetch from Redis to guarantee Queue is in sync
+      fetch("/api/schedule-pin")
+        .then(r => r.json())
+        .then(data => { if (Array.isArray(data.pins)) setScheduled(data.pins); })
+        .catch(() => setScheduled(s => [...saved, ...s]));
     }
   };
 
@@ -2342,8 +2347,12 @@ export default function SchedulerPage() {
         if (pin) saved.push(pin);
       }
     }
-    setScheduled((s) => [...saved, ...s]);
     setDrafts([newDraft(), newDraft(), newDraft()]);
+    // Re-fetch from Redis to guarantee Queue is in sync
+    fetch("/api/schedule-pin")
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data.pins)) setScheduled(data.pins); })
+      .catch(() => setScheduled(s => [...saved, ...s]));
   };
 
   const deleteScheduled = async (id: string) => {
