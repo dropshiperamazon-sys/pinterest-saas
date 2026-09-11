@@ -7,7 +7,7 @@ import {
   Plus, Calendar, Clock, Link2, Image as ImageIcon,
   CheckCircle2, Trash2, Edit2, X, ExternalLink,
   Sparkles, Zap, Tag, ChevronDown, ChevronUp,
-  Copy, AlertCircle, LayoutGrid, ShoppingCart, Search,
+  Copy, AlertCircle, LayoutGrid, ShoppingCart, Search, Pencil,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 
@@ -485,8 +485,12 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
   const setCustomSlots = onSlotsChange;
   const [addingSlot, setAddingSlot] = useState(false);
   const [newSlotTime, setNewSlotTime] = useState("");
+  const [editingSlot, setEditingSlot] = useState<string | null>(null); // label of slot being edited
+  const [editSlotTime, setEditSlotTime] = useState("");
   const [addingDaySlot, setAddingDaySlot] = useState<string | null>(null); // dateStr
   const [newDaySlotTime, setNewDaySlotTime] = useState("");
+  const [editingDaySlot, setEditingDaySlot] = useState<{ dateStr: string; label: string } | null>(null);
+  const [editDaySlotTime, setEditDaySlotTime] = useState("");
   const [draggedPinId, setDraggedPinId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null); // "dateStr:HH:MM"
   const now = new Date();
@@ -540,8 +544,54 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
       <div className="px-3 pb-1">
         <div className="flex items-center gap-1">
           <div className="w-[76px] flex-shrink-0" />
-          {allSlots.map((s) => (
+          {DAILY_SLOTS.map((s) => (
             <div key={s.label} className="flex-1 text-[9px] font-semibold text-gray-400 text-center">{s.short}</div>
+          ))}
+          {customSlots.map((s) => (
+            editingSlot === s.label ? (
+              <div key={s.label} className="flex-1 flex items-center gap-0.5">
+                <input
+                  type="time"
+                  autoFocus
+                  value={editSlotTime}
+                  onChange={(e) => setEditSlotTime(e.target.value)}
+                  className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-16 focus:outline-none focus:border-[#e60023]"
+                />
+                <button
+                  onClick={() => {
+                    if (editSlotTime) {
+                      const [h, m] = editSlotTime.split(":").map(Number);
+                      const ampm = h >= 12 ? "PM" : "AM";
+                      const h12 = h % 12 || 12;
+                      const label = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                      const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
+                      setCustomSlots(customSlots.map(cs => cs.label === editingSlot ? { label, short } : cs));
+                    }
+                    setEditingSlot(null); setEditSlotTime("");
+                  }}
+                  className="text-[9px] bg-[#e60023] text-white px-1 py-0.5 rounded font-medium"
+                >✓</button>
+                <button onClick={() => { setEditingSlot(null); setEditSlotTime(""); }} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <div key={s.label} className="flex-1 group relative flex items-center justify-center">
+                <span className="text-[9px] font-semibold text-purple-500">{s.short}</span>
+                <div className="absolute -top-0.5 right-0 hidden group-hover:flex items-center gap-0.5 bg-white shadow rounded px-0.5">
+                  <button
+                    onClick={() => { setEditingSlot(s.label); setEditSlotTime(slotTo24h(s.label)); }}
+                    title="Edit slot"
+                    className="text-gray-400 hover:text-blue-500 p-0.5"
+                  ><Pencil className="w-2.5 h-2.5" /></button>
+                  <button
+                    onClick={() => setCustomSlots(customSlots.filter(cs => cs.label !== s.label))}
+                    title="Delete slot"
+                    className="text-gray-400 hover:text-red-500 p-0.5"
+                  ><Trash2 className="w-2.5 h-2.5" /></button>
+                </div>
+              </div>
+            )
           ))}
           {/* + button to add custom slot */}
           {addingSlot ? (
@@ -604,33 +654,84 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                   const targetKey = `${dateStr}:${slotTime}`;
                   const isOver = dropTarget === targetKey;
                   const isPast = new Date(`${dateStr}T${slotTime}:00`) <= now;
+                  const isDaySlot = !!(daySlots[dateStr] ?? []).find(s => s.label === slot.label);
+                  const isEditingThis = editingDaySlot?.dateStr === dateStr && editingDaySlot?.label === slot.label;
+                  if (isDaySlot && isEditingThis) {
+                    return (
+                      <div key={slot.label} className="flex-1 flex items-center gap-0.5">
+                        <input
+                          type="time"
+                          autoFocus
+                          value={editDaySlotTime}
+                          onChange={(e) => setEditDaySlotTime(e.target.value)}
+                          className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-16 focus:outline-none focus:border-[#e60023]"
+                        />
+                        <button
+                          onClick={() => {
+                            if (editDaySlotTime) {
+                              const [h, m] = editDaySlotTime.split(":").map(Number);
+                              const ampm = h >= 12 ? "PM" : "AM";
+                              const h12 = h % 12 || 12;
+                              const newLabel = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                              const newShort = `${h12}${ampm === "AM" ? "a" : "p"}`;
+                              const existing = daySlots[dateStr] ?? [];
+                              onDaySlotsChange({ ...daySlots, [dateStr]: existing.map(s => s.label === slot.label ? { label: newLabel, short: newShort } : s) });
+                            }
+                            setEditingDaySlot(null); setEditDaySlotTime("");
+                          }}
+                          className="text-[9px] bg-[#e60023] text-white px-1 py-0.5 rounded font-medium"
+                        >✓</button>
+                        <button onClick={() => { setEditingDaySlot(null); setEditDaySlotTime(""); }} className="text-gray-400 hover:text-gray-600">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  }
                   return (
-                    <button
-                      key={slot.label}
-                      onClick={() => !isPast && onApply(dateStr, slotTime)}
-                      disabled={isPast}
-                      onDragOver={(e) => { if (draggedPinId && !isPast) { e.preventDefault(); setDropTarget(targetKey); } }}
-                      onDragLeave={() => setDropTarget(null)}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (draggedPinId && !isPast) {
-                          onReschedule(draggedPinId, dateStr, slotTime);
-                          setDraggedPinId(null);
-                          setDropTarget(null);
-                        }
-                      }}
-                      title={isPast ? "Past time slot" : slot.label}
-                      className={cn(
-                        "flex-1 text-[9px] rounded-md py-1.5 font-semibold transition-all text-center",
-                        isOver
-                          ? "bg-[#e60023] text-white scale-110 ring-2 ring-[#e60023]/40 z-10"
-                          : isPast
-                            ? "bg-gray-100 text-gray-300 cursor-not-allowed line-through"
-                            : cn(slot.color, slot.text)
+                    <div key={slot.label} className={cn("flex-1 relative", isDaySlot ? "group/dayslot" : "")}>
+                      <button
+                        onClick={() => !isPast && onApply(dateStr, slotTime)}
+                        disabled={isPast}
+                        onDragOver={(e) => { if (draggedPinId && !isPast) { e.preventDefault(); setDropTarget(targetKey); } }}
+                        onDragLeave={() => setDropTarget(null)}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (draggedPinId && !isPast) {
+                            onReschedule(draggedPinId, dateStr, slotTime);
+                            setDraggedPinId(null);
+                            setDropTarget(null);
+                          }
+                        }}
+                        title={isPast ? "Past time slot" : slot.label}
+                        className={cn(
+                          "w-full text-[9px] rounded-md py-1.5 font-semibold transition-all text-center",
+                          isOver
+                            ? "bg-[#e60023] text-white scale-110 ring-2 ring-[#e60023]/40 z-10"
+                            : isPast
+                              ? "bg-gray-100 text-gray-300 cursor-not-allowed line-through"
+                              : cn(slot.color, slot.text)
+                        )}
+                      >
+                        {isOver ? "↓" : slot.short}
+                      </button>
+                      {isDaySlot && !isPast && (
+                        <div className="absolute -top-0.5 right-0 hidden group-hover/dayslot:flex items-center gap-0.5 bg-white shadow rounded px-0.5 z-20">
+                          <button
+                            onClick={() => { setEditingDaySlot({ dateStr, label: slot.label }); setEditDaySlotTime(slotTo24h(slot.label)); }}
+                            title="Edit slot"
+                            className="text-gray-400 hover:text-blue-500 p-0.5"
+                          ><Pencil className="w-2.5 h-2.5" /></button>
+                          <button
+                            onClick={() => {
+                              const existing = daySlots[dateStr] ?? [];
+                              onDaySlotsChange({ ...daySlots, [dateStr]: existing.filter(s => s.label !== slot.label) });
+                            }}
+                            title="Delete slot"
+                            className="text-gray-400 hover:text-red-500 p-0.5"
+                          ><Trash2 className="w-2.5 h-2.5" /></button>
+                        </div>
                       )}
-                    >
-                      {isOver ? "↓" : slot.short}
-                    </button>
+                    </div>
                   );
                 })}
                 {/* Per-day + button */}
