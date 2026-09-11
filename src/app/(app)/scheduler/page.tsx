@@ -7,7 +7,7 @@ import {
   Plus, Calendar, Clock, Link2, Image as ImageIcon,
   CheckCircle2, Trash2, Edit2, X, ExternalLink,
   Sparkles, Zap, Tag, ChevronDown, ChevronUp,
-  Copy, AlertCircle, LayoutGrid, ShoppingCart,
+  Copy, AlertCircle, LayoutGrid, ShoppingCart, Search,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 
@@ -713,6 +713,400 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
   );
 }
 
+// ── Pin SEO Modal ──────────────────────────────────────────────────────────────
+
+type SeoStep = "keyword" | "analysis" | "optimize" | "done";
+
+interface SeoKw { keyword: string; monthlySearches: number | null; }
+
+function calcSeoScore(title: string, description: string, focusKw: string, board: string, topics: string[], link: string) {
+  const t = title.toLowerCase();
+  const d = description.toLowerCase();
+  const fk = focusKw.toLowerCase().trim();
+
+  // Focus keyword in title (20pts)
+  const fkInTitle = fk && t.includes(fk);
+  const titleScore = fkInTitle ? 20 : fk && t.split(" ").some(w => fk.split(" ").includes(w)) ? 10 : 0;
+
+  // Title length (20pts)
+  const tLen = title.length;
+  const titleLenScore = tLen >= 40 && tLen <= 100 ? 20 : tLen >= 20 ? 12 : tLen > 0 ? 6 : 0;
+
+  // Description (20pts)
+  const fkInDesc = fk && d.includes(fk);
+  const descLen = description.length;
+  const descScore = (fkInDesc ? 12 : 0) + (descLen >= 150 ? 8 : descLen >= 50 ? 4 : 0);
+
+  // Board relevance (15pts) — board name overlaps with focus keyword words
+  const boardWords = board.toLowerCase().split(/\s+/);
+  const fkWords = fk.split(/\s+/);
+  const boardScore = board && fkWords.some(w => boardWords.some(bw => bw.includes(w) || w.includes(bw))) ? 15 : board ? 8 : 0;
+
+  // Topics (10pts)
+  const topicsScore = topics.length >= 3 ? 10 : topics.length >= 1 ? 5 : 0;
+
+  // Destination URL (10pts)
+  const hasUrl = link?.startsWith("https://");
+  const urlScore = hasUrl ? 10 : link?.startsWith("http://") ? 6 : 0;
+
+  const total = Math.min(100, titleScore + titleLenScore + descScore + boardScore + topicsScore + urlScore);
+  return {
+    total,
+    breakdown: [
+      { label: "Focus Keyword in Title", score: titleScore, max: 20 },
+      { label: "Title Optimization",     score: titleLenScore, max: 20 },
+      { label: "Description",            score: descScore, max: 20 },
+      { label: "Board Relevance",        score: boardScore, max: 15 },
+      { label: "Topics",                 score: topicsScore, max: 10 },
+      { label: "Destination URL",        score: urlScore, max: 10 },
+    ],
+    fkInTitle,
+    fkInDesc,
+    descLen,
+    titleLen: tLen,
+  };
+}
+
+function scoreLabel(score: number): { label: string; color: string } {
+  if (score >= 90) return { label: "Excellent 🎉", color: "text-green-600" };
+  if (score >= 75) return { label: "Good", color: "text-green-500" };
+  if (score >= 55) return { label: "Fair", color: "text-amber-500" };
+  return { label: "Needs Work", color: "text-red-500" };
+}
+
+function PinSEOModal({ draft, onChange, onClose }: {
+  draft: PinDraft;
+  onChange: (d: PinDraft) => void;
+  onClose: () => void;
+}) {
+  const [step, setStep] = useState<SeoStep>("keyword");
+  const [focusKw, setFocusKw] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [seoResult, setSeoResult] = useState<ReturnType<typeof calcSeoScore> | null>(null);
+  const [kwRecs, setKwRecs] = useState<SeoKw[]>([]);
+  const [selectedKws, setSelectedKws] = useState<string[]>([]);
+  const [optimizing, setOptimizing] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState<{ title: string; description: string } | null>(null);
+  const [recheckResult, setRecheckResult] = useState<ReturnType<typeof calcSeoScore> | null>(null);
+
+  const suggestFocusKw = async () => {
+    setSuggesting(true);
+    try {
+      const text = `${draft.title} ${draft.description} ${draft.board}`;
+      const res = await fetch("/api/keyword-db/search?q=" + encodeURIComponent(draft.title.split(" ").slice(0, 3).join(" ")) + "&limit=5");
+      const data = await res.json();
+      const first = data.keywords?.[0]?.keyword;
+      if (first) setFocusKw(first);
+    } catch { /* ignore */ } finally { setSuggesting(false); }
+  };
+
+  const analyze = async () => {
+    if (!focusKw.trim()) return;
+    setAnalyzing(true);
+    const result = calcSeoScore(draft.title, draft.description, focusKw, draft.board, draft.topics, draft.link);
+    setSeoResult(result);
+    // Fetch keyword recommendations
+    try {
+      const res = await fetch(`/api/keyword-db/search?q=${encodeURIComponent(focusKw)}&limit=20`);
+      const data = await res.json();
+      setKwRecs((data.keywords ?? []).slice(0, 8).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.toLowerCase()));
+    } catch { setKwRecs([]); }
+    setAnalyzing(false);
+    setStep("analysis");
+  };
+
+  const runOptimize = async () => {
+    setOptimizing(true);
+    try {
+      const res = await fetch("/api/pin-seo-optimize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: draft.title, description: draft.description, focusKeyword: focusKw, selectedKeywords: selectedKws, board: draft.board }),
+      });
+      const data = await res.json();
+      if (data.title || data.description) {
+        setAiSuggestion(data);
+        setStep("optimize");
+      }
+    } catch { /* ignore */ } finally { setOptimizing(false); }
+  };
+
+  const applyOptimized = (useTitle: boolean, useDesc: boolean) => {
+    if (!aiSuggestion) return;
+    const updated = {
+      ...draft,
+      title: useTitle ? aiSuggestion.title : draft.title,
+      description: useDesc ? aiSuggestion.description : draft.description,
+    };
+    onChange(updated);
+    const recheck = calcSeoScore(updated.title, updated.description, focusKw, draft.board, draft.topics, draft.link);
+    setRecheckResult(recheck);
+    setStep("done");
+  };
+
+  const finalScore = recheckResult ?? seoResult;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-lg flex items-center justify-center">
+              <Search className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <div className="font-semibold text-gray-900 text-sm">Pin SEO Analyzer</div>
+              <div className="text-xs text-gray-400">
+                {step === "keyword" && "Set your focus keyword"}
+                {step === "analysis" && "SEO score & recommendations"}
+                {step === "optimize" && "Review AI optimization"}
+                {step === "done" && "Optimization complete"}
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="p-5 space-y-5">
+
+          {/* ── STEP 1: Focus Keyword ── */}
+          {step === "keyword" && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-gray-700 uppercase tracking-wider block mb-2">What is your Focus Keyword?</label>
+                <input
+                  autoFocus
+                  value={focusKw}
+                  onChange={e => setFocusKw(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && analyze()}
+                  placeholder="e.g. dining room decor"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+                />
+                <p className="text-xs text-gray-400 mt-1.5">Your focus keyword is the primary search term you want this Pin to rank for.</p>
+              </div>
+              <button
+                onClick={suggestFocusKw}
+                disabled={suggesting}
+                className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {suggesting ? "Suggesting…" : "Suggest Focus Keyword from your Pin"}
+              </button>
+              {/* Pin summary */}
+              <div className="bg-gray-50 rounded-xl p-3 space-y-1.5 border border-gray-100">
+                <div className="text-xs text-gray-500 font-medium">Analyzing this Pin:</div>
+                <div className="text-xs text-gray-700 font-semibold truncate">{draft.title || <span className="text-gray-400 italic">No title yet</span>}</div>
+                {draft.board && <div className="text-xs text-gray-400">Board: {draft.board}</div>}
+                {draft.topics.length > 0 && <div className="text-xs text-gray-400">Topics: {draft.topics.slice(0, 3).join(", ")}</div>}
+              </div>
+              <button
+                onClick={analyze}
+                disabled={!focusKw.trim() || analyzing}
+                className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {analyzing ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Analyzing…</> : <><Search className="w-4 h-4" />Analyze Pin</>}
+              </button>
+            </div>
+          )}
+
+          {/* ── STEP 2: Analysis ── */}
+          {step === "analysis" && seoResult && (
+            <div className="space-y-5">
+              {/* Score ring */}
+              <div className="flex items-center gap-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-4 border border-blue-100">
+                <div className="relative w-20 h-20 flex-shrink-0">
+                  <svg className="w-20 h-20 -rotate-90" viewBox="0 0 36 36">
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" strokeWidth="3" />
+                    <circle cx="18" cy="18" r="15.9" fill="none"
+                      stroke={seoResult.total >= 75 ? "#22c55e" : seoResult.total >= 55 ? "#f59e0b" : "#ef4444"}
+                      strokeWidth="3"
+                      strokeDasharray={`${seoResult.total} ${100 - seoResult.total}`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-xl font-bold text-gray-800">{seoResult.total}</span>
+                    <span className="text-[9px] text-gray-400 font-medium">/ 100</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-gray-800">SEO Score</div>
+                  <div className={cn("text-sm font-semibold", scoreLabel(seoResult.total).color)}>{scoreLabel(seoResult.total).label}</div>
+                  <div className="text-xs text-gray-500 mt-1">Focus keyword: <span className="font-medium text-gray-700">{focusKw}</span></div>
+                </div>
+              </div>
+
+              {/* Breakdown */}
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Score Breakdown</div>
+                {seoResult.breakdown.map(item => (
+                  <div key={item.label} className="flex items-center gap-3">
+                    <div className="flex-1 text-xs text-gray-600">{item.label}</div>
+                    <div className="w-24 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-blue-500" style={{ width: `${(item.score / item.max) * 100}%` }} />
+                    </div>
+                    <div className="text-xs font-semibold text-gray-700 w-12 text-right">{item.score}/{item.max}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Title Analysis */}
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-1.5">
+                <div className="text-xs font-semibold text-gray-700">📝 Title Analysis</div>
+                <div className="text-xs text-gray-500 truncate">"{draft.title}"</div>
+                {seoResult.fkInTitle
+                  ? <div className="text-xs text-green-600">✅ Focus keyword found in title</div>
+                  : <div className="text-xs text-amber-600">⚠️ Focus keyword not in title — adding it may improve reach</div>}
+                {seoResult.titleLen < 40
+                  ? <div className="text-xs text-amber-600">⚠️ Title is short ({seoResult.titleLen} chars) — aim for 40–100</div>
+                  : <div className="text-xs text-green-600">✅ Title length is good ({seoResult.titleLen} chars)</div>}
+              </div>
+
+              {/* Description Analysis */}
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-1.5">
+                <div className="text-xs font-semibold text-gray-700">📄 Description Analysis</div>
+                {seoResult.fkInDesc
+                  ? <div className="text-xs text-green-600">✅ Focus keyword found in description</div>
+                  : <div className="text-xs text-amber-600">⚠️ Focus keyword not in description</div>}
+                {seoResult.descLen < 150
+                  ? <div className="text-xs text-amber-600">⚠️ Description is short ({seoResult.descLen} chars) — aim for 150–500</div>
+                  : <div className="text-xs text-green-600">✅ Description length is good ({seoResult.descLen} chars)</div>}
+              </div>
+
+              {/* Keyword Recommendations */}
+              {kwRecs.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-gray-700">💡 Recommended Keywords</div>
+                  <p className="text-xs text-gray-400">Select keywords to include in your Pin</p>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    {kwRecs.map(kw => {
+                      const sel = selectedKws.includes(kw.keyword);
+                      return (
+                        <button
+                          key={kw.keyword}
+                          onClick={() => setSelectedKws(sel ? selectedKws.filter(k => k !== kw.keyword) : [...selectedKws, kw.keyword])}
+                          className={cn(
+                            "w-full flex items-center justify-between px-3 py-2 rounded-xl border text-xs transition-all",
+                            sel ? "border-blue-400 bg-blue-50 text-blue-700" : "border-gray-200 hover:border-gray-300 text-gray-600"
+                          )}
+                        >
+                          <span className="font-medium">{kw.keyword}</span>
+                          <div className="flex items-center gap-2">
+                            {kw.monthlySearches && <span className="text-gray-400">{kw.monthlySearches >= 1000000 ? `${(kw.monthlySearches/1000000).toFixed(1)}M` : kw.monthlySearches >= 1000 ? `${(kw.monthlySearches/1000).toFixed(0)}K` : kw.monthlySearches}+</span>}
+                            <div className={cn("w-4 h-4 rounded border-2 flex items-center justify-center", sel ? "border-blue-500 bg-blue-500" : "border-gray-300")}>
+                              {sel && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedKws.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {selectedKws.map(k => (
+                        <span key={k} className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          {k}
+                          <button onClick={() => setSelectedKws(selectedKws.filter(x => x !== k))}><X className="w-2.5 h-2.5" /></button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="space-y-2 pt-1">
+                <button
+                  onClick={runOptimize}
+                  disabled={optimizing}
+                  className="w-full bg-gradient-to-r from-violet-600 to-purple-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {optimizing ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Optimizing…</> : <><Sparkles className="w-4 h-4" />✨ Optimize Pin with AI</>}
+                </button>
+                <button onClick={onClose} className="w-full py-2 text-xs text-gray-400 hover:text-gray-600">
+                  Skip — keep original
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 3: AI Optimization review ── */}
+          {step === "optimize" && aiSuggestion && (
+            <div className="space-y-4">
+              <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 text-xs text-violet-700 font-medium">
+                ✨ AI has optimized your Pin using your selected keywords. Review and choose what to keep.
+              </div>
+
+              {/* Title comparison */}
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-gray-700">📝 Suggested Title</div>
+                <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs text-gray-700">{aiSuggestion.title}</div>
+                <div className="text-[10px] text-gray-400">Original: "{draft.title}"</div>
+              </div>
+
+              {/* Description comparison */}
+              <div className="space-y-2">
+                <div className="text-xs font-semibold text-gray-700">📄 Suggested Description</div>
+                <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{aiSuggestion.description}</div>
+                <div className="text-[10px] text-gray-400 line-clamp-2">Original: "{draft.description}"</div>
+              </div>
+
+              {/* Apply choices */}
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => applyOptimized(true, true)} className="py-2.5 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#ad081b] transition-colors">
+                  Use Both
+                </button>
+                <button onClick={() => applyOptimized(true, false)} className="py-2.5 border border-gray-200 text-gray-700 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors">
+                  Title Only
+                </button>
+                <button onClick={() => applyOptimized(false, true)} className="py-2.5 border border-gray-200 text-gray-700 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors">
+                  Description Only
+                </button>
+                <button onClick={() => applyOptimized(false, false)} className="py-2.5 border border-gray-200 text-gray-500 text-xs rounded-xl hover:bg-gray-50 transition-colors">
+                  Keep Original
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── STEP 4: Done ── */}
+          {step === "done" && finalScore && (
+            <div className="space-y-4">
+              <div className="text-center py-2">
+                <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
+                  <svg className="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <div className="text-lg font-bold text-gray-900">Pin Updated!</div>
+                {recheckResult && seoResult && recheckResult.total > seoResult.total && (
+                  <div className="text-sm text-green-600 font-medium mt-1">
+                    Score improved: {seoResult.total} → {recheckResult.total} 🎉
+                  </div>
+                )}
+                <div className={cn("text-2xl font-bold mt-2", scoreLabel(finalScore.total).color)}>
+                  {finalScore.total}/100 — {scoreLabel(finalScore.total).label}
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 space-y-1.5 border border-gray-100 text-xs">
+                <div className="font-semibold text-gray-700 mb-2">📌 Pin Preview</div>
+                <div className="font-medium text-gray-800">{draft.title}</div>
+                {draft.description && <div className="text-gray-500 line-clamp-3">{draft.description}</div>}
+                {draft.board && <div className="text-gray-400">Board: {draft.board}</div>}
+                {draft.link && <div className="text-blue-500 truncate">{draft.link}</div>}
+                <div className="text-gray-400">Focus keyword: <span className="font-medium text-gray-600">{focusKw}</span></div>
+              </div>
+              <button onClick={onClose} className="w-full bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors">
+                Done — Continue to Schedule
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Single Draft Card ──────────────────────────────────────────────────────────
 
 function DraftCard({
@@ -755,6 +1149,7 @@ function DraftCard({
   const [productLinkInput, setProductLinkInput] = useState("");
   const [linkPreview, setLinkPreview] = useState<{ image: string | null; title: string } | null>(null);
   const [linkPreviewLoading, setLinkPreviewLoading] = useState(false);
+  const [seoOpen, setSeoOpen] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const set = (field: keyof PinDraft, value: string) =>
     onChange({ ...draft, [field]: value });
@@ -1200,6 +1595,16 @@ function DraftCard({
             />
           </div>
 
+          {/* Check SEO button */}
+          <button
+            onClick={() => setSeoOpen(true)}
+            disabled={!draft.title}
+            className="w-full flex items-center justify-center gap-2 bg-blue-50 border border-blue-200 text-blue-700 py-2.5 rounded-xl text-sm font-semibold hover:bg-blue-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Search className="w-3.5 h-3.5" />
+            Check Pin SEO
+          </button>
+
           {/* Schedule button */}
           <button
             onClick={onSchedule}
@@ -1223,6 +1628,14 @@ function DraftCard({
           </button>
 
         </div>
+      )}
+
+      {seoOpen && (
+        <PinSEOModal
+          draft={draft}
+          onChange={onChange}
+          onClose={() => setSeoOpen(false)}
+        />
       )}
     </div>
   );
