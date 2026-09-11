@@ -717,7 +717,7 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
 
 type SeoStep = "keyword" | "analysis" | "optimize" | "done";
 
-interface SeoKw { keyword: string; monthlySearches: number | null; }
+interface SeoKw { keyword: string; monthlySearches: number | null; competition: "low" | "medium" | "high" | null; }
 
 function calcSeoScore(title: string, description: string, focusKw: string, board: string, topics: string[], link: string) {
   const t = title.toLowerCase();
@@ -821,8 +821,16 @@ function PinSEOModal({ draft, onChange, onClose }: {
       } else {
         const res = await fetch(`/api/keyword-db/search?q=${encodeURIComponent(focusKw)}&limit=20`);
         const data = await res.json();
-        recs = (data.keywords ?? []).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.trim().toLowerCase()).slice(0, 8);
-        autoSelect = recs.slice(0, 3).map((k: SeoKw) => k.keyword);
+        const allRecs: SeoKw[] = (data.keywords ?? []).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.trim().toLowerCase());
+        // Sort: low/medium competition first, then high/unknown
+        allRecs.sort((a, b) => {
+          const rank = (c: SeoKw["competition"]) => c === "low" ? 0 : c === "medium" ? 1 : 2;
+          return rank(a.competition) - rank(b.competition);
+        });
+        recs = allRecs.slice(0, 8);
+        // Auto-select top 3 that are low or medium competition
+        autoSelect = allRecs.filter(k => k.competition === "low" || k.competition === "medium").slice(0, 3).map(k => k.keyword);
+        if (autoSelect.length < 2) autoSelect = recs.slice(0, 3).map(k => k.keyword); // fallback
         try { localStorage.setItem(cacheKey, JSON.stringify({ recs, autoSelect, ts: Date.now() })); } catch { /* storage full */ }
       }
 
@@ -1014,9 +1022,16 @@ function PinSEOModal({ draft, onChange, onClose }: {
                             sel ? "border-blue-400 bg-blue-50 text-blue-700" : "border-gray-200 hover:border-gray-300 text-gray-600"
                           )}
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium">{kw.keyword}</span>
                             {isSuggested && <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">suggested</span>}
+                            {kw.competition && (
+                              <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium",
+                                kw.competition === "low" ? "bg-green-100 text-green-700" :
+                                kw.competition === "medium" ? "bg-yellow-100 text-yellow-700" :
+                                "bg-red-100 text-red-600"
+                              )}>{kw.competition} comp</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2">
                             {kw.monthlySearches && <span className="text-gray-400">{kw.monthlySearches >= 1000000 ? `${(kw.monthlySearches/1000000).toFixed(1)}M` : kw.monthlySearches >= 1000 ? `${(kw.monthlySearches/1000).toFixed(0)}K` : kw.monthlySearches}+</span>}
