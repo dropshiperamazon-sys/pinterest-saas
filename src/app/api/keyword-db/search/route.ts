@@ -12,6 +12,27 @@ import {
   normalizeKeyword,
 } from "@/lib/keyword-db";
 
+// In-memory cache: key = "{norm}:{country}", value = { data, expiresAt }
+const searchCache = new Map<string, { data: Awaited<ReturnType<typeof searchKeywords>>; expiresAt: number }>();
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function getCached(norm: string, country: string) {
+  const key = `${norm}:${country}`;
+  const entry = searchCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { searchCache.delete(key); return null; }
+  return entry.data;
+}
+
+function setCache(norm: string, country: string, data: Awaited<ReturnType<typeof searchKeywords>>) {
+  // Evict entries older than TTL (keep cache small)
+  if (searchCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of searchCache) { if (now > v.expiresAt) searchCache.delete(k); }
+  }
+  searchCache.set(`${norm}:${country}`, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.email) {
@@ -27,11 +48,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "q is required" }, { status: 400 });
   }
 
-  // Log the search signal (non-blocking)
+  // Log the search signal (non-blocking, always fires even on cache hit)
   logSearchSignal(query, country).catch(() => {});
+
+  const norm = normalizeKeyword(query);
+
+  // Return cached result if available — skip all Redis reads
+  const cached = getCached(norm, country);
+  if (cached) {
+    const withRels = cached.slice(0, 10).map(kw => ({ ...kw, relationships: [] }));
+    return NextResponse.json({ query, country, count: cached.length, keywords: [...withRels, ...cached.slice(10)], cached: true });
+  }
 
   // Query knowledge store
   const keywords = await searchKeywords({ query, country, limit });
+
+  // Cache the result
+  if (keywords.length > 0) setCache(norm, country, keywords);
 
   // For each result, also pull its stored relationships
   const withRelationships = await Promise.all(
