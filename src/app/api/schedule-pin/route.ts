@@ -7,29 +7,38 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
+// Redis Set key that tracks all pin IDs for a user — avoids unreliable KEYS scan
+const userPinSetKey = (email: string) => `user_pins:${email}`;
+
 export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const [scheduledKeys, publishedKeys] = await Promise.all([
-    redis.keys(`scheduled_pin:${email}:*`),
-    redis.keys(`published_pin:${email}:*`),
-  ]);
-  const allKeys = [...scheduledKeys, ...publishedKeys];
-  if (!allKeys.length) return NextResponse.json({ pins: [] });
+  // Fetch pin IDs from the user's set (reliable, no KEYS scan)
+  const pinIds: string[] = await redis.smembers(userPinSetKey(email));
 
-  const pins = await Promise.all(
-    allKeys.map(async (key) => {
-      const raw = await redis.get(key);
-      const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-      const pinId = key.replace(`scheduled_pin:${email}:`, "").replace(`published_pin:${email}:`, "");
-      // strip accessToken before sending to client
-      const { accessToken: _tok, ...safe } = (data as Record<string, unknown>);
-      void _tok;
-      return { id: pinId, ...safe };
-    })
-  );
+  if (!pinIds.length) return NextResponse.json({ pins: [] });
+
+  // Fetch each pin — try scheduled key first, then published key
+  const pins = (
+    await Promise.all(
+      pinIds.map(async (pinId) => {
+        const raw =
+          (await redis.get(`scheduled_pin:${email}:${pinId}`)) ??
+          (await redis.get(`published_pin:${email}:${pinId}`));
+        if (!raw) {
+          // Pin missing from Redis (expired or deleted) — remove from set
+          await redis.srem(userPinSetKey(email), pinId);
+          return null;
+        }
+        const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+        const { accessToken: _tok, ...safe } = data as Record<string, unknown>;
+        void _tok;
+        return { id: pinId, ...safe };
+      })
+    )
+  ).filter(Boolean);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pins.sort((a: any, b: any) =>
@@ -51,13 +60,12 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { title, description, imageUrl, board, boardId, scheduledAt, link, pinType, taggedProducts } = body;
+    const { title, description, imageUrl, board, boardId, scheduledAt, link, pinType, taggedProducts, altText } = body;
 
     if (!title || !scheduledAt) {
       return NextResponse.json({ error: "Title and scheduledAt are required" }, { status: 400 });
     }
 
-    // If the image is a base64 data URL, store it in Redis and serve via /api/pin-image
     const pinId = `pin_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     let resolvedImageUrl: string = imageUrl || "";
     if (resolvedImageUrl.startsWith("data:")) {
@@ -65,6 +73,7 @@ export async function POST(req: NextRequest) {
       const appUrl = process.env.NEXTAUTH_URL || "https://pin-saas-5eb4.vercel.app";
       resolvedImageUrl = `${appUrl}/api/pin-image/${pinId}.jpg`;
     }
+
     const pinData = {
       title,
       description: description || "",
@@ -74,16 +83,21 @@ export async function POST(req: NextRequest) {
       link: link || "",
       pinType: pinType || "",
       taggedProducts: Array.isArray(taggedProducts) ? taggedProducts : [],
+      altText: altText || "",
       scheduledAt,
       status: "scheduled",
       createdAt: new Date().toISOString(),
       email,
-      accessToken, // stored so publish-pin can use it without re-fetching
+      accessToken,
     };
 
-    await redis.set(`scheduled_pin:${email}:${pinId}`, JSON.stringify(pinData), {
-      ex: 60 * 60 * 24 * 90,
-    });
+    // Save pin data and register its ID in the user's set atomically
+    await Promise.all([
+      redis.set(`scheduled_pin:${email}:${pinId}`, JSON.stringify(pinData), {
+        ex: 60 * 60 * 24 * 90,
+      }),
+      redis.sadd(userPinSetKey(email), pinId),
+    ]);
 
     // Try QStash (non-fatal if missing)
     const qstashToken = process.env.QSTASH_TOKEN;
@@ -135,6 +149,9 @@ export async function DELETE(req: NextRequest) {
   const { pinId } = await req.json();
   if (!pinId) return NextResponse.json({ error: "pinId required" }, { status: 400 });
 
-  await redis.del(`scheduled_pin:${email}:${pinId}`);
+  await Promise.all([
+    redis.del(`scheduled_pin:${email}:${pinId}`),
+    redis.srem(userPinSetKey(email), pinId),
+  ]);
   return NextResponse.json({ success: true });
 }
