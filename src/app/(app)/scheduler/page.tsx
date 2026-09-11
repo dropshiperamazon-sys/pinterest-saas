@@ -407,7 +407,17 @@ function ScheduledPinModal({
         {/* Actions */}
         <div className="px-5 pb-5 space-y-2">
           <button
-            onClick={async () => { setSaving(true); await onSave({ title, description, scheduledAt: new Date(`${date}T${time}:00`).toISOString() }); setSaving(false); onClose(); }}
+            onClick={async () => {
+              setSaving(true);
+              try {
+                await onSave({ title, description, scheduledAt: new Date(`${date}T${time}:00`).toISOString() });
+                onClose();
+              } catch {
+                // non-fatal — button re-enables so user can retry
+              } finally {
+                setSaving(false);
+              }
+            }}
             disabled={saving}
             className="w-full bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
@@ -2613,15 +2623,20 @@ export default function SchedulerPage() {
           pin={editingPin}
           onClose={() => setEditingPin(null)}
           onSave={async (updates) => {
+            // Optimistic update so UI reflects changes immediately
+            const optimistic = { ...editingPin, ...updates } as ScheduledPin;
+            setScheduled(s => s.map(p => p.id === editingPin.id ? optimistic : p));
+            setEditingPin(optimistic);
             const res = await fetch("/api/schedule-pin", {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ pinId: editingPin.id, ...updates }),
             });
-            if (res.ok) {
-              // Re-fetch to ensure UI is in sync with Redis
+            if (!res.ok) {
+              // Revert on failure
               const data = await fetch("/api/schedule-pin").then(r => r.json()).catch(() => null);
               if (data && Array.isArray(data.pins)) setScheduled(data.pins);
+              throw new Error("Save failed");
             }
           }}
           onDelete={() => deleteScheduled(editingPin.id)}
