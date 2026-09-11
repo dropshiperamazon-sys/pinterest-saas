@@ -801,20 +801,34 @@ function PinSEOModal({ draft, onChange, onClose }: {
     } catch { /* ignore */ } finally { setSuggesting(false); }
   };
 
+  const SEO_KW_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+  const cacheKey = `seo_kw:${focusKw.trim().toLowerCase()}`;
+
   const analyze = async () => {
     if (!focusKw.trim()) return;
     setAnalyzing(true);
     const result = calcSeoScore(draft.title, draft.description, focusKw, draft.board, draft.topics, draft.link);
     setSeoResult(result);
-    // Fetch keyword recommendations
+    // Load keyword recommendations from cache or fetch fresh
     try {
-      const res = await fetch(`/api/keyword-db/search?q=${encodeURIComponent(focusKw)}&limit=20`);
-      const data = await res.json();
-      const recs: SeoKw[] = (data.keywords ?? []).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.toLowerCase());
-      setKwRecs(recs.slice(0, 8));
-      // Auto-select top 2-3 as suggested secondaries
-      const autoSelect = recs.slice(0, 3).map((k: SeoKw) => k.keyword);
-      setSelectedKws(autoSelect);
+      let recs: SeoKw[] = [];
+      let autoSelect: string[] = [];
+
+      const cached = (() => { try { return JSON.parse(localStorage.getItem(cacheKey) ?? "null"); } catch { return null; } })();
+      if (cached && Date.now() - cached.ts < SEO_KW_CACHE_TTL) {
+        recs = cached.recs;
+        autoSelect = cached.autoSelect;
+      } else {
+        const res = await fetch(`/api/keyword-db/search?q=${encodeURIComponent(focusKw)}&limit=20`);
+        const data = await res.json();
+        recs = (data.keywords ?? []).filter((k: SeoKw) => k.keyword.toLowerCase() !== focusKw.trim().toLowerCase()).slice(0, 8);
+        autoSelect = recs.slice(0, 3).map((k: SeoKw) => k.keyword);
+        try { localStorage.setItem(cacheKey, JSON.stringify({ recs, autoSelect, ts: Date.now() })); } catch { /* storage full */ }
+      }
+
+      setKwRecs(recs);
+      // Only set auto-selection on first analysis (selectedKws empty); preserve user choices on re-check
+      setSelectedKws(prev => prev.length === 0 ? autoSelect : prev);
     } catch { setKwRecs([]); }
     setAnalyzing(false);
     setStep("analysis");
