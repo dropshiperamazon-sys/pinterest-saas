@@ -659,6 +659,17 @@ export async function updateGapStatus(id: string, status: GapStatus): Promise<vo
   await redis.set(gapKey(id), JSON.stringify({ ...gap, status }));
 }
 
+export async function deleteGap(id: string): Promise<void> {
+  const raw = await redis.get(gapKey(id));
+  if (!raw) return;
+  const gap = (typeof raw === "string" ? JSON.parse(raw) : raw) as DataGapRequest;
+  await Promise.all([
+    redis.del(gapKey(id)),
+    redis.zrem("kwdb:gap:idx", id),
+    redis.del(gapLookupKey(normalizeKeyword(gap.keyword), gap.country)),
+  ]);
+}
+
 // ── Category metric lookup ────────────────────────────────────────────────────
 // Fetches real (non-AI-inferred) keywords for a category so the expander can
 // build metric estimates from the full historical dataset, not just the current upload.

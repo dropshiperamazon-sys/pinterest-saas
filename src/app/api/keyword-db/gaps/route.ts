@@ -1,7 +1,7 @@
 // Data Gap management — admin endpoint
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { listDataGaps, updateGapStatus, listImports, type GapStatus } from "@/lib/keyword-db";
+import { listDataGaps, updateGapStatus, deleteGap, listImports, type GapStatus } from "@/lib/keyword-db";
 
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -46,5 +46,22 @@ export async function PATCH(req: NextRequest) {
   }
 
   await updateGapStatus(body.id, body.status);
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (adminEmail && session.user.email?.toLowerCase() !== adminEmail.toLowerCase()) {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+
+  const body = await req.json() as { id: string };
+  if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  await deleteGap(body.id);
   return NextResponse.json({ ok: true });
 }

@@ -157,6 +157,26 @@ export default function AdminKeywordsPage() {
     }
   }
 
+  async function deleteGapRow(id: string, keyword: string) {
+    if (!confirm(`Delete "${keyword}" from Data Requests?`)) return;
+    setUpdatingId(id);
+    try {
+      const res = await fetch("/api/keyword-db/gaps", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        setGaps(prev => prev.filter(g => g.id !== id));
+      } else {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        alert(`Delete failed: ${data.error ?? res.statusText}`);
+      }
+    } finally {
+      setUpdatingId(null);
+    }
+  }
+
   async function handleImport() {
     if (!csvText.trim()) return;
     setImportLoading(true);
@@ -675,6 +695,13 @@ export default function AdminKeywordsPage() {
                             Reject
                           </button>
                         )}
+                        <button
+                          onClick={() => deleteGapRow(gap.id, gap.keyword)}
+                          disabled={updatingId === gap.id}
+                          title="Delete"
+                          className="p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-50">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   ))}
