@@ -471,17 +471,21 @@ function slotTo24h(slot: string): string {
   return `${String(h24).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange }: {
+function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, daySlots, onDaySlotsChange }: {
   onApply: (date: string, time: string) => void;
   onEdit: (pin: ScheduledPin) => void;
   scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string; status: string; board: string; description?: string; link?: string }[];
   slots: { label: string; short: string }[];
   onSlotsChange: (slots: { label: string; short: string }[]) => void;
+  daySlots: Record<string, { label: string; short: string }[]>;
+  onDaySlotsChange: (daySlots: Record<string, { label: string; short: string }[]>) => void;
 }) {
   const customSlots = slots;
   const setCustomSlots = onSlotsChange;
   const [addingSlot, setAddingSlot] = useState(false);
   const [newSlotTime, setNewSlotTime] = useState("");
+  const [addingDaySlot, setAddingDaySlot] = useState<string | null>(null); // dateStr
+  const [newDaySlotTime, setNewDaySlotTime] = useState("");
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
@@ -582,11 +586,17 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange }
       <div className="px-3 pb-4 space-y-1.5">
         {days.map(({ dateStr, label }) => {
           const pins = pinsByDate[dateStr] ?? [];
+          const extraSlots = daySlots[dateStr] ?? [];
+          const rowSlots = [
+            ...allSlots,
+            ...extraSlots.map(s => ({ ...s, color: "bg-violet-100 hover:bg-violet-500", text: "text-violet-700 hover:text-white" })),
+          ];
+          const isAddingHere = addingDaySlot === dateStr;
           return (
             <div key={dateStr}>
               <div className="flex items-center gap-1">
                 <div className="w-[76px] flex-shrink-0 text-[10px] text-gray-600 font-medium truncate pr-1 leading-tight">{label}</div>
-                {allSlots.map((slot) => (
+                {rowSlots.map((slot) => (
                   <button
                     key={slot.label}
                     onClick={() => onApply(dateStr, slotTo24h(slot.label))}
@@ -595,7 +605,47 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange }
                     {slot.short}
                   </button>
                 ))}
-                <div className="w-5 flex-shrink-0" />
+                {/* Per-day + button */}
+                {isAddingHere ? (
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    <input
+                      type="time"
+                      autoFocus
+                      value={newDaySlotTime}
+                      onChange={(e) => setNewDaySlotTime(e.target.value)}
+                      className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-16 focus:outline-none focus:border-[#e60023]"
+                    />
+                    <button
+                      onClick={() => {
+                        if (newDaySlotTime) {
+                          const [h, m] = newDaySlotTime.split(":").map(Number);
+                          const ampm = h >= 12 ? "PM" : "AM";
+                          const h12 = h % 12 || 12;
+                          const label24 = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                          const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
+                          const existing = daySlots[dateStr] ?? [];
+                          if (!existing.find(s => s.label === label24)) {
+                            onDaySlotsChange({ ...daySlots, [dateStr]: [...existing, { label: label24, short }] });
+                          }
+                        }
+                        setNewDaySlotTime("");
+                        setAddingDaySlot(null);
+                      }}
+                      className="text-[9px] bg-[#e60023] text-white px-1 py-0.5 rounded font-medium"
+                    >✓</button>
+                    <button onClick={() => { setNewDaySlotTime(""); setAddingDaySlot(null); }} className="text-gray-400 hover:text-gray-600">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setAddingDaySlot(dateStr); setNewDaySlotTime(""); }}
+                    title="Add time slot for this day"
+                    className="w-5 h-5 rounded border border-dashed border-gray-300 text-gray-400 hover:border-[#e60023] hover:text-[#e60023] flex items-center justify-center flex-shrink-0 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                )}
               </div>
               {/* Scheduled thumbnails for this day */}
               {pins.length > 0 && (
@@ -1600,6 +1650,7 @@ export default function SchedulerPage() {
   const [csvModalOpen, setCsvModalOpen] = useState(false);
   const [boardsModalOpen, setBoardsModalOpen] = useState(false);
   const [smartSlots, setSmartSlots] = useState<{ label: string; short: string }[]>([]);
+  const [daySlots, setDaySlots] = useState<Record<string, { label: string; short: string }[]>>({});
   const [aiTarget, setAiTarget] = useState<string | null>(null);
   const [schedulingId, setSchedulingId] = useState<string | null>(null);
   const [successPopup, setSuccessPopup] = useState(false);
@@ -1684,19 +1735,20 @@ export default function SchedulerPage() {
     } catch { return null; }
   }
 
-  // Build the ordered list of active time slots (DAILY_SLOTS + custom), converted to "HH:MM"
-  function activeSlotTimes(): string[] {
+  // Build the ordered list of active time slots for a given date (DAILY_SLOTS + global custom + per-day), converted to "HH:MM"
+  function activeSlotTimes(forDate?: string): string[] {
     const base = DAILY_SLOTS.map(s => slotTo24h(s.label));
     const custom = smartSlots.map(s => slotTo24h(s.label));
-    return [...base, ...custom].sort();
+    const perDay = forDate ? (daySlots[forDate] ?? []).map(s => slotTo24h(s.label)) : [];
+    return [...new Set([...base, ...custom, ...perDay])].sort();
   }
 
   // Returns next available scheduledAt from the slot calendar, or falls back to next round hour.
   // `usedSoFar` is a set of ISO strings already claimed by earlier drafts in the same batch.
   function nextSlotMs(date: string, time: string, usedSoFar: Set<string>): number {
     if (date && time) return new Date(`${date}T${time}:00`).getTime();
-    const slotTimes = activeSlotTimes();
-    if (slotTimes.length === 0) {
+    const baseCheck = activeSlotTimes();
+    if (baseCheck.length === 0) {
       // No slots defined — fall back to next round hour
       const now = new Date();
       now.setMinutes(0, 0, 0);
@@ -1710,6 +1762,7 @@ export default function SchedulerPage() {
       day.setDate(day.getDate() + dayOffset);
       day.setSeconds(0, 0);
       const dateStr = day.toISOString().split("T")[0];
+      const slotTimes = activeSlotTimes(dateStr); // includes per-day slots
       for (const t of slotTimes) {
         const candidate = new Date(`${dateStr}T${t}:00`);
         if (candidate <= now) continue; // slot already passed today
@@ -2352,6 +2405,8 @@ export default function SchedulerPage() {
                   onEdit={setEditingPin}
                   slots={smartSlots}
                   onSlotsChange={setSmartSlots}
+                  daySlots={daySlots}
+                  onDaySlotsChange={setDaySlots}
                 />
               ) : (
                 /* Thumbnail list */
