@@ -2480,8 +2480,9 @@ export default function SchedulerPage() {
               body: JSON.stringify({ pinId: editingPin.id, ...updates }),
             });
             if (res.ok) {
-              const { pin: updated } = await res.json();
-              setScheduled(s => s.map(p => p.id === editingPin.id ? { ...p, ...updated } : p));
+              // Re-fetch to ensure UI is in sync with Redis
+              const data = await fetch("/api/schedule-pin").then(r => r.json()).catch(() => null);
+              if (data && Array.isArray(data.pins)) setScheduled(data.pins);
             }
           }}
           onDelete={() => deleteScheduled(editingPin.id)}
@@ -2936,14 +2937,23 @@ export default function SchedulerPage() {
                   onDaySlotsChange={setDaySlots}
                   onReschedule={async (pinId, newDate, newTime) => {
                     const newScheduledAt = new Date(`${newDate}T${newTime}:00`).toISOString();
+                    // Optimistic update
                     setScheduled(s => s.map(p => p.id === pinId ? { ...p, scheduledAt: newScheduledAt } : p));
                     try {
-                      await fetch("/api/schedule-pin", {
+                      const res = await fetch("/api/schedule-pin", {
                         method: "PUT",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ pinId, scheduledAt: newScheduledAt }),
                       });
-                    } catch { /* non-fatal — UI already updated */ }
+                      if (!res.ok) {
+                        // Revert on failure — re-fetch from server
+                        const data = await fetch("/api/schedule-pin").then(r => r.json());
+                        if (Array.isArray(data.pins)) setScheduled(data.pins);
+                      }
+                    } catch {
+                      const data = await fetch("/api/schedule-pin").then(r => r.json()).catch(() => null);
+                      if (data && Array.isArray(data.pins)) setScheduled(data.pins);
+                    }
                   }}
                 />
               ) : (
