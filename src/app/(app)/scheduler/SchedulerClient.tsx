@@ -2320,6 +2320,15 @@ export default function SchedulerPage() {
         if (Array.isArray(data.slots) && data.slots.length > 0) setSmartSlots(data.slots);
       })
       .catch(() => {});
+
+    // Load persisted pin spacing settings
+    fetch("/api/spacing")
+      .then((r) => r.json())
+      .then((data) => {
+        if (typeof data.pinSpacing === "number") setPinSpacing(data.pinSpacing);
+        if (typeof data.spacingLocked === "boolean") setSpacingLocked(data.spacingLocked);
+      })
+      .catch(() => {});
   }, [session]);
 
   // Auto-save drafts to localStorage whenever they change
@@ -2339,6 +2348,17 @@ export default function SchedulerPage() {
       body: JSON.stringify({ slots: smartSlots }),
     }).catch(() => {});
   }, [smartSlots]);
+
+  // Auto-save pin spacing settings to Redis whenever they change
+  const spacingInitialized = useRef(false);
+  useEffect(() => {
+    if (!spacingInitialized.current) { spacingInitialized.current = true; return; }
+    fetch("/api/spacing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinSpacing, spacingLocked }),
+    }).catch(() => {});
+  }, [pinSpacing, spacingLocked]);
 
   const addDraft = () => setDrafts((d) => [...d, newDraft()]);
 
