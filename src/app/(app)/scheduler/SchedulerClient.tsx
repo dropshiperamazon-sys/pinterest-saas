@@ -354,8 +354,9 @@ function ScheduledPinModal({
   const dt = pin.scheduledAt ? new Date(pin.scheduledAt) : new Date();
   const [title, setTitle] = useState(pin.title || "");
   const [description, setDescription] = useState(pin.description || "");
-  const [date, setDate] = useState(dt.toISOString().split("T")[0]);
-  const [time, setTime] = useState(dt.toTimeString().slice(0, 5));
+  const _pad = (n: number) => String(n).padStart(2, "0");
+  const [date, setDate] = useState(`${dt.getFullYear()}-${_pad(dt.getMonth()+1)}-${_pad(dt.getDate())}`);
+  const [time, setTime] = useState(`${_pad(dt.getHours())}:${_pad(dt.getMinutes())}`);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [pinning, setPinning] = useState(false);
