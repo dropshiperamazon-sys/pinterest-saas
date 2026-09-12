@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { AUTOMATED_RULES, MOCK_AUDIENCES, KEYWORD_PLAN } from "@/lib/ads-data";
-import { formatCurrency, formatNumber, cn } from "@/lib/utils";
+import { formatNumber, cn } from "@/lib/utils";
+const formatCurrency = (n: number) => `$${Math.abs(n).toFixed(2)}`;
 import { AlertCircle, TrendingUp } from "lucide-react";
 
 interface RealCampaign {
