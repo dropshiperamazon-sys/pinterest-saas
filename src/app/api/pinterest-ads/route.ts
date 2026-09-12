@@ -90,24 +90,27 @@ export async function GET(req: Request) {
 
     // Attach analytics to each campaign
     if (Array.isArray(camAnalytics)) {
-      const byId: Record<string, Record<string, number>> = {};
+      const byId: Record<string, Record<string, unknown>> = {};
       for (const row of camAnalytics) {
-        byId[row.CAMPAIGN_ID] = row;
+        if (row.CAMPAIGN_ID != null) byId[String(row.CAMPAIGN_ID)] = row;
       }
       for (const c of campaigns) {
-        const row = byId[c.id as string] ?? {};
-        (c as Record<string, unknown>).spend = row.SPEND_IN_DOLLAR ?? 0;
-        (c as Record<string, unknown>).impressions = row.IMPRESSION_1 ?? 0;
-        (c as Record<string, unknown>).clicks = row.CLICK_1 ?? 0;
-        (c as Record<string, unknown>).saves = row.TOTAL_SAVE ?? 0;
-        (c as Record<string, unknown>).engagements = row.TOTAL_ENGAGEMENT ?? 0;
-        const imps = row.IMPRESSION_1 || 1;
-        const clicks = row.CLICK_1 || 0;
-        const spend = row.SPEND_IN_DOLLAR || 0;
-        (c as Record<string, unknown>).ctr = Math.round((clicks / imps) * 10000) / 100;
-        (c as Record<string, unknown>).cpc = clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : 0;
-        (c as Record<string, unknown>).cpm = imps > 0 ? Math.round((spend / imps) * 1000 * 100) / 100 : 0;
-        (c as Record<string, unknown>).saveRate = clicks > 0 ? Math.round((row.TOTAL_SAVE ?? 0) / clicks * 10000) / 100 : 0;
+        const row = byId[String(c.id)] ?? {};
+        const rawSpend = Number(row.SPEND_IN_DOLLAR) || 0;
+        const rawImps  = Number(row.IMPRESSION_1)   || 0;
+        const rawClicks = Number(row.CLICK_1)        || 0;
+        const rawSaves  = Number(row.TOTAL_SAVE)     || 0;
+        const rawEngage = Number(row.TOTAL_ENGAGEMENT) || 0;
+        const imps  = rawImps  || 1; // avoid division by zero
+        (c as Record<string, unknown>).spend       = rawSpend;
+        (c as Record<string, unknown>).impressions = rawImps;
+        (c as Record<string, unknown>).clicks      = rawClicks;
+        (c as Record<string, unknown>).saves       = rawSaves;
+        (c as Record<string, unknown>).engagements = rawEngage;
+        (c as Record<string, unknown>).ctr      = Math.round((rawClicks / imps) * 10000) / 100;
+        (c as Record<string, unknown>).cpc      = rawClicks > 0 ? Math.round((rawSpend / rawClicks) * 100) / 100 : 0;
+        (c as Record<string, unknown>).cpm      = Math.round((rawSpend / imps) * 1000 * 100) / 100;
+        (c as Record<string, unknown>).saveRate = rawClicks > 0 ? Math.round(rawSaves / rawClicks * 10000) / 100 : 0;
       }
     }
 
@@ -142,11 +145,11 @@ export async function GET(req: Request) {
     adAccountName,
     period: { startDate, endDate },
     totals: {
-      spend: totals.SPEND_IN_DOLLAR ?? 0,
-      impressions: totals.IMPRESSION_1 ?? 0,
-      clicks: totals.CLICK_1 ?? 0,
-      saves: totals.TOTAL_SAVE ?? 0,
-      engagements: totals.TOTAL_ENGAGEMENT ?? 0,
+      spend:       Number(totals.SPEND_IN_DOLLAR)   || 0,
+      impressions: Number(totals.IMPRESSION_1)       || 0,
+      clicks:      Number(totals.CLICK_1)            || 0,
+      saves:       Number(totals.TOTAL_SAVE)         || 0,
+      engagements: Number(totals.TOTAL_ENGAGEMENT)   || 0,
     },
     campaigns,
   });
