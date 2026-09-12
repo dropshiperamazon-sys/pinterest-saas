@@ -2631,11 +2631,7 @@ export default function SchedulerPage() {
           pin={editingPin}
           onClose={() => setEditingPin(null)}
           onSave={async (updates) => {
-            // Capture id before any state changes
             const pinId = editingPin.id;
-            const optimistic = { ...editingPin, ...updates } as ScheduledPin;
-            setScheduled(s => s.map(p => p.id === pinId ? optimistic : p));
-            setEditingPin(optimistic);
             const res = await fetch("/api/schedule-pin", {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
@@ -2643,11 +2639,11 @@ export default function SchedulerPage() {
             });
             if (!res.ok) {
               const errText = await res.text().catch(() => "");
-              // Revert on failure
-              const data = await fetch("/api/schedule-pin").then(r => r.json()).catch(() => null);
-              if (data && Array.isArray(data.pins)) setScheduled(data.pins);
               throw new Error(`Save failed (${res.status})${errText ? ": " + errText : ""}`);
             }
+            // Re-fetch to reflect saved changes
+            const data = await fetch("/api/schedule-pin").then(r => r.json()).catch(() => null);
+            if (data && Array.isArray(data.pins)) setScheduled(data.pins);
           }}
           onDelete={() => deleteScheduled(editingPin.id)}
           onBackToDraft={() => {
