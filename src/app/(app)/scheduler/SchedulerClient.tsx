@@ -352,32 +352,11 @@ function ScheduledPinModal({
   onPinNow: () => Promise<void>;
 }) {
   const _pad = (n: number) => String(n).padStart(2, "0");
-  const _toDateStr = (d: Date) => `${d.getFullYear()}-${_pad(d.getMonth()+1)}-${_pad(d.getDate())}`;
-  const _toTimeStr = (d: Date) => `${_pad(d.getHours())}:${_pad(d.getMinutes())}`;
-  // If scheduledAt is in the past, advance to next upcoming slot
-  const _initDateTime = (): { date: string; time: string } => {
-    const SLOT_HOURS = [8, 12, 14, 17];
-    const now = new Date();
-    const raw = pin.scheduledAt ? new Date(pin.scheduledAt) : now;
-    if (raw > now) return { date: _toDateStr(raw), time: _toTimeStr(raw) };
-    // Find next slot today or tomorrow
-    const candidate = new Date(now);
-    candidate.setSeconds(0, 0);
-    for (const h of SLOT_HOURS) {
-      candidate.setHours(h, 0, 0, 0);
-      if (candidate > now) return { date: _toDateStr(candidate), time: _toTimeStr(candidate) };
-    }
-    // No slot today — use first slot tomorrow
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(SLOT_HOURS[0], 0, 0, 0);
-    return { date: _toDateStr(tomorrow), time: _toTimeStr(tomorrow) };
-  };
-  const _init = _initDateTime();
+  const dt = pin.scheduledAt ? new Date(pin.scheduledAt) : new Date();
   const [title, setTitle] = useState(pin.title || "");
   const [description, setDescription] = useState(pin.description || "");
-  const [date, setDate] = useState(_init.date);
-  const [time, setTime] = useState(_init.time);
+  const [date, setDate] = useState(`${dt.getFullYear()}-${_pad(dt.getMonth()+1)}-${_pad(dt.getDate())}`);
+  const [time, setTime] = useState(`${_pad(dt.getHours())}:${_pad(dt.getMinutes())}`);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [pinning, setPinning] = useState(false);
@@ -413,10 +392,15 @@ function ScheduledPinModal({
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
               className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] resize-none" />
           </div>
+          {date && time && new Date(`${date}T${time}:00`) <= new Date() && (
+            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              ⚠️ This time is in the past — please pick a future date/time before saving.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-500 block mb-1">Date</label>
-              <input type="date" value={date} min={new Date().toISOString().split("T")[0]} onChange={e => setDate(e.target.value)}
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
             </div>
             <div>
