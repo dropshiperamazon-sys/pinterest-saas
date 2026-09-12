@@ -71,6 +71,9 @@ export async function GET(req: Request) {
     startTime: c.start_time,
     endTime: c.end_time,
     createdTime: c.created_time,
+    // Pre-initialize analytics fields so they're always numbers even if analytics fetch fails
+    spend: 0, impressions: 0, clicks: 0, saves: 0, engagements: 0,
+    ctr: 0, cpc: 0, cpm: 0, saveRate: 0,
   }));
 
   // 3. Fetch per-campaign analytics + ad groups in parallel
