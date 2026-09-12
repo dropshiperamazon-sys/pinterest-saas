@@ -2257,6 +2257,14 @@ export default function SchedulerPage() {
         if (Array.isArray(data.pins)) setScheduled(data.pins);
       })
       .catch(() => {});
+
+    // Load persisted custom slots
+    fetch("/api/slots")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.slots) && data.slots.length > 0) setSmartSlots(data.slots);
+      })
+      .catch(() => {});
   }, [session]);
 
   // Auto-save drafts to localStorage whenever they change
@@ -2265,6 +2273,17 @@ export default function SchedulerPage() {
       localStorage.setItem(DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
     } catch { /* ignore quota errors */ }
   }, [drafts]);
+
+  // Auto-save custom slots to Redis whenever they change (skip initial empty state)
+  const slotsInitialized = useRef(false);
+  useEffect(() => {
+    if (!slotsInitialized.current) { slotsInitialized.current = true; return; }
+    fetch("/api/slots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slots: smartSlots }),
+    }).catch(() => {});
+  }, [smartSlots]);
 
   const addDraft = () => setDrafts((d) => [...d, newDraft()]);
 
@@ -2547,12 +2566,9 @@ export default function SchedulerPage() {
               const errText = await res.text().catch(() => "");
               throw new Error(`Save failed (${res.status})${errText ? ": " + errText : ""}`);
             }
-            // Immediately apply changes to local state so pin stays visible
-            setScheduled(s => s.map(p => p.id === pinId ? { ...p, ...updates } : p));
-            // Background sync — only replace state if server returns a non-empty list
-            fetch("/api/schedule-pin").then(r => r.json()).then(data => {
-              if (data && Array.isArray(data.pins) && data.pins.length > 0) setScheduled(data.pins);
-            }).catch(() => {});
+            const data = await res.json();
+            const updatedPin = data.pin;
+            setScheduled(s => s.map(p => p.id === pinId ? { ...p, ...(updatedPin ?? updates) } : p));
           }}
           onDelete={() => deleteScheduled(editingPin.id)}
           onBackToDraft={() => {
@@ -2567,11 +2583,15 @@ export default function SchedulerPage() {
             deleteScheduled(editingPin.id);
           }}
           onPinNow={async () => {
-            await fetch("/api/publish-pin", {
+            const res = await fetch("/api/pin-now", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ pinId: editingPin.id }),
             });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.error || "Failed to publish pin");
+            }
             setScheduled(s => s.map(p => p.id === editingPin.id ? { ...p, status: "published" } : p));
           }}
         />
@@ -2999,7 +3019,10 @@ export default function SchedulerPage() {
                     const emptyDraft = drafts.find(d => !d.date && !d.time);
                     if (emptyDraft) updateDraft(emptyDraft.id, { ...emptyDraft, date, time });
                   }}
-                  onEdit={setEditingPin}
+                  onEdit={(partialPin) => {
+                    const full = scheduled.find(p => p.id === partialPin.id) ?? partialPin;
+                    setEditingPin(full as ScheduledPin);
+                  }}
                   slots={smartSlots}
                   onSlotsChange={setSmartSlots}
                   daySlots={daySlots}
