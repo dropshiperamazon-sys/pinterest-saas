@@ -2270,13 +2270,16 @@ export default function SchedulerPage() {
         const parsed: PinDraft[] = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           // Clear date/time if the stored slot is already in the past
+          // Also fill in any missing fields from old drafts (forward-compat)
           const now = new Date();
           return parsed.map(d => {
-            if (d.date && d.time) {
-              const slotDt = new Date(`${d.date}T${d.time}:00`);
-              if (slotDt <= now) return { ...d, date: "", time: "" };
+            const base = newDraft();
+            const merged = { ...base, ...d, topics: d.topics ?? [], boards: d.boards ?? [], taggedProducts: d.taggedProducts ?? [], altText: d.altText ?? "" };
+            if (merged.date && merged.time) {
+              const slotDt = new Date(`${merged.date}T${merged.time}:00`);
+              if (slotDt <= now) return { ...merged, date: "", time: "" };
             }
-            return d;
+            return merged;
           });
         }
       }
