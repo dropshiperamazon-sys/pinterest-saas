@@ -617,7 +617,8 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                   const pinsAtThisSlot = pinsOnDay.filter(p => item.isSlot && p.time === item.time);
 
                   if (!item.isSlot) {
-                    // Standalone pin at a non-slot time
+                    // Standalone pin at a non-slot time — hide if past
+                    if (isPast) return null;
                     const p = item.pin;
                     const isDragging = draggedPinId === p.id;
                     return (
@@ -660,6 +661,9 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                     );
                   }
 
+                  // Hide past empty slots to keep the row clean
+                  if (isPast && pinsAtThisSlot.length === 0) return null;
+
                   return (
                     <div key={item.key} className={cn("relative", item.isCustomDay ? "group/dayslot" : "")}>
                       <button
@@ -672,7 +676,7 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                         className={cn(
                           "flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold transition-all",
                           isOver ? "bg-[#e60023] text-white ring-2 ring-[#e60023]/30"
-                            : isPast ? "bg-gray-100 text-gray-300 cursor-not-allowed line-through"
+                            : isPast ? "bg-gray-100 text-gray-400 cursor-default opacity-60"
                             : cn(item.color, item.textColor)
                         )}
                       >
