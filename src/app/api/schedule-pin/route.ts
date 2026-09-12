@@ -129,7 +129,7 @@ export async function PUT(req: NextRequest) {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const { pinId, title, description, scheduledAt } = await req.json();
+  const { pinId, title, description, scheduledAt, isLocked } = await req.json();
   if (!pinId) return NextResponse.json({ error: "pinId required" }, { status: 400 });
 
   const scheduledKey = `scheduled_pin:${email}:${pinId}`;
@@ -141,9 +141,24 @@ export async function PUT(req: NextRequest) {
   if (!raw) return NextResponse.json({ error: "Pin not found" }, { status: 404 });
 
   const pin = typeof raw === "string" ? JSON.parse(raw) : raw;
-  const updated = { ...pin, ...(title !== undefined && { title }), ...(description !== undefined && { description }), ...(scheduledAt !== undefined && { scheduledAt }) };
+
+  // Block automated scheduledAt changes on locked pins (manual edits from modal are allowed
+  // because they pass isLocked explicitly or are already toggling the lock)
+  if (pin.isLocked && scheduledAt !== undefined && isLocked === undefined && title === undefined && description === undefined) {
+    return NextResponse.json({ error: "Pin is locked — unlock it before rescheduling" }, { status: 409 });
+  }
+
+  const updated = {
+    ...pin,
+    ...(title !== undefined && { title }),
+    ...(description !== undefined && { description }),
+    ...(scheduledAt !== undefined && { scheduledAt }),
+    ...(isLocked !== undefined && { isLocked }),
+  };
+  const { accessToken: _tok, ...safeUpdated } = updated as Record<string, unknown>;
+  void _tok;
   await redis.set(activeKey, JSON.stringify(updated), { ex: 60 * 60 * 24 * 90 });
-  return NextResponse.json({ success: true, pin: { id: pinId, ...updated } });
+  return NextResponse.json({ success: true, pin: { id: pinId, ...safeUpdated } });
 }
 
 export async function DELETE(req: NextRequest) {

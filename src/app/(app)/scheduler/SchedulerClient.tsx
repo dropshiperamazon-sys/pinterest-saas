@@ -37,6 +37,7 @@ interface ScheduledPin {
   imageUrl: string;
   description?: string;
   link?: string;
+  isLocked?: boolean;
 }
 
 const FALLBACK_BOARDS = [
@@ -343,6 +344,7 @@ function ScheduledPinModal({
   onDelete,
   onBackToDraft,
   onPinNow,
+  onToggleLock,
 }: {
   pin: ScheduledPin;
   onClose: () => void;
@@ -350,6 +352,7 @@ function ScheduledPinModal({
   onDelete: () => void;
   onBackToDraft: () => void;
   onPinNow: () => Promise<void>;
+  onToggleLock: () => Promise<void>;
 }) {
   const _pad = (n: number) => String(n).padStart(2, "0");
   const dt = pin.scheduledAt ? new Date(pin.scheduledAt) : new Date();
@@ -360,6 +363,8 @@ function ScheduledPinModal({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [pinning, setPinning] = useState(false);
+  const [locking, setLocking] = useState(false);
+  const [locked, setLocked] = useState(!!pin.isLocked);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
@@ -409,6 +414,31 @@ function ScheduledPinModal({
                 className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
             </div>
           </div>
+
+          {/* Lock position toggle */}
+          <button
+            onClick={async () => {
+              setLocking(true);
+              try {
+                await onToggleLock();
+                setLocked(l => !l);
+              } finally {
+                setLocking(false);
+              }
+            }}
+            disabled={locking}
+            className={cn(
+              "w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold border transition-colors",
+              locked
+                ? "bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100"
+                : "bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100"
+            )}
+          >
+            {locking
+              ? <div className="w-3 h-3 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+              : locked ? "🔒" : "🔓"}
+            {locked ? "Locked — click to unlock position" : "Lock Position"}
+          </button>
         </div>
 
         {/* Actions */}
@@ -495,7 +525,7 @@ function slotTo24h(slot: string): string {
 function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, daySlots, onDaySlotsChange, onReschedule }: {
   onApply: (date: string, time: string) => void;
   onEdit: (pin: ScheduledPin) => void;
-  scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string; status: string; board: string; description?: string; link?: string }[];
+  scheduled: { id: string; scheduledAt: string; imageUrl?: string; title: string; status: string; board: string; description?: string; link?: string; isLocked?: boolean }[];
   slots: { label: string; short: string }[];
   onSlotsChange: (slots: { label: string; short: string }[]) => void;
   daySlots: Record<string, { label: string; short: string }[]>;
@@ -533,15 +563,15 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
     return { dateStr, label };
   });
 
-  // Map each pin to its scheduled time string (HH:MM)
-  const pinsByDate: Record<string, { id: string; imageUrl?: string; title: string; time: string }[]> = {};
+  // Map each pin to its scheduled time string (HH:MM) — using local timezone
+  const pinsByDate: Record<string, { id: string; imageUrl?: string; title: string; time: string; isLocked?: boolean }[]> = {};
   for (const p of scheduled) {
     const dt = new Date(p.scheduledAt);
     const _p = (n: number) => String(n).padStart(2, "0");
     const localDate = `${dt.getFullYear()}-${_p(dt.getMonth()+1)}-${_p(dt.getDate())}`;
     const localTime = `${_p(dt.getHours())}:${_p(dt.getMinutes())}`;
     if (!pinsByDate[localDate]) pinsByDate[localDate] = [];
-    pinsByDate[localDate].push({ id: p.id, imageUrl: p.imageUrl, title: p.title, time: localTime });
+    pinsByDate[localDate].push({ id: p.id, imageUrl: p.imageUrl, title: p.title, time: localTime, isLocked: p.isLocked });
   }
 
   return (
@@ -586,7 +616,7 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
           const isAddingHere = addingDaySlot === dateStr;
 
           // Build merged list: slots + any pins at non-slot times
-          type SlotItem = { key: string; time: string; slotLabel: string; isSlot: true; isCustomDay?: boolean; color: string; textColor: string } | { key: string; time: string; isSlot: false; pin: { id: string; imageUrl?: string; title: string } };
+          type SlotItem = { key: string; time: string; slotLabel: string; isSlot: true; isCustomDay?: boolean; color: string; textColor: string } | { key: string; time: string; isSlot: false; pin: { id: string; imageUrl?: string; title: string; isLocked?: boolean } };
           const slotTimes = new Set(rowSlots.map(s => slotTo24h(s.label)));
           const items: SlotItem[] = rowSlots.map(s => ({
             key: s.label, time: slotTo24h(s.label), slotLabel: s.label,
@@ -604,14 +634,14 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
           items.sort((a, b) => a.time.localeCompare(b.time));
 
           return (
-            <div key={dateStr} className="flex items-start gap-2 px-3 py-2 border-b border-gray-50 hover:bg-gray-50/50 group/row">
+            <div key={dateStr} className="flex items-start gap-2 px-3 py-2.5 border-b border-gray-50 hover:bg-gray-50/50 group/row">
               {/* Day label */}
-              <div className="w-[72px] flex-shrink-0 pt-0.5">
-                <span className={cn("text-[10px] font-semibold", label === "Today" ? "text-[#e60023]" : "text-gray-600")}>{label}</span>
+              <div className="w-[72px] flex-shrink-0 pt-1">
+                <span className={cn("text-[11px] font-semibold", label === "Today" ? "text-[#e60023]" : "text-gray-600")}>{label}</span>
               </div>
 
               {/* Slots + pins */}
-              <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+              <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
                 {items.map(item => {
                   const isPast = new Date(`${dateStr}T${item.time}:00`) <= now;
                   const targetKey = `${dateStr}:${item.time}`;
@@ -623,20 +653,33 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                     if (isPast) return null;
                     const p = item.pin;
                     const isDragging = draggedPinId === p.id;
+                    const canDrag = !p.isLocked;
                     return (
-                      <button key={item.key} title={`Click to edit: ${p.title}`}
-                        draggable onDragStart={() => setDraggedPinId(p.id)} onDragEnd={() => { setDraggedPinId(null); setDropTarget(null); }}
-                        onClick={() => onEdit(p as unknown as ScheduledPin)}
-                        className={cn("flex items-center gap-1 pl-0.5 pr-2 py-0.5 rounded-full border text-[9px] font-medium cursor-grab active:cursor-grabbing transition-all",
-                          isDragging ? "border-[#e60023] opacity-40" : "border-gray-200 bg-white hover:border-[#e60023] hover:shadow-sm")}>
-                        <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
-                          {p.imageUrl?.startsWith("http")
-                            // eslint-disable-next-line @next/next/no-img-element
-                            ? <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
-                            : <div className="w-full h-full flex items-center justify-center text-[8px]">📌</div>}
-                        </div>
-                        <span className="text-gray-500">{item.time.replace(/^0/, "")}</span>
-                      </button>
+                      <div key={item.key} className="relative group/standalonepin">
+                        <button title={p.isLocked ? "🔒 Locked — click to edit" : p.title}
+                          draggable={canDrag}
+                          onDragStart={() => canDrag && setDraggedPinId(p.id)}
+                          onDragEnd={() => { setDraggedPinId(null); setDropTarget(null); }}
+                          onClick={() => onEdit(p as unknown as ScheduledPin)}
+                          className={cn("flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-[10px] font-medium transition-all",
+                            isDragging ? "border-[#e60023] opacity-40" : "border-gray-200 bg-white hover:border-[#e60023] hover:shadow-sm",
+                            canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer")}>
+                          <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
+                            {p.imageUrl?.startsWith("http")
+                              // eslint-disable-next-line @next/next/no-img-element
+                              ? <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                              : <div className="w-full h-full flex items-center justify-center text-[8px]">📌</div>}
+                          </div>
+                          <span className="text-gray-500">{item.time.replace(/^0/, "")}</span>
+                          {p.isLocked && <span className="text-[9px]">🔒</span>}
+                        </button>
+                        {/* Hover edit */}
+                        <button
+                          onClick={() => onEdit(p as unknown as ScheduledPin)}
+                          className="absolute -top-1 -right-1 hidden group-hover/standalonepin:flex items-center gap-0.5 bg-[#e60023] text-white text-[8px] font-bold px-1.5 py-0.5 rounded-full shadow-sm z-10 whitespace-nowrap">
+                          ✏ Edit
+                        </button>
+                      </div>
                     );
                   }
 
@@ -667,7 +710,7 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                   if (isPast && pinsAtThisSlot.length === 0) return null;
 
                   return (
-                    <div key={item.key} className={cn("relative", item.isCustomDay ? "group/dayslot" : "")}>
+                    <div key={item.key} className={cn("relative group/slotchip", item.isCustomDay ? "group/dayslot" : "")}>
                       <button
                         onClick={() => !isPast && onApply(dateStr, item.time)}
                         disabled={isPast}
@@ -676,7 +719,7 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                         onDrop={e => { e.preventDefault(); if (draggedPinId && !isPast) { onReschedule(draggedPinId, dateStr, item.time); setDraggedPinId(null); setDropTarget(null); } }}
                         title={isPast ? "Past" : item.slotLabel}
                         className={cn(
-                          "flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold transition-all",
+                          "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-all",
                           isOver ? "bg-[#e60023] text-white ring-2 ring-[#e60023]/30"
                             : isPast ? "bg-gray-100 text-gray-400 cursor-default opacity-60"
                             : cn(item.color, item.textColor)
@@ -684,14 +727,26 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
                       >
                         {/* Pin thumbnails at this slot */}
                         {pinsAtThisSlot.map(p => (
-                          <span key={p.id}
-                            draggable onDragStart={e => { e.stopPropagation(); setDraggedPinId(p.id); }} onDragEnd={() => { setDraggedPinId(null); setDropTarget(null); }}
-                            onClick={e => { e.stopPropagation(); onEdit(p as unknown as ScheduledPin); }}
-                            className="w-4 h-4 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 inline-block cursor-pointer hover:ring-1 hover:ring-white">
-                            {p.imageUrl?.startsWith("http")
-                              // eslint-disable-next-line @next/next/no-img-element
-                              ? <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
-                              : <span className="text-[7px] flex items-center justify-center h-full">📌</span>}
+                          <span key={p.id} className="relative group/pinchip flex-shrink-0 inline-flex items-center">
+                            <span
+                              draggable={!p.isLocked}
+                              onDragStart={e => { if (p.isLocked) { e.preventDefault(); return; } e.stopPropagation(); setDraggedPinId(p.id); }}
+                              onDragEnd={() => { setDraggedPinId(null); setDropTarget(null); }}
+                              onClick={e => { e.stopPropagation(); onEdit(p as unknown as ScheduledPin); }}
+                              title={p.isLocked ? "🔒 Locked — click to edit" : `Click to edit: ${p.title}`}
+                              className={cn("w-5 h-5 rounded-full overflow-hidden bg-gray-200 inline-block hover:ring-2 hover:ring-white/80", p.isLocked ? "cursor-pointer" : "cursor-grab active:cursor-grabbing")}>
+                              {p.imageUrl?.startsWith("http")
+                                // eslint-disable-next-line @next/next/no-img-element
+                                ? <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                                : <span className="text-[7px] flex items-center justify-center h-full">📌</span>}
+                            </span>
+                            {p.isLocked && <span className="text-[8px] ml-0.5">🔒</span>}
+                            {/* Hover edit label */}
+                            <span
+                              onClick={e => { e.stopPropagation(); onEdit(p as unknown as ScheduledPin); }}
+                              className="absolute -top-5 left-1/2 -translate-x-1/2 hidden group-hover/pinchip:flex bg-gray-900 text-white text-[8px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap cursor-pointer z-20">
+                              ✏ Edit
+                            </span>
                           </span>
                         ))}
                         {isOver ? "↓" : item.slotLabel}
@@ -2570,6 +2625,18 @@ export default function SchedulerPage() {
             const updatedPin = data.pin;
             setScheduled(s => s.map(p => p.id === pinId ? { ...p, ...(updatedPin ?? updates) } : p));
           }}
+          onToggleLock={async () => {
+            const pinId = editingPin.id;
+            const newLocked = !editingPin.isLocked;
+            const res = await fetch("/api/schedule-pin", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pinId, isLocked: newLocked }),
+            });
+            if (!res.ok) throw new Error("Failed to update lock state");
+            setScheduled(s => s.map(p => p.id === pinId ? { ...p, isLocked: newLocked } : p));
+            setEditingPin(prev => prev ? { ...prev, isLocked: newLocked } : prev);
+          }}
           onDelete={() => deleteScheduled(editingPin.id)}
           onBackToDraft={() => {
             setDrafts(d => [...d, {
@@ -3028,6 +3095,9 @@ export default function SchedulerPage() {
                   daySlots={daySlots}
                   onDaySlotsChange={setDaySlots}
                   onReschedule={async (pinId, newDate, newTime) => {
+                    // Reject drag/drop on locked pins
+                    const pin = scheduled.find(p => p.id === pinId);
+                    if (pin?.isLocked) return;
                     const newScheduledAt = new Date(`${newDate}T${newTime}:00`).toISOString();
                     // Optimistic update
                     setScheduled(s => s.map(p => p.id === pinId ? { ...p, scheduledAt: newScheduledAt } : p));
