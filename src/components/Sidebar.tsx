@@ -19,6 +19,7 @@ import {
   ScanSearch,
   Telescope,
   Database,
+  ShoppingBag,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { href: "/scheduler", icon: Calendar, label: "Pin Scheduler" },
   { href: "/account-audit", icon: ShieldCheck, label: "Account Audit" },
   { href: "/ads", icon: Megaphone, label: "Pinterest Ads" },
+  { href: "/catalog", icon: ShoppingBag, label: "Pinterest Catalog" },
   { href: "/admin/keywords", icon: Database, label: "Keyword Admin" },
 ];
 
