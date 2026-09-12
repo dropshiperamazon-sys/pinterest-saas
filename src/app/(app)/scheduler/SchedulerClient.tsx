@@ -515,327 +515,221 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
   const [draggedPinId, setDraggedPinId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null); // "dateStr:HH:MM"
   const now = new Date();
-  const [viewYear, setViewYear] = useState(now.getFullYear());
-  const [viewMonth, setViewMonth] = useState(now.getMonth());
-
-  const goToPrev = () => {
-    if (viewMonth === 0) { setViewMonth(11); setViewYear(y => y - 1); }
-    else setViewMonth(m => m - 1);
-  };
-  const goToNext = () => {
-    if (viewMonth === 11) { setViewMonth(0); setViewYear(y => y + 1); }
-    else setViewMonth(m => m + 1);
-  };
-
-  const monthLabel = new Date(viewYear, viewMonth, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  const days = getMonthDays(viewYear, viewMonth);
 
   const allSlots = [
     ...DAILY_SLOTS,
     ...customSlots.map(s => ({ ...s, color: "bg-purple-100 hover:bg-purple-500", text: "text-purple-700 hover:text-white" })),
   ];
 
-  // index scheduled pins by date string
-  const pinsByDate: Record<string, { id: string; imageUrl?: string; title: string }[]> = {};
-  for (const p of scheduled) {
-    const d = p.scheduledAt.split("T")[0];
-    if (!pinsByDate[d]) pinsByDate[d] = [];
-    pinsByDate[d].push({ id: p.id, imageUrl: p.imageUrl, title: p.title });
-  }
+  // Generate upcoming 30 days starting from today
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const upcomingDays = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    d.setHours(0, 0, 0, 0);
+    const dateStr = `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+    const label = i === 0 ? "Today" : i === 1 ? "Tomorrow"
+      : d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    return { dateStr, label };
+  });
 
-  const colCount = allSlots.length + 1;
+  // Map each pin to its scheduled time string (HH:MM)
+  const pinsByDate: Record<string, { id: string; imageUrl?: string; title: string; time: string }[]> = {};
+  for (const p of scheduled) {
+    const [datePart, timePart] = p.scheduledAt.split("T");
+    const time = (timePart ?? "").slice(0, 5);
+    if (!pinsByDate[datePart]) pinsByDate[datePart] = [];
+    pinsByDate[datePart].push({ id: p.id, imageUrl: p.imageUrl, title: p.title, time });
+  }
 
   return (
     <div className="overflow-y-auto max-h-[calc(100vh-220px)]">
-      {/* Month header with navigation */}
-      <div className="px-3 pt-3 pb-2 flex items-center justify-between">
-        <div className="flex items-center gap-1">
-          <button onClick={goToPrev} className="w-5 h-5 rounded hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors">
-            <ChevronDown className="w-3 h-3 rotate-90" />
+      {/* Header */}
+      <div className="px-3 pt-2 pb-1 flex items-center justify-between border-b border-gray-100">
+        <span className="text-[10px] text-gray-400">Click time to apply · Drag pin to move</span>
+        {addingSlot ? (
+          <div className="flex items-center gap-1">
+            <input type="time" autoFocus value={newSlotTime} onChange={e => setNewSlotTime(e.target.value)}
+              className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-20 focus:outline-none focus:border-[#e60023]" />
+            <button onClick={() => {
+              if (newSlotTime) {
+                const [h, m] = newSlotTime.split(":").map(Number);
+                const ampm = h >= 12 ? "PM" : "AM";
+                const h12 = h % 12 || 12;
+                const label = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
+                if (!customSlots.find(s => s.label === label)) setCustomSlots([...customSlots, { label, short }]);
+              }
+              setNewSlotTime(""); setAddingSlot(false);
+            }} className="text-[9px] bg-[#e60023] text-white px-1.5 py-0.5 rounded font-medium">✓</button>
+            <button onClick={() => { setNewSlotTime(""); setAddingSlot(false); }} className="text-gray-400 hover:text-gray-600"><X className="w-3 h-3" /></button>
+          </div>
+        ) : (
+          <button onClick={() => setAddingSlot(true)}
+            className="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-[#e60023] transition-colors">
+            <Plus className="w-3 h-3" /> Add slot
           </button>
-          <span className="text-xs font-semibold text-gray-700">{monthLabel}</span>
-          <button onClick={goToNext} className="w-5 h-5 rounded hover:bg-gray-100 flex items-center justify-center text-gray-500 hover:text-gray-800 transition-colors">
-            <ChevronDown className="w-3 h-3 -rotate-90" />
-          </button>
-        </div>
-        <span className="text-[10px] text-gray-400">Click to apply · Drag pin to move</span>
-      </div>
-
-      {/* Column labels + Add button */}
-      <div className="px-3 pb-1">
-        <div className="flex items-center gap-1">
-          <div className="w-[76px] flex-shrink-0" />
-          {DAILY_SLOTS.map((s) => (
-            <div key={s.label} className="flex-1 text-[9px] font-semibold text-gray-400 text-center">{s.short}</div>
-          ))}
-          {customSlots.map((s) => (
-            editingSlot === s.label ? (
-              <div key={s.label} className="flex-1 flex items-center gap-0.5">
-                <input
-                  type="time"
-                  autoFocus
-                  value={editSlotTime}
-                  onChange={(e) => setEditSlotTime(e.target.value)}
-                  className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-16 focus:outline-none focus:border-[#e60023]"
-                />
-                <button
-                  onClick={() => {
-                    if (editSlotTime) {
-                      const [h, m] = editSlotTime.split(":").map(Number);
-                      const ampm = h >= 12 ? "PM" : "AM";
-                      const h12 = h % 12 || 12;
-                      const label = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
-                      const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
-                      setCustomSlots(customSlots.map(cs => cs.label === editingSlot ? { label, short } : cs));
-                    }
-                    setEditingSlot(null); setEditSlotTime("");
-                  }}
-                  className="text-[9px] bg-[#e60023] text-white px-1 py-0.5 rounded font-medium"
-                >✓</button>
-                <button onClick={() => { setEditingSlot(null); setEditSlotTime(""); }} className="text-gray-400 hover:text-gray-600">
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ) : (
-              <div key={s.label} className="flex-1 group relative flex items-center justify-center">
-                <span className="text-[9px] font-semibold text-purple-500">{s.short}</span>
-                <div className="absolute -top-0.5 right-0 hidden group-hover:flex items-center gap-0.5 bg-white shadow rounded px-0.5">
-                  <button
-                    onClick={() => { setEditingSlot(s.label); setEditSlotTime(slotTo24h(s.label)); }}
-                    title="Edit slot"
-                    className="text-gray-400 hover:text-blue-500 p-0.5"
-                  ><Pencil className="w-2.5 h-2.5" /></button>
-                  <button
-                    onClick={() => setCustomSlots(customSlots.filter(cs => cs.label !== s.label))}
-                    title="Delete slot"
-                    className="text-gray-400 hover:text-red-500 p-0.5"
-                  ><Trash2 className="w-2.5 h-2.5" /></button>
-                </div>
-              </div>
-            )
-          ))}
-          {/* + button to add custom slot */}
-          {addingSlot ? (
-            <div className="flex items-center gap-1">
-              <input
-                type="time"
-                autoFocus
-                value={newSlotTime}
-                onChange={(e) => setNewSlotTime(e.target.value)}
-                className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-20 focus:outline-none focus:border-[#e60023]"
-              />
-              <button
-                onClick={() => {
-                  if (newSlotTime) {
-                    const [h, m] = newSlotTime.split(":").map(Number);
-                    const ampm = h >= 12 ? "PM" : "AM";
-                    const h12 = h % 12 || 12;
-                    const label = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
-                    const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
-                    if (!customSlots.find(s => s.label === label))
-                      setCustomSlots([...customSlots, { label, short }]);
-                  }
-                  setNewSlotTime("");
-                  setAddingSlot(false);
-                }}
-                className="text-[9px] bg-[#e60023] text-white px-1.5 py-0.5 rounded font-medium"
-              >✓</button>
-              <button onClick={() => { setNewSlotTime(""); setAddingSlot(false); }} className="text-gray-400 hover:text-gray-600">
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setAddingSlot(true)}
-              title="Add custom time slot"
-              className="w-5 h-5 rounded border border-dashed border-gray-300 text-gray-400 hover:border-[#e60023] hover:text-[#e60023] flex items-center justify-center flex-shrink-0 transition-colors"
-            >
-              <Plus className="w-3 h-3" />
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Day rows */}
-      <div className="px-3 pb-4 space-y-1.5">
-        {days.map(({ dateStr, label }) => {
-          const pins = pinsByDate[dateStr] ?? [];
+      <div className="pb-4">
+        {upcomingDays.map(({ dateStr, label }) => {
+          const pinsOnDay = pinsByDate[dateStr] ?? [];
           const extraSlots = daySlots[dateStr] ?? [];
           const rowSlots = [
             ...allSlots,
-            ...extraSlots.map(s => ({ ...s, color: "bg-violet-100 hover:bg-violet-500", text: "text-violet-700 hover:text-white" })),
+            ...extraSlots.map(s => ({ ...s, color: "bg-violet-100 hover:bg-violet-500", text: "text-violet-700 hover:text-white", isDay: true })),
           ];
           const isAddingHere = addingDaySlot === dateStr;
+
+          // Build merged list: slots + any pins at non-slot times
+          type SlotItem = { key: string; time: string; slotLabel: string; isSlot: true; isCustomDay?: boolean; color: string; textColor: string } | { key: string; time: string; isSlot: false; pin: { id: string; imageUrl?: string; title: string } };
+          const slotTimes = new Set(rowSlots.map(s => slotTo24h(s.label)));
+          const items: SlotItem[] = rowSlots.map(s => ({
+            key: s.label, time: slotTo24h(s.label), slotLabel: s.label,
+            isSlot: true as const,
+            isCustomDay: !!(extraSlots.find(e => e.label === s.label)),
+            color: (s as { color?: string }).color ?? "bg-green-100 hover:bg-green-500",
+            textColor: (s as { text?: string }).text ?? "text-green-700 hover:text-white",
+          }));
+          // Add pins that fall outside standard slots
+          for (const p of pinsOnDay) {
+            if (!slotTimes.has(p.time)) {
+              items.push({ key: `pin-${p.id}`, time: p.time, isSlot: false, pin: p });
+            }
+          }
+          items.sort((a, b) => a.time.localeCompare(b.time));
+
           return (
-            <div key={dateStr}>
-              <div className="flex items-center gap-1">
-                <div className="w-[76px] flex-shrink-0 text-[10px] text-gray-600 font-medium truncate pr-1 leading-tight">{label}</div>
-                {rowSlots.map((slot) => {
-                  const slotTime = slotTo24h(slot.label);
-                  const targetKey = `${dateStr}:${slotTime}`;
+            <div key={dateStr} className="flex items-start gap-2 px-3 py-2 border-b border-gray-50 hover:bg-gray-50/50 group/row">
+              {/* Day label */}
+              <div className="w-[72px] flex-shrink-0 pt-0.5">
+                <span className={cn("text-[10px] font-semibold", label === "Today" ? "text-[#e60023]" : "text-gray-600")}>{label}</span>
+              </div>
+
+              {/* Slots + pins */}
+              <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                {items.map(item => {
+                  const isPast = new Date(`${dateStr}T${item.time}:00`) <= now;
+                  const targetKey = `${dateStr}:${item.time}`;
                   const isOver = dropTarget === targetKey;
-                  const isPast = new Date(`${dateStr}T${slotTime}:00`) <= now;
-                  const isDaySlot = !!(daySlots[dateStr] ?? []).find(s => s.label === slot.label);
-                  const isEditingThis = editingDaySlot?.dateStr === dateStr && editingDaySlot?.label === slot.label;
-                  if (isDaySlot && isEditingThis) {
+                  const pinsAtThisSlot = pinsOnDay.filter(p => item.isSlot && p.time === item.time);
+
+                  if (!item.isSlot) {
+                    // Standalone pin at a non-slot time
+                    const p = item.pin;
+                    const isDragging = draggedPinId === p.id;
                     return (
-                      <div key={slot.label} className="flex-1 flex items-center gap-0.5">
-                        <input
-                          type="time"
-                          autoFocus
-                          value={editDaySlotTime}
-                          onChange={(e) => setEditDaySlotTime(e.target.value)}
-                          className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-16 focus:outline-none focus:border-[#e60023]"
-                        />
-                        <button
-                          onClick={() => {
-                            if (editDaySlotTime) {
-                              const [h, m] = editDaySlotTime.split(":").map(Number);
-                              const ampm = h >= 12 ? "PM" : "AM";
-                              const h12 = h % 12 || 12;
-                              const newLabel = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
-                              const newShort = `${h12}${ampm === "AM" ? "a" : "p"}`;
-                              const existing = daySlots[dateStr] ?? [];
-                              onDaySlotsChange({ ...daySlots, [dateStr]: existing.map(s => s.label === slot.label ? { label: newLabel, short: newShort } : s) });
-                            }
-                            setEditingDaySlot(null); setEditDaySlotTime("");
-                          }}
-                          className="text-[9px] bg-[#e60023] text-white px-1 py-0.5 rounded font-medium"
-                        >✓</button>
-                        <button onClick={() => { setEditingDaySlot(null); setEditDaySlotTime(""); }} className="text-gray-400 hover:text-gray-600">
-                          <X className="w-3 h-3" />
-                        </button>
+                      <button key={item.key} title={`Click to edit: ${p.title}`}
+                        draggable onDragStart={() => setDraggedPinId(p.id)} onDragEnd={() => { setDraggedPinId(null); setDropTarget(null); }}
+                        onClick={() => onEdit(p as unknown as ScheduledPin)}
+                        className={cn("flex items-center gap-1 pl-0.5 pr-2 py-0.5 rounded-full border text-[9px] font-medium cursor-grab active:cursor-grabbing transition-all",
+                          isDragging ? "border-[#e60023] opacity-40" : "border-gray-200 bg-white hover:border-[#e60023] hover:shadow-sm")}>
+                        <div className="w-5 h-5 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
+                          {p.imageUrl?.startsWith("http")
+                            // eslint-disable-next-line @next/next/no-img-element
+                            ? <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                            : <div className="w-full h-full flex items-center justify-center text-[8px]">📌</div>}
+                        </div>
+                        <span className="text-gray-500">{item.time.replace(/^0/, "")}</span>
+                      </button>
+                    );
+                  }
+
+                  // Slot item
+                  const isEditingThis = item.isCustomDay && editingDaySlot?.dateStr === dateStr && editingDaySlot?.label === item.slotLabel;
+                  if (isEditingThis) {
+                    return (
+                      <div key={item.key} className="flex items-center gap-0.5">
+                        <input type="time" autoFocus value={editDaySlotTime} onChange={e => setEditDaySlotTime(e.target.value)}
+                          className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-16 focus:outline-none focus:border-[#e60023]" />
+                        <button onClick={() => {
+                          if (editDaySlotTime) {
+                            const [h, m] = editDaySlotTime.split(":").map(Number);
+                            const ampm = h >= 12 ? "PM" : "AM"; const h12 = h % 12 || 12;
+                            const newLabel = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                            const newShort = `${h12}${ampm === "AM" ? "a" : "p"}`;
+                            const existing = daySlots[dateStr] ?? [];
+                            onDaySlotsChange({ ...daySlots, [dateStr]: existing.map(s => s.label === item.slotLabel ? { label: newLabel, short: newShort } : s) });
+                          }
+                          setEditingDaySlot(null); setEditDaySlotTime("");
+                        }} className="text-[9px] bg-[#e60023] text-white px-1 py-0.5 rounded font-medium">✓</button>
+                        <button onClick={() => { setEditingDaySlot(null); setEditDaySlotTime(""); }} className="text-gray-400 hover:text-gray-600"><X className="w-3 h-3" /></button>
                       </div>
                     );
                   }
+
                   return (
-                    <div key={slot.label} className={cn("flex-1 relative", isDaySlot ? "group/dayslot" : "")}>
+                    <div key={item.key} className={cn("relative", item.isCustomDay ? "group/dayslot" : "")}>
                       <button
-                        onClick={() => !isPast && onApply(dateStr, slotTime)}
+                        onClick={() => !isPast && onApply(dateStr, item.time)}
                         disabled={isPast}
-                        onDragOver={(e) => { if (draggedPinId && !isPast) { e.preventDefault(); setDropTarget(targetKey); } }}
+                        onDragOver={e => { if (draggedPinId && !isPast) { e.preventDefault(); setDropTarget(targetKey); } }}
                         onDragLeave={() => setDropTarget(null)}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          if (draggedPinId && !isPast) {
-                            onReschedule(draggedPinId, dateStr, slotTime);
-                            setDraggedPinId(null);
-                            setDropTarget(null);
-                          }
-                        }}
-                        title={isPast ? "Past time slot" : slot.label}
+                        onDrop={e => { e.preventDefault(); if (draggedPinId && !isPast) { onReschedule(draggedPinId, dateStr, item.time); setDraggedPinId(null); setDropTarget(null); } }}
+                        title={isPast ? "Past" : item.slotLabel}
                         className={cn(
-                          "w-full text-[9px] rounded-md py-1.5 font-semibold transition-all text-center",
-                          isOver
-                            ? "bg-[#e60023] text-white scale-110 ring-2 ring-[#e60023]/40 z-10"
-                            : isPast
-                              ? "bg-gray-100 text-gray-300 cursor-not-allowed line-through"
-                              : cn(slot.color, slot.text)
+                          "flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-semibold transition-all",
+                          isOver ? "bg-[#e60023] text-white ring-2 ring-[#e60023]/30"
+                            : isPast ? "bg-gray-100 text-gray-300 cursor-not-allowed line-through"
+                            : cn(item.color, item.textColor)
                         )}
                       >
-                        {isOver ? "↓" : slot.short}
+                        {/* Pin thumbnails at this slot */}
+                        {pinsAtThisSlot.map(p => (
+                          <span key={p.id}
+                            draggable onDragStart={e => { e.stopPropagation(); setDraggedPinId(p.id); }} onDragEnd={() => { setDraggedPinId(null); setDropTarget(null); }}
+                            onClick={e => { e.stopPropagation(); onEdit(p as unknown as ScheduledPin); }}
+                            className="w-4 h-4 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 inline-block cursor-pointer hover:ring-1 hover:ring-white">
+                            {p.imageUrl?.startsWith("http")
+                              // eslint-disable-next-line @next/next/no-img-element
+                              ? <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                              : <span className="text-[7px] flex items-center justify-center h-full">📌</span>}
+                          </span>
+                        ))}
+                        {isOver ? "↓" : item.slotLabel}
                       </button>
-                      {isDaySlot && !isPast && (
-                        <div className="absolute -top-0.5 right-0 hidden group-hover/dayslot:flex items-center gap-0.5 bg-white shadow rounded px-0.5 z-20">
-                          <button
-                            onClick={() => { setEditingDaySlot({ dateStr, label: slot.label }); setEditDaySlotTime(slotTo24h(slot.label)); }}
-                            title="Edit slot"
-                            className="text-gray-400 hover:text-blue-500 p-0.5"
-                          ><Pencil className="w-2.5 h-2.5" /></button>
-                          <button
-                            onClick={() => {
-                              const existing = daySlots[dateStr] ?? [];
-                              onDaySlotsChange({ ...daySlots, [dateStr]: existing.filter(s => s.label !== slot.label) });
-                            }}
-                            title="Delete slot"
-                            className="text-gray-400 hover:text-red-500 p-0.5"
-                          ><Trash2 className="w-2.5 h-2.5" /></button>
+                      {item.isCustomDay && !isPast && (
+                        <div className="absolute -top-1 right-0 hidden group-hover/dayslot:flex items-center gap-0.5 bg-white shadow rounded px-0.5 z-20">
+                          <button onClick={() => { setEditingDaySlot({ dateStr, label: item.slotLabel }); setEditDaySlotTime(slotTo24h(item.slotLabel)); }} className="text-gray-400 hover:text-blue-500 p-0.5"><Pencil className="w-2.5 h-2.5" /></button>
+                          <button onClick={() => { const ex = daySlots[dateStr] ?? []; onDaySlotsChange({ ...daySlots, [dateStr]: ex.filter(s => s.label !== item.slotLabel) }); }} className="text-gray-400 hover:text-red-500 p-0.5"><Trash2 className="w-2.5 h-2.5" /></button>
                         </div>
                       )}
                     </div>
                   );
                 })}
-                {/* Per-day + button */}
+
+                {/* Per-day add slot */}
                 {isAddingHere ? (
-                  <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <input
-                      type="time"
-                      autoFocus
-                      value={newDaySlotTime}
-                      onChange={(e) => setNewDaySlotTime(e.target.value)}
-                      className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-16 focus:outline-none focus:border-[#e60023]"
-                    />
-                    <button
-                      onClick={() => {
-                        if (newDaySlotTime) {
-                          const [h, m] = newDaySlotTime.split(":").map(Number);
-                          const ampm = h >= 12 ? "PM" : "AM";
-                          const h12 = h % 12 || 12;
-                          const label24 = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
-                          const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
-                          const existing = daySlots[dateStr] ?? [];
-                          if (!existing.find(s => s.label === label24)) {
-                            onDaySlotsChange({ ...daySlots, [dateStr]: [...existing, { label: label24, short }] });
-                          }
-                        }
-                        setNewDaySlotTime("");
-                        setAddingDaySlot(null);
-                      }}
-                      className="text-[9px] bg-[#e60023] text-white px-1 py-0.5 rounded font-medium"
-                    >✓</button>
-                    <button onClick={() => { setNewDaySlotTime(""); setAddingDaySlot(null); }} className="text-gray-400 hover:text-gray-600">
-                      <X className="w-3 h-3" />
-                    </button>
+                  <div className="flex items-center gap-0.5">
+                    <input type="time" autoFocus value={newDaySlotTime} onChange={e => setNewDaySlotTime(e.target.value)}
+                      className="text-[9px] border border-gray-200 rounded px-1 py-0.5 w-16 focus:outline-none focus:border-[#e60023]" />
+                    <button onClick={() => {
+                      if (newDaySlotTime) {
+                        const [h, m] = newDaySlotTime.split(":").map(Number);
+                        const ampm = h >= 12 ? "PM" : "AM"; const h12 = h % 12 || 12;
+                        const label24 = `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+                        const short = `${h12}${ampm === "AM" ? "a" : "p"}`;
+                        const existing = daySlots[dateStr] ?? [];
+                        if (!existing.find(s => s.label === label24)) onDaySlotsChange({ ...daySlots, [dateStr]: [...existing, { label: label24, short }] });
+                      }
+                      setNewDaySlotTime(""); setAddingDaySlot(null);
+                    }} className="text-[9px] bg-[#e60023] text-white px-1 py-0.5 rounded font-medium">✓</button>
+                    <button onClick={() => { setNewDaySlotTime(""); setAddingDaySlot(null); }} className="text-gray-400 hover:text-gray-600"><X className="w-3 h-3" /></button>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => { setAddingDaySlot(dateStr); setNewDaySlotTime(""); }}
-                    title="Add time slot for this day"
-                    className="w-5 h-5 rounded border border-dashed border-gray-300 text-gray-400 hover:border-[#e60023] hover:text-[#e60023] flex items-center justify-center flex-shrink-0 transition-colors"
-                  >
+                  <button onClick={() => { setAddingDaySlot(dateStr); setNewDaySlotTime(""); }}
+                    title="Add slot for this day"
+                    className="w-6 h-6 rounded-full border border-dashed border-gray-300 text-gray-400 hover:border-[#e60023] hover:text-[#e60023] flex items-center justify-center flex-shrink-0 transition-colors opacity-0 group-hover/row:opacity-100">
                     <Plus className="w-3 h-3" />
                   </button>
                 )}
               </div>
-              {/* Scheduled thumbnails for this day — draggable to reschedule */}
-              {pins.length > 0 && (
-                <div className="flex gap-1 mt-1 pl-[76px] flex-wrap">
-                  {pins.map((p, i) => {
-                    const isDragging = draggedPinId === p.id;
-                    return (
-                      <button
-                        key={i}
-                        title={`Drag to reschedule · Click to edit: ${p.title}`}
-                        draggable
-                        onDragStart={() => setDraggedPinId(p.id)}
-                        onDragEnd={() => { setDraggedPinId(null); setDropTarget(null); }}
-                        onClick={() => onEdit(p as ScheduledPin)}
-                        className={cn(
-                          "group/thumb w-7 h-7 rounded-md overflow-hidden bg-gray-100 border flex-shrink-0 transition-all relative cursor-grab active:cursor-grabbing",
-                          isDragging
-                            ? "border-[#e60023] opacity-40 scale-95"
-                            : "border-gray-200 hover:ring-2 hover:ring-[#e60023]"
-                        )}
-                      >
-                        {p.imageUrl && p.imageUrl.startsWith("http") ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.imageUrl} alt={p.title} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-[10px]">📌</div>
-                        )}
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                          <Edit2 className="w-3 h-3 text-white" />
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           );
         })}
       </div>
-      {/* unused var suppression */ void colCount}
     </div>
   );
 }
