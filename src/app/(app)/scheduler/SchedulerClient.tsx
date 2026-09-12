@@ -2663,9 +2663,12 @@ export default function SchedulerPage() {
               const errText = await res.text().catch(() => "");
               throw new Error(`Save failed (${res.status})${errText ? ": " + errText : ""}`);
             }
-            // Re-fetch to reflect saved changes
-            const data = await fetch("/api/schedule-pin").then(r => r.json()).catch(() => null);
-            if (data && Array.isArray(data.pins)) setScheduled(data.pins);
+            // Immediately apply changes to local state so pin stays visible
+            setScheduled(s => s.map(p => p.id === pinId ? { ...p, ...updates } : p));
+            // Background sync — only replace state if server returns a non-empty list
+            fetch("/api/schedule-pin").then(r => r.json()).then(data => {
+              if (data && Array.isArray(data.pins) && data.pins.length > 0) setScheduled(data.pins);
+            }).catch(() => {});
           }}
           onDelete={() => deleteScheduled(editingPin.id)}
           onBackToDraft={() => {
