@@ -466,7 +466,18 @@ function ScheduledPinModal({
             Save Changes
           </button>
           <button
-            onClick={async () => { setPinning(true); await onPinNow(); setPinning(false); onClose(); }}
+            onClick={async () => {
+              setPinning(true);
+              setSaveError("");
+              try {
+                await onPinNow();
+                onClose();
+              } catch (err) {
+                setSaveError(err instanceof Error ? err.message : "Pin Now failed — please try again");
+              } finally {
+                setPinning(false);
+              }
+            }}
             disabled={pinning}
             className="w-full bg-green-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
