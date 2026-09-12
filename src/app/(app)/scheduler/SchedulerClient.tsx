@@ -536,10 +536,12 @@ function SmartSchedulePanel({ onApply, scheduled, onEdit, slots, onSlotsChange, 
   // Map each pin to its scheduled time string (HH:MM)
   const pinsByDate: Record<string, { id: string; imageUrl?: string; title: string; time: string }[]> = {};
   for (const p of scheduled) {
-    const [datePart, timePart] = p.scheduledAt.split("T");
-    const time = (timePart ?? "").slice(0, 5);
-    if (!pinsByDate[datePart]) pinsByDate[datePart] = [];
-    pinsByDate[datePart].push({ id: p.id, imageUrl: p.imageUrl, title: p.title, time });
+    const dt = new Date(p.scheduledAt);
+    const _p = (n: number) => String(n).padStart(2, "0");
+    const localDate = `${dt.getFullYear()}-${_p(dt.getMonth()+1)}-${_p(dt.getDate())}`;
+    const localTime = `${_p(dt.getHours())}:${_p(dt.getMinutes())}`;
+    if (!pinsByDate[localDate]) pinsByDate[localDate] = [];
+    pinsByDate[localDate].push({ id: p.id, imageUrl: p.imageUrl, title: p.title, time: localTime });
   }
 
   return (
