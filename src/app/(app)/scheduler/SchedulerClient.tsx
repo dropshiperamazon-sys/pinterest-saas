@@ -357,6 +357,7 @@ function ScheduledPinModal({
   const [date, setDate] = useState(dt.toISOString().split("T")[0]);
   const [time, setTime] = useState(dt.toTimeString().slice(0, 5));
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [pinning, setPinning] = useState(false);
 
   return (
@@ -406,14 +407,18 @@ function ScheduledPinModal({
 
         {/* Actions */}
         <div className="px-5 pb-5 space-y-2">
+          {saveError && (
+            <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{saveError}</p>
+          )}
           <button
             onClick={async () => {
               setSaving(true);
+              setSaveError("");
               try {
                 await onSave({ title, description, scheduledAt: new Date(`${date}T${time}:00`).toISOString() });
                 onClose();
-              } catch {
-                // non-fatal — button re-enables so user can retry
+              } catch (err) {
+                setSaveError(err instanceof Error ? err.message : "Save failed — please try again");
               } finally {
                 setSaving(false);
               }
@@ -2626,20 +2631,22 @@ export default function SchedulerPage() {
           pin={editingPin}
           onClose={() => setEditingPin(null)}
           onSave={async (updates) => {
-            // Optimistic update so UI reflects changes immediately
+            // Capture id before any state changes
+            const pinId = editingPin.id;
             const optimistic = { ...editingPin, ...updates } as ScheduledPin;
-            setScheduled(s => s.map(p => p.id === editingPin.id ? optimistic : p));
+            setScheduled(s => s.map(p => p.id === pinId ? optimistic : p));
             setEditingPin(optimistic);
             const res = await fetch("/api/schedule-pin", {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ pinId: editingPin.id, ...updates }),
+              body: JSON.stringify({ pinId, ...updates }),
             });
             if (!res.ok) {
+              const errText = await res.text().catch(() => "");
               // Revert on failure
               const data = await fetch("/api/schedule-pin").then(r => r.json()).catch(() => null);
               if (data && Array.isArray(data.pins)) setScheduled(data.pins);
-              throw new Error("Save failed");
+              throw new Error(`Save failed (${res.status})${errText ? ": " + errText : ""}`);
             }
           }}
           onDelete={() => deleteScheduled(editingPin.id)}
