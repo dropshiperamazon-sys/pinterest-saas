@@ -56,13 +56,20 @@ export async function GET(req: NextRequest) {
   });
   const pinterestUser = userRes.ok ? await userRes.json() : {};
 
-  // Store Pinterest token linked to the user's email
+  // Log granted scopes server-side for debugging (never log the tokens themselves)
+  const grantedScopes: string[] = tokenData.scope
+    ? String(tokenData.scope).split(/[\s,]+/).filter(Boolean)
+    : [];
+  console.log("Pinterest OAuth: granted scopes:", grantedScopes);
+
+  // Store Pinterest token linked to the user's email (update-in-place, no duplicate)
   await redis.set(`pinterest_connection:${email}`, JSON.stringify({
     accessToken: tokenData.access_token,
     refreshToken: tokenData.refresh_token || null,
     pinterestUsername: pinterestUser.username || "",
     pinterestName: pinterestUser.business_name || pinterestUser.username || "",
     connectedAt: new Date().toISOString(),
+    grantedScopes,
   }));
 
   return NextResponse.redirect(`${baseUrl}/account?pinterest=connected`);

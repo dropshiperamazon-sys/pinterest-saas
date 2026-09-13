@@ -47,6 +47,7 @@ interface Catalog {
 
 interface OverviewData {
   scopeError?: boolean;
+  reason?: string;
   message?: string;
   catalogs?: Catalog[];
   feeds?: Feed[];
@@ -132,24 +133,35 @@ function healthScore(feed: Feed): number {
 
 // ─── Scope Error Banner ───────────────────────────────────────────────────────
 
-function ScopeErrorBanner() {
+function ScopeErrorBanner({ reason, message }: { reason?: string; message?: string }) {
+  const isBusinessAccess = reason === "business_access";
+  const isTokenExpired = reason === "token_expired";
+
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center px-6">
       <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mb-4">
         <AlertTriangle className="w-8 h-8 text-amber-500" />
       </div>
-      <h2 className="text-xl font-bold text-gray-900 mb-2">Catalog Permissions Required</h2>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">
+        {isBusinessAccess ? "Catalog Business Access Required" : isTokenExpired ? "Pinterest Session Expired" : "Catalog Permissions Required"}
+      </h2>
       <p className="text-gray-500 max-w-md mb-6">
-        Accessing your Pinterest Catalog requires reconnecting your Pinterest account with
-        catalog permissions (<code className="bg-gray-100 px-1 rounded text-xs">catalogs:read</code>).
+        {message ?? (
+          <>
+            Accessing your Pinterest Catalog requires reconnecting your Pinterest account with
+            catalog permissions (<code className="bg-gray-100 px-1 rounded text-xs">catalogs:read</code>).
+          </>
+        )}
       </p>
-      <a
-        href="/api/pinterest-oauth/start"
-        className="inline-flex items-center gap-2 bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors"
-      >
-        Reconnect Pinterest
-        <ArrowUpRight className="w-4 h-4" />
-      </a>
+      {!isBusinessAccess && (
+        <a
+          href="/api/pinterest-oauth/start"
+          className="inline-flex items-center gap-2 bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors"
+        >
+          Reconnect Pinterest
+          <ArrowUpRight className="w-4 h-4" />
+        </a>
+      )}
     </div>
   );
 }
@@ -157,7 +169,7 @@ function ScopeErrorBanner() {
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({ data }: { data: OverviewData }) {
-  if (data.scopeError) return <ScopeErrorBanner />;
+  if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
 
   const { summary, feeds = [], catalogs = [] } = data;
 
@@ -244,7 +256,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
 // ─── Feed Audit Tab ───────────────────────────────────────────────────────────
 
 function AuditTab({ data }: { data: OverviewData }) {
-  if (data.scopeError) return <ScopeErrorBanner />;
+  if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
   const { feeds = [] } = data;
 
   return (
@@ -649,7 +661,7 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
 // ─── Diagnostics Tab ─────────────────────────────────────────────────────────
 
 function DiagnosticsTab({ data, products }: { data: OverviewData; products: Product[] }) {
-  if (data.scopeError) return <ScopeErrorBanner />;
+  if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
 
   const feeds = data.feeds ?? [];
 
