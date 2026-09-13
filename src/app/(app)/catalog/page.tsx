@@ -417,7 +417,7 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange }:
       )}
 
       {products.length === 0 ? (
-        <EmptyState label="Select a feed to view product SEO scores." />
+        <EmptyState label={feeds.length === 0 ? "No feeds found." : "No products found in this feed."} />
       ) : (
         <>
           {/* Score summary */}
@@ -552,7 +552,7 @@ function ProductsTab({ products, loading, feeds, selectedFeed, onFeedChange }: {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState label={products.length === 0 ? "Select a feed to view products." : "No products match your search."} />
+        <EmptyState label={products.length === 0 ? "No products found in this feed." : "No products match your search."} />
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
@@ -926,12 +926,10 @@ export default function CatalogPage() {
       .finally(() => setProductsLoading(false));
   }, []);
 
-  // When feed selection changes, reload products
+  // Load products whenever the selected feed changes (pre-fetch so data is ready on any tab)
   useEffect(() => {
-    if (selectedFeedId && (activeTab === "products" || activeTab === "seo" || activeTab === "diagnostics")) {
-      loadProducts(selectedFeedId);
-    }
-  }, [selectedFeedId, activeTab, loadProducts]);
+    if (selectedFeedId) loadProducts(selectedFeedId);
+  }, [selectedFeedId, loadProducts]);
 
   // Load product groups once when tab is opened
   useEffect(() => {
