@@ -79,11 +79,41 @@ interface Product {
 interface ProductGroup {
   id: unknown;
   name: string;
+  description?: string;
   status: string;
   feedId: string;
   filterV2: unknown;
   createdAt?: string;
   updatedAt?: string;
+}
+
+interface GroupProduct {
+  id: unknown;
+  itemId: string;
+  itemGroupId: string;
+  title: string;
+  description: string;
+  imageLink: string;
+  link: string;
+  price: string;
+  salePrice: string;
+  currency: string;
+  availability: string;
+  brand: string;
+  condition: string;
+  googleProductCategory: string;
+  productType: string;
+  status: string;
+  seoScore: number;
+  issues: string[];
+}
+
+interface GroupProductsDebug {
+  countEndpoint: string;
+  productsEndpoint: string;
+  countStatus: number;
+  productsStatus: number;
+  productsApiError?: { status: number; body: string } | null;
 }
 
 type Tab = "overview" | "audit" | "seo" | "products" | "groups" | "diagnostics";
@@ -625,13 +655,191 @@ function ProductsTab({ products, loading, feeds, selectedFeed, onFeedChange }: {
 
 // ─── Product Groups Tab ───────────────────────────────────────────────────────
 
-function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boolean }) {
+function GroupProductDetailView({ product, onBack }: { product: GroupProduct; onBack: () => void }) {
+  return (
+    <div className="space-y-4">
+      <button onClick={onBack} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-colors">
+        ← Back to products
+      </button>
+
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="p-5 flex gap-5 border-b border-gray-100">
+          {product.imageLink ? (
+            <img src={product.imageLink} alt="" className="w-28 h-28 rounded-xl object-cover flex-shrink-0 bg-gray-100" />
+          ) : (
+            <div className="w-28 h-28 rounded-xl bg-gray-100 flex-shrink-0 flex items-center justify-center">
+              <ShoppingBag className="w-8 h-8 text-gray-300" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-gray-900 text-lg leading-snug">{product.title || "Untitled"}</h2>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {product.price && <span className="text-base font-semibold text-gray-900">{product.price}</span>}
+              {product.salePrice && product.salePrice !== product.price && (
+                <span className="text-sm text-red-500 font-medium">{product.salePrice} sale</span>
+              )}
+              {product.availability && (
+                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+                  product.availability === "in stock" ? "bg-green-100 text-green-700" :
+                  product.availability === "out of stock" ? "bg-red-100 text-red-700" :
+                  "bg-gray-100 text-gray-600"
+                )}>
+                  {product.availability}
+                </span>
+              )}
+            </div>
+            {product.link && (
+              <a href={product.link} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline mt-1 block truncate">
+                {product.link}
+              </a>
+            )}
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className={cn("text-2xl font-bold", scoreColor(product.seoScore))}>{product.seoScore}</p>
+            <p className="text-xs text-gray-400 mt-0.5">My Pin Pro SEO Score</p>
+          </div>
+        </div>
+
+        <div className="divide-y divide-gray-50">
+          {[
+            { label: "Item ID", value: product.itemId },
+            { label: "Item Group ID", value: product.itemGroupId },
+            { label: "Brand", value: product.brand },
+            { label: "Product Type", value: product.productType },
+            { label: "Google Product Category", value: product.googleProductCategory },
+            { label: "Condition", value: product.condition },
+            { label: "Currency", value: product.currency },
+            { label: "Pin Status", value: product.status },
+          ].filter(r => r.value).map((row) => (
+            <div key={row.label} className="px-5 py-2.5 flex justify-between text-sm gap-4">
+              <span className="text-gray-500 flex-shrink-0">{row.label}</span>
+              <span className="font-medium text-gray-900 text-right break-all">{row.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {product.description && (
+          <div className="px-5 py-4 border-t border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Description</p>
+            <p className="text-sm text-gray-700 leading-relaxed">{product.description}</p>
+          </div>
+        )}
+      </div>
+
+      {product.issues.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900">SEO Recommendations</h3>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {product.issues.map((issue, i) => (
+              <div key={i} className="px-5 py-3 flex items-center gap-3 text-sm">
+                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                <span className="text-gray-700">{issue}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroupsTab({ groups, loading, feeds }: { groups: ProductGroup[]; loading: boolean; feeds: Feed[] }) {
   const [selectedGroup, setSelectedGroup] = useState<ProductGroup | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<GroupProduct | null>(null);
+
+  // Products for the open group
+  const [groupProducts, setGroupProducts] = useState<GroupProduct[]>([]);
+  const [productCount, setProductCount] = useState<number | null>(null);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [nextBookmark, setNextBookmark] = useState<string | null>(null);
+  // bookmarkStack[i] = bookmark to fetch page i+1 (null = first page)
+  const [bookmarkStack, setBookmarkStack] = useState<(string | null)[]>([null]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [search, setSearch] = useState("");
+  const [debug, setDebug] = useState<GroupProductsDebug | null>(null);
+
+  const fetchGroupProducts = useCallback((group: ProductGroup, bookmark: string | null) => {
+    setProductsLoading(true);
+    setProductsError(null);
+    const feedId = group.feedId || feeds[0]?.id || "";
+    const params = new URLSearchParams({ productGroupId: String(group.id), pageSize: "25" });
+    if (feedId) params.set("feedId", feedId);
+    if (bookmark) params.set("bookmark", bookmark);
+
+    fetch(`/api/pinterest-catalog/product-group-products?${params}`)
+      .then((r) => r.json())
+      .then((d) => {
+        setGroupProducts(d.products ?? []);
+        setProductCount(d.productCount ?? null);
+        setNextBookmark(d.bookmark ?? null);
+        setDebug(d._debug ?? null);
+        if (d._debug?.productsApiError) {
+          setProductsError(`Pinterest API ${d._debug.productsApiError.status}: ${d._debug.productsApiError.body}`);
+        }
+      })
+      .catch(() => setProductsError("Failed to load products from Pinterest"))
+      .finally(() => setProductsLoading(false));
+  }, [feeds]);
+
+  function handleGroupSelect(group: ProductGroup) {
+    setSelectedGroup(group);
+    setSelectedProduct(null);
+    setGroupProducts([]);
+    setProductCount(null);
+    setNextBookmark(null);
+    setBookmarkStack([null]);
+    setPageIndex(0);
+    setSearch("");
+    setDebug(null);
+    setProductsError(null);
+    fetchGroupProducts(group, null);
+  }
+
+  function handleNextPage() {
+    if (!nextBookmark || !selectedGroup) return;
+    const newStack = [...bookmarkStack, nextBookmark];
+    setBookmarkStack(newStack);
+    const newIndex = pageIndex + 1;
+    setPageIndex(newIndex);
+    setSearch("");
+    fetchGroupProducts(selectedGroup, nextBookmark);
+  }
+
+  function handlePrevPage() {
+    if (pageIndex === 0 || !selectedGroup) return;
+    const newIndex = pageIndex - 1;
+    setPageIndex(newIndex);
+    setSearch("");
+    fetchGroupProducts(selectedGroup, bookmarkStack[newIndex]);
+  }
 
   if (loading) return <LoadingState label="Loading product groups..." />;
 
+  // Product detail view
+  if (selectedProduct) {
+    return <GroupProductDetailView product={selectedProduct} onBack={() => setSelectedProduct(null)} />;
+  }
+
+  // Group detail view
   if (selectedGroup) {
-    const filters = selectedGroup.filterV2 as Record<string, unknown> | null | undefined;
+    const filtered = search
+      ? groupProducts.filter(p =>
+          p.title.toLowerCase().includes(search.toLowerCase()) ||
+          p.brand.toLowerCase().includes(search.toLowerCase()) ||
+          p.itemId.toLowerCase().includes(search.toLowerCase())
+        )
+      : groupProducts;
+
+    const countMismatch =
+      productCount !== null &&
+      groupProducts.length === 0 &&
+      !productsLoading &&
+      !productsError &&
+      productCount > 0;
+
     return (
       <div className="space-y-4">
         <button
@@ -641,6 +849,7 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
           ← Back to groups
         </button>
 
+        {/* Header card */}
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
             <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -648,9 +857,9 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-bold text-gray-900 text-lg">{selectedGroup.name || String(selectedGroup.id)}</p>
-              <p className="text-xs text-gray-400">ID: {String(selectedGroup.id)}</p>
+              {selectedGroup.description && <p className="text-xs text-gray-500 mt-0.5">{selectedGroup.description}</p>}
             </div>
-            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0",
               selectedGroup.status === "ACTIVE" ? "bg-green-100 text-green-700" :
               selectedGroup.status === "PAUSED" ? "bg-yellow-100 text-yellow-700" :
               "bg-gray-100 text-gray-600"
@@ -658,65 +867,220 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
               {selectedGroup.status || "—"}
             </span>
           </div>
-
-          <div className="divide-y divide-gray-50">
-            <div className="px-5 py-3 flex justify-between text-sm">
-              <span className="text-gray-500">Feed ID</span>
-              <span className="font-medium text-gray-900">{selectedGroup.feedId || "—"}</span>
+          <div className="grid grid-cols-3 divide-x divide-gray-100">
+            <div className="px-5 py-3">
+              <p className="text-xs text-gray-400">Feed</p>
+              <p className="text-sm font-medium text-gray-900 mt-0.5 truncate">{selectedGroup.feedId || "—"}</p>
             </div>
-            {selectedGroup.createdAt && (
-              <div className="px-5 py-3 flex justify-between text-sm">
-                <span className="text-gray-500">Created</span>
-                <span className="font-medium text-gray-900">{new Date(selectedGroup.createdAt).toLocaleDateString()}</span>
-              </div>
-            )}
-            {selectedGroup.updatedAt && (
-              <div className="px-5 py-3 flex justify-between text-sm">
-                <span className="text-gray-500">Last Updated</span>
-                <span className="font-medium text-gray-900">{new Date(selectedGroup.updatedAt).toLocaleDateString()}</span>
-              </div>
-            )}
+            <div className="px-5 py-3">
+              <p className="text-xs text-gray-400">Products</p>
+              <p className="text-sm font-bold text-gray-900 mt-0.5">
+                {productCount !== null ? productCount.toLocaleString() : productsLoading ? "…" : "—"}
+              </p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-xs text-gray-400">Last Updated</p>
+              <p className="text-sm font-medium text-gray-900 mt-0.5">
+                {selectedGroup.updatedAt ? new Date(selectedGroup.updatedAt).toLocaleDateString() : "—"}
+              </p>
+            </div>
           </div>
         </div>
 
-        {filters && Object.keys(filters).length > 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100">
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-900">Filter Rules</h3>
-              <p className="text-xs text-gray-400 mt-0.5">Products in this group match these criteria</p>
-            </div>
-            <div className="px-5 py-4">
-              <pre className="text-xs text-gray-600 bg-gray-50 rounded-xl p-4 overflow-x-auto whitespace-pre-wrap break-words">
-                {JSON.stringify(filters, null, 2)}
-              </pre>
-            </div>
+        {/* Promote CTA */}
+        <div className="bg-gradient-to-r from-[#e60023]/5 to-purple-50 rounded-2xl border border-[#e60023]/10 px-5 py-4 flex items-center gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-gray-900">Promote with Pinterest Ads</p>
+            <p className="text-xs text-gray-500 mt-0.5">Target this product group in a Shopping campaign.</p>
           </div>
-        )}
-
-        <div className="bg-gradient-to-r from-[#e60023]/5 to-purple-50 rounded-2xl border border-[#e60023]/10 p-5">
-          <h3 className="font-semibold text-gray-900 mb-1">Promote with Pinterest Ads</h3>
-          <p className="text-sm text-gray-500 mb-4">
-            Use this product group as a targeting filter in a Shopping ad campaign to drive traffic and sales.
-          </p>
           <a
             href="https://ads.pinterest.com"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 bg-[#e60023] text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors"
+            className="inline-flex items-center gap-1.5 bg-[#e60023] text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors flex-shrink-0"
           >
-            Open Pinterest Ads Manager
-            <ArrowUpRight className="w-4 h-4" />
+            Ads Manager
+            <ArrowUpRight className="w-3.5 h-3.5" />
           </a>
         </div>
+
+        {/* API error */}
+        {productsError && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+            <div className="flex items-start gap-3">
+              <XCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-red-800 text-sm">Pinterest API Error</p>
+                <p className="text-xs text-red-700 mt-1 break-all">{productsError}</p>
+                {debug && (
+                  <details className="mt-2">
+                    <summary className="text-xs text-red-600 cursor-pointer hover:underline">Debug endpoints</summary>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs font-mono text-red-700 break-all">Count: {debug.countEndpoint} → {debug.countStatus}</p>
+                      <p className="text-xs font-mono text-red-700 break-all">Products: {debug.productsEndpoint} → {debug.productsStatus}</p>
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Count vs results mismatch warning */}
+        {countMismatch && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-800 text-sm">
+                Pinterest reports {productCount?.toLocaleString()} products but returned 0 items
+              </p>
+              <p className="text-xs text-amber-700 mt-1">
+                This product group is defined by filters. Pinterest currently reports no matching catalog items via the API.
+                The count and item list may not be in sync — this is a known Pinterest API behavior.
+              </p>
+              {debug && (
+                <details className="mt-2">
+                  <summary className="text-xs text-amber-600 cursor-pointer hover:underline">Debug info</summary>
+                  <div className="mt-2 space-y-1">
+                    <p className="text-xs font-mono text-amber-700 break-all">Count: {debug.countEndpoint} → {debug.countStatus}</p>
+                    <p className="text-xs font-mono text-amber-700 break-all">Products: {debug.productsEndpoint} → {debug.productsStatus}</p>
+                  </div>
+                </details>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Empty: productCount === 0 */}
+        {productCount === 0 && !productsLoading && (
+          <div className="bg-white rounded-2xl border border-gray-100 py-12 text-center px-6">
+            <ShoppingBag className="w-10 h-10 mx-auto mb-3 text-gray-200" />
+            <p className="font-semibold text-gray-700 text-sm">No products currently match this product group.</p>
+            <p className="text-xs text-gray-400 mt-1">
+              This product group is defined by filters. Pinterest currently reports no matching products.
+            </p>
+          </div>
+        )}
+
+        {/* Products section */}
+        {(productsLoading || groupProducts.length > 0) && (
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+              <h3 className="font-semibold text-gray-900 flex-1">Products</h3>
+              {productCount !== null && (
+                <span className="text-xs text-gray-400">{productCount.toLocaleString()} total</span>
+              )}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search this page..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 w-44"
+                />
+              </div>
+            </div>
+
+            {productsLoading ? (
+              <div className="py-16 flex flex-col items-center text-gray-400">
+                <RefreshCw className="w-6 h-6 animate-spin mb-2" />
+                <p className="text-sm">Loading products…</p>
+              </div>
+            ) : filtered.length === 0 && search ? (
+              <div className="py-12 text-center text-gray-400 text-sm">No products match &ldquo;{search}&rdquo; on this page.</div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Product</th>
+                        <th className="px-4 py-3 text-left">Item ID</th>
+                        <th className="px-4 py-3 text-left">Brand</th>
+                        <th className="px-4 py-3 text-left">Price</th>
+                        <th className="px-4 py-3 text-left">Availability</th>
+                        <th className="px-4 py-3 text-left">Type</th>
+                        <th className="px-4 py-3 text-left">SEO</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {filtered.map((p, i) => (
+                        <tr
+                          key={i}
+                          onClick={() => setSelectedProduct(p)}
+                          className="hover:bg-gray-50 cursor-pointer transition-colors"
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              {p.imageLink ? (
+                                <img src={p.imageLink} alt="" className="w-9 h-9 rounded-lg object-cover bg-gray-100 flex-shrink-0" />
+                              ) : (
+                                <div className="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" />
+                              )}
+                              <span className="font-medium text-gray-900 truncate max-w-[160px]">{p.title || "Untitled"}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.itemId || "—"}</td>
+                          <td className="px-4 py-3 text-gray-600">{p.brand || "—"}</td>
+                          <td className="px-4 py-3 text-gray-900 font-medium">{p.price || "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+                              p.availability === "in stock" ? "bg-green-100 text-green-700" :
+                              p.availability === "out of stock" ? "bg-red-100 text-red-700" :
+                              "bg-gray-100 text-gray-600"
+                            )}>
+                              {p.availability || "—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 text-xs truncate max-w-[120px]">{p.productType || "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className={cn("font-bold text-sm", scoreColor(p.seoScore))}>{p.seoScore}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
+                  <p className="text-xs text-gray-400">
+                    Page {pageIndex + 1}
+                    {productCount !== null ? ` · ${productCount.toLocaleString()} total products` : ""}
+                    {search ? ` · ${filtered.length} match search` : ` · ${groupProducts.length} on this page`}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handlePrevPage}
+                      disabled={pageIndex === 0}
+                      className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      ← Prev
+                    </button>
+                    <button
+                      onClick={handleNextPage}
+                      disabled={!nextBookmark}
+                      className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     );
   }
 
+  // Group list view
   return (
     <div className="space-y-4">
       <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex gap-3 text-sm text-blue-700">
         <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <p>Product groups allow you to target specific products in Pinterest Ads campaigns. Click a group to view details.</p>
+        <p>Product groups allow you to target specific products in Pinterest Ads campaigns. Click a group to view its products.</p>
       </div>
 
       {groups.length === 0 ? (
@@ -727,7 +1091,7 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
             {groups.map((g, i) => (
               <button
                 key={i}
-                onClick={() => setSelectedGroup(g)}
+                onClick={() => handleGroupSelect(g)}
                 className="w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors text-left"
               >
                 <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -735,7 +1099,7 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900">{g.name || String(g.id)}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Feed ID: {g.feedId || "—"}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Feed: {g.feedId || "—"}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
@@ -1009,7 +1373,7 @@ export default function CatalogPage() {
             />
           )}
           {activeTab === "groups" && (
-            <GroupsTab groups={groups} loading={groupsLoading} />
+            <GroupsTab groups={groups} loading={groupsLoading} feeds={feeds} />
           )}
           {activeTab === "diagnostics" && (
             <DiagnosticsTab data={overviewData} products={products} />

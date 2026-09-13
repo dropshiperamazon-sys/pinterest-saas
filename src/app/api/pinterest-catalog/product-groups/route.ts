@@ -48,6 +48,7 @@ export async function GET(req: NextRequest) {
     groups: groups.map((g) => ({
       id: g.id,
       name: g.name,
+      description: g.description ?? "",
       status: g.status,
       feedId: g.feed_id,
       filterV2: g.filter_v2,
