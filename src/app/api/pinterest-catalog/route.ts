@@ -89,21 +89,29 @@ export async function GET() {
   const catalogs: Record<string, unknown>[] = catalogsData?.items ?? [];
   const feeds: Record<string, unknown>[] = feedsData?.items ?? [];
 
-  // Count totals from feed metadata
-  const totalProducts = feeds.reduce((sum: number, f: Record<string, unknown>) => {
-    const counts = f.counts as Record<string, number> | undefined;
-    return sum + (counts?.TOTAL ?? 0);
-  }, 0);
+  // Only aggregate counts when Pinterest actually returns them (may be absent on first run)
+  const hasAnyCounts = feeds.some((f) => (f.counts as object | undefined) != null);
 
-  const totalIngested = feeds.reduce((sum: number, f: Record<string, unknown>) => {
-    const counts = f.counts as Record<string, number> | undefined;
-    return sum + (counts?.INGESTED ?? 0);
-  }, 0);
+  const totalProducts = hasAnyCounts
+    ? feeds.reduce((sum: number, f: Record<string, unknown>) => {
+        const counts = f.counts as Record<string, number> | undefined;
+        return sum + (counts?.TOTAL ?? 0);
+      }, 0)
+    : null;
 
-  const totalErrors = feeds.reduce((sum: number, f: Record<string, unknown>) => {
-    const counts = f.counts as Record<string, number> | undefined;
-    return sum + (counts?.FAILED ?? 0);
-  }, 0);
+  const totalIngested = hasAnyCounts
+    ? feeds.reduce((sum: number, f: Record<string, unknown>) => {
+        const counts = f.counts as Record<string, number> | undefined;
+        return sum + (counts?.INGESTED ?? 0);
+      }, 0)
+    : null;
+
+  const totalErrors = hasAnyCounts
+    ? feeds.reduce((sum: number, f: Record<string, unknown>) => {
+        const counts = f.counts as Record<string, number> | undefined;
+        return sum + (counts?.FAILED ?? 0);
+      }, 0)
+    : null;
 
   return NextResponse.json({
     scopeError: false,

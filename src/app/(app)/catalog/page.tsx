@@ -54,9 +54,9 @@ interface OverviewData {
   summary?: {
     totalCatalogs: number;
     totalFeeds: number;
-    totalProducts: number;
-    totalIngested: number;
-    totalErrors: number;
+    totalProducts: number | null;
+    totalIngested: number | null;
+    totalErrors: number | null;
   };
 }
 
@@ -121,9 +121,10 @@ function feedStatusColor(status: string) {
   return "bg-gray-100 text-gray-600";
 }
 
-function healthScore(feed: Feed): number {
+function healthScore(feed: Feed): number | null {
+  if (feed.counts == null) return null;
   const total = feed.counts?.TOTAL ?? 0;
-  if (total === 0) return 0;
+  if (total === 0) return null;
   const ingested = feed.counts?.INGESTED ?? 0;
   const failed = feed.counts?.FAILED ?? 0;
   const warnings = feed.counts?.WARNINGS ?? 0;
@@ -176,8 +177,8 @@ function OverviewTab({ data }: { data: OverviewData }) {
   const statCards = [
     { label: "Catalogs", value: summary?.totalCatalogs ?? 0, icon: ShoppingBag, color: "bg-purple-100 text-purple-600" },
     { label: "Feeds", value: summary?.totalFeeds ?? 0, icon: Layers, color: "bg-blue-100 text-blue-600" },
-    { label: "Total Products", value: (summary?.totalProducts ?? 0).toLocaleString(), icon: BarChart2, color: "bg-green-100 text-green-600" },
-    { label: "Products with Errors", value: (summary?.totalErrors ?? 0).toLocaleString(), icon: XCircle, color: "bg-red-100 text-red-600" },
+    { label: "Total Products", value: summary?.totalProducts != null ? summary.totalProducts.toLocaleString() : "—", icon: BarChart2, color: "bg-green-100 text-green-600" },
+    { label: "Products with Errors", value: summary?.totalErrors != null ? summary.totalErrors.toLocaleString() : "—", icon: XCircle, color: "bg-red-100 text-red-600" },
   ];
 
   return (
@@ -218,7 +219,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
                     </span>
                   </div>
                   <div className="w-20 text-right">
-                    <p className={cn("text-sm font-bold", scoreColor(hs))}>{hs}%</p>
+                    <p className={cn("text-sm font-bold", hs != null ? scoreColor(hs) : "text-gray-400")}>{hs != null ? `${hs}%` : "—"}</p>
                     <p className="text-xs text-gray-400">health</p>
                   </div>
                 </div>
@@ -255,15 +256,24 @@ function OverviewTab({ data }: { data: OverviewData }) {
 
 // ─── Feed Audit Tab ───────────────────────────────────────────────────────────
 
-function AuditTab({ data }: { data: OverviewData }) {
+function AuditTab({ data, onRefresh }: { data: OverviewData; onRefresh: () => void }) {
   if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
   const { feeds = [] } = data;
 
   return (
     <div className="space-y-5">
-      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex gap-3 text-sm text-blue-700">
-        <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <p>Feed health is calculated from ingested, failed, and warning counts reported by Pinterest&apos;s feed processing pipeline.</p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex gap-3 text-sm text-blue-700 flex-1">
+          <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <p>Feed health is calculated from ingested, failed, and warning counts reported by Pinterest&apos;s feed processing pipeline.</p>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors flex-shrink-0"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </button>
       </div>
 
       {feeds.length === 0 ? (
@@ -272,6 +282,7 @@ function AuditTab({ data }: { data: OverviewData }) {
         </div>
       ) : (
         feeds.map((feed) => {
+          const countsAvailable = feed.counts != null;
           const total = feed.counts?.TOTAL ?? 0;
           const ingested = feed.counts?.INGESTED ?? 0;
           const failed = feed.counts?.FAILED ?? 0;
@@ -279,12 +290,15 @@ function AuditTab({ data }: { data: OverviewData }) {
           const expired = feed.counts?.EXPIRED ?? 0;
           const hs = healthScore(feed);
 
-          const issues: { type: "critical" | "warning" | "ok"; label: string; count?: number }[] = [];
-          if (failed > 0) issues.push({ type: "critical", label: "Products failed to ingest", count: failed });
-          if (warnings > 0) issues.push({ type: "warning", label: "Products with warnings", count: warnings });
-          if (expired > 0) issues.push({ type: "warning", label: "Expired products", count: expired });
+          const issues: { type: "critical" | "warning" | "ok" | "info"; label: string; count?: number }[] = [];
           if (feed.status !== "ACTIVE") issues.push({ type: "critical", label: `Feed status: ${feed.status}` });
-          if (issues.length === 0) issues.push({ type: "ok", label: "No critical issues found" });
+          if (countsAvailable) {
+            if (failed > 0) issues.push({ type: "critical", label: "Products failed to ingest", count: failed });
+            if (warnings > 0) issues.push({ type: "warning", label: "Products with warnings", count: warnings });
+            if (expired > 0) issues.push({ type: "warning", label: "Expired products", count: expired });
+          }
+          if (!countsAvailable) issues.push({ type: "info", label: "Processing counts not yet available — feed may not have been processed yet" });
+          else if (issues.length === 0) issues.push({ type: "ok", label: "No critical issues found" });
 
           return (
             <div key={feed.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -294,35 +308,37 @@ function AuditTab({ data }: { data: OverviewData }) {
                   <p className="text-xs text-gray-400 mt-0.5">{feed.format} · Last updated: {feed.updated_at ? new Date(feed.updated_at).toLocaleDateString() : "—"}</p>
                 </div>
                 <div className="text-right">
-                  <p className={cn("text-2xl font-bold", scoreColor(hs))}>{hs}%</p>
+                  <p className={cn("text-2xl font-bold", hs != null ? scoreColor(hs) : "text-gray-400")}>{hs != null ? `${hs}%` : "—"}</p>
                   <p className="text-xs text-gray-400">health score</p>
                 </div>
               </div>
 
               {/* Progress bar */}
-              <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
-                <div className="flex justify-between text-xs text-gray-500 mb-1.5">
-                  <span>{ingested.toLocaleString()} ingested</span>
-                  <span>{total.toLocaleString()} total</span>
+              {countsAvailable && (
+                <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1.5">
+                    <span>{ingested.toLocaleString()} ingested</span>
+                    <span>{total.toLocaleString()} total</span>
+                  </div>
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-2 bg-green-500 rounded-full"
+                      style={{ width: total ? `${Math.round((ingested / total) * 100)}%` : "0%" }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-2 bg-green-500 rounded-full"
-                    style={{ width: total ? `${Math.round((ingested / total) * 100)}%` : "0%" }}
-                  />
-                </div>
-              </div>
+              )}
 
               {/* Stats row */}
               <div className="grid grid-cols-4 divide-x divide-gray-100 border-b border-gray-100">
                 {[
-                  { label: "Total", value: total, color: "text-gray-900" },
-                  { label: "Ingested", value: ingested, color: "text-green-600" },
-                  { label: "Failed", value: failed, color: "text-red-500" },
-                  { label: "Warnings", value: warnings, color: "text-yellow-600" },
+                  { label: "Total", value: countsAvailable ? total.toLocaleString() : "—", color: "text-gray-900" },
+                  { label: "Ingested", value: countsAvailable ? ingested.toLocaleString() : "—", color: "text-green-600" },
+                  { label: "Failed", value: countsAvailable ? failed.toLocaleString() : "—", color: "text-red-500" },
+                  { label: "Warnings", value: countsAvailable ? warnings.toLocaleString() : "—", color: "text-yellow-600" },
                 ].map((stat) => (
                   <div key={stat.label} className="px-4 py-3 text-center">
-                    <p className={cn("text-lg font-bold", stat.color)}>{stat.value.toLocaleString()}</p>
+                    <p className={cn("text-lg font-bold", stat.color)}>{stat.value}</p>
                     <p className="text-xs text-gray-400">{stat.label}</p>
                   </div>
                 ))}
@@ -334,10 +350,12 @@ function AuditTab({ data }: { data: OverviewData }) {
                   <div key={i} className={cn("flex items-center gap-2 text-sm rounded-lg px-3 py-2",
                     issue.type === "critical" ? "bg-red-50 text-red-700" :
                     issue.type === "warning" ? "bg-yellow-50 text-yellow-700" :
+                    issue.type === "info" ? "bg-blue-50 text-blue-700" :
                     "bg-green-50 text-green-700"
                   )}>
                     {issue.type === "critical" ? <XCircle className="w-3.5 h-3.5 flex-shrink-0" /> :
                      issue.type === "warning" ? <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> :
+                     issue.type === "info" ? <Info className="w-3.5 h-3.5 flex-shrink-0" /> :
                      <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />}
                     <span>{issue.label}{issue.count !== undefined ? ` (${issue.count.toLocaleString()})` : ""}</span>
                   </div>
@@ -406,7 +424,7 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange }:
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
               <p className={cn("text-3xl font-bold", scoreColor(avgScore))}>{avgScore}</p>
-              <p className="text-xs text-gray-500 mt-1">Avg SEO Score</p>
+              <p className="text-xs text-gray-500 mt-1">My Pin Pro SEO Score</p>
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
               <p className="text-3xl font-bold text-green-600">{goodCount}</p>
@@ -608,13 +626,97 @@ function ProductsTab({ products, loading, feeds, selectedFeed, onFeedChange }: {
 // ─── Product Groups Tab ───────────────────────────────────────────────────────
 
 function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boolean }) {
+  const [selectedGroup, setSelectedGroup] = useState<ProductGroup | null>(null);
+
   if (loading) return <LoadingState label="Loading product groups..." />;
+
+  if (selectedGroup) {
+    const filters = selectedGroup.filterV2 as Record<string, unknown> | null | undefined;
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setSelectedGroup(null)}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+        >
+          ← Back to groups
+        </button>
+
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Layers className="w-5 h-5 text-purple-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-gray-900 text-lg">{selectedGroup.name || String(selectedGroup.id)}</p>
+              <p className="text-xs text-gray-400">ID: {String(selectedGroup.id)}</p>
+            </div>
+            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+              selectedGroup.status === "ACTIVE" ? "bg-green-100 text-green-700" :
+              selectedGroup.status === "PAUSED" ? "bg-yellow-100 text-yellow-700" :
+              "bg-gray-100 text-gray-600"
+            )}>
+              {selectedGroup.status || "—"}
+            </span>
+          </div>
+
+          <div className="divide-y divide-gray-50">
+            <div className="px-5 py-3 flex justify-between text-sm">
+              <span className="text-gray-500">Feed ID</span>
+              <span className="font-medium text-gray-900">{selectedGroup.feedId || "—"}</span>
+            </div>
+            {selectedGroup.createdAt && (
+              <div className="px-5 py-3 flex justify-between text-sm">
+                <span className="text-gray-500">Created</span>
+                <span className="font-medium text-gray-900">{new Date(selectedGroup.createdAt).toLocaleDateString()}</span>
+              </div>
+            )}
+            {selectedGroup.updatedAt && (
+              <div className="px-5 py-3 flex justify-between text-sm">
+                <span className="text-gray-500">Last Updated</span>
+                <span className="font-medium text-gray-900">{new Date(selectedGroup.updatedAt).toLocaleDateString()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {filters && Object.keys(filters).length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-100">
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="font-semibold text-gray-900">Filter Rules</h3>
+              <p className="text-xs text-gray-400 mt-0.5">Products in this group match these criteria</p>
+            </div>
+            <div className="px-5 py-4">
+              <pre className="text-xs text-gray-600 bg-gray-50 rounded-xl p-4 overflow-x-auto whitespace-pre-wrap break-words">
+                {JSON.stringify(filters, null, 2)}
+              </pre>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-gradient-to-r from-[#e60023]/5 to-purple-50 rounded-2xl border border-[#e60023]/10 p-5">
+          <h3 className="font-semibold text-gray-900 mb-1">Promote with Pinterest Ads</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Use this product group as a targeting filter in a Shopping ad campaign to drive traffic and sales.
+          </p>
+          <a
+            href="https://ads.pinterest.com"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 bg-[#e60023] text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors"
+          >
+            Open Pinterest Ads Manager
+            <ArrowUpRight className="w-4 h-4" />
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
       <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex gap-3 text-sm text-blue-700">
         <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <p>Product groups allow you to target specific products in Pinterest Ads campaigns.</p>
+        <p>Product groups allow you to target specific products in Pinterest Ads campaigns. Click a group to view details.</p>
       </div>
 
       {groups.length === 0 ? (
@@ -623,7 +725,11 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="divide-y divide-gray-50">
             {groups.map((g, i) => (
-              <div key={i} className="px-5 py-4 flex items-center gap-4">
+              <button
+                key={i}
+                onClick={() => setSelectedGroup(g)}
+                className="w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors text-left"
+              >
                 <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
                   <Layers className="w-5 h-5 text-purple-600" />
                 </div>
@@ -639,17 +745,9 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
                   )}>
                     {g.status || "—"}
                   </span>
-                  <a
-                    href="https://ads.pinterest.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1.5 text-xs font-semibold text-[#e60023] hover:text-[#ad081b] transition-colors"
-                  >
-                    Promote with Ads
-                    <ArrowUpRight className="w-3 h-3" />
-                  </a>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -801,19 +899,21 @@ export default function CatalogPage() {
 
   const feeds = overviewData?.feeds ?? [];
 
-  // Load overview on mount
-  useEffect(() => {
+  const loadOverview = useCallback(() => {
     setOverviewLoading(true);
+    setOverviewError("");
     fetch("/api/pinterest-catalog")
       .then((r) => r.json())
       .then((d) => {
         setOverviewData(d);
-        // Auto-select first feed
-        if (d.feeds?.length) setSelectedFeedId(d.feeds[0].id);
+        if (d.feeds?.length) setSelectedFeedId((prev) => prev || d.feeds[0].id);
       })
       .catch(() => setOverviewError("Failed to load catalog data"))
       .finally(() => setOverviewLoading(false));
   }, []);
+
+  // Load overview on mount
+  useEffect(() => { loadOverview(); }, [loadOverview]);
 
   // Load products when feedId is known and products/seo/diagnostics tab opened
   const loadProducts = useCallback((feedId: string) => {
@@ -891,7 +991,7 @@ export default function CatalogPage() {
       ) : !overviewData ? null : (
         <>
           {activeTab === "overview" && <OverviewTab data={overviewData} />}
-          {activeTab === "audit" && <AuditTab data={overviewData} />}
+          {activeTab === "audit" && <AuditTab data={overviewData} onRefresh={loadOverview} />}
           {activeTab === "seo" && (
             <ProductSeoTab
               products={products}
