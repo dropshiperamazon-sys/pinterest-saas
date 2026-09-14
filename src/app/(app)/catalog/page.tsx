@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
@@ -17,6 +17,8 @@ import {
   Info,
   Filter,
   Sparkles,
+  Loader2,
+  Tag,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -1195,6 +1197,27 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange, a
   onFeedChange: (id: string) => void;
   apiError?: string | null;
 }) {
+  const [kwSuggestions, setKwSuggestions] = useState<Record<string, { keywords: string[]; loading: boolean; error?: string }>>({});
+
+  async function generateKwSuggestions(id: string, title: string, description: string) {
+    setKwSuggestions(prev => ({ ...prev, [id]: { keywords: [], loading: true } }));
+    try {
+      const res = await fetch("/api/pinterest-catalog/keyword-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description }),
+      });
+      const json = await res.json() as { keywords?: string[]; error?: string };
+      if (!res.ok || json.error) {
+        setKwSuggestions(prev => ({ ...prev, [id]: { keywords: [], loading: false, error: json.error ?? "Failed" } }));
+      } else {
+        setKwSuggestions(prev => ({ ...prev, [id]: { keywords: json.keywords ?? [], loading: false } }));
+      }
+    } catch {
+      setKwSuggestions(prev => ({ ...prev, [id]: { keywords: [], loading: false, error: "Network error" } }));
+    }
+  }
+
   if (loading) return <LoadingState label="Loading product SEO data..." />;
 
   const avgScore = products.length
@@ -1298,48 +1321,83 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange, a
 
           {/* Product score breakdown */}
           <div className="bg-white rounded-2xl border border-gray-100">
-            <div className="px-5 py-4 border-b border-gray-100">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">Product Scores</h3>
+              <div className="flex items-center gap-6 text-xs font-medium text-gray-400 uppercase tracking-wide pr-1">
+                <span className="w-32 text-center">Keyword Suggestions</span>
+                <span className="w-10 text-right">Score</span>
+                <span className="w-20 text-center">Action</span>
+              </div>
             </div>
             <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-              {products.sort((a, b) => a.seoScore - b.seoScore).map((p, i) => (
-                <div key={i} className="px-5 py-3 flex items-center gap-3">
-                  {p.imageLink ? (
-                    <img src={p.imageLink} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{p.title || "Untitled"}</p>
-                    {p.issues.length > 0 && (
-                      <p className="text-xs text-red-500 truncate">{p.issues[0]}{p.issues.length > 1 ? ` +${p.issues.length - 1} more` : ""}</p>
+              {products.sort((a, b) => a.seoScore - b.seoScore).map((p, i) => {
+                const kwState = p.id ? kwSuggestions[String(p.id)] : undefined;
+                return (
+                  <div key={i} className="px-5 py-3 flex items-center gap-3">
+                    {p.imageLink ? (
+                      <img src={p.imageLink} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{p.title || "Untitled"}</p>
+                      {p.issues.length > 0 && (
+                        <p className="text-xs text-red-500 truncate">{p.issues[0]}{p.issues.length > 1 ? ` +${p.issues.length - 1} more` : ""}</p>
+                      )}
+                    </div>
+
+                    {/* Keyword Suggestions column */}
+                    <div className="w-64 flex-shrink-0">
+                      {!kwState ? (
+                        <button
+                          onClick={() => p.id && generateKwSuggestions(String(p.id), p.title ?? "", p.description ?? "")}
+                          className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-[#e60023] border border-dashed border-gray-200 hover:border-[#e60023]/40 rounded-lg px-2.5 py-1.5 transition-colors"
+                        >
+                          <Tag className="w-3 h-3" /> Get keywords
+                        </button>
+                      ) : kwState.loading ? (
+                        <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Generating…
+                        </div>
+                      ) : kwState.error ? (
+                        <span className="text-xs text-red-400">{kwState.error}</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {kwState.keywords.map(kw => (
+                            <span key={kw} className="text-xs bg-[#e60023]/8 text-[#e60023] border border-[#e60023]/20 px-2 py-0.5 rounded-full font-medium">
+                              {kw}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <span className={cn("text-sm font-bold w-10 text-right flex-shrink-0", scoreColor(p.seoScore))}>
+                      {p.seoScore}
+                    </span>
+                    {!!p.id && (
+                      <Link
+                        href={`/catalog/${encodeURIComponent(String(p.id))}/optimized-suggestions?${new URLSearchParams({
+                          ...(selectedFeed ? { feedId: selectedFeed } : {}),
+                          title: p.title ?? "",
+                          description: p.description ?? "",
+                          brand: p.brand ?? "",
+                          price: p.price ?? "",
+                          availability: p.availability ?? "",
+                          condition: p.condition ?? "",
+                          googleProductCategory: p.googleProductCategory ?? "",
+                          imageLink: p.imageLink ?? "",
+                          link: p.link ?? "",
+                        }).toString()}`}
+                        className="flex-shrink-0 flex items-center gap-1.5 text-xs font-medium text-[#e60023] border border-[#e60023]/30 bg-[#e60023]/5 hover:bg-[#e60023]/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Optimize
+                      </Link>
                     )}
                   </div>
-                  <span className={cn("text-sm font-bold w-10 text-right flex-shrink-0", scoreColor(p.seoScore))}>
-                    {p.seoScore}
-                  </span>
-                  {!!p.id && (
-                    <Link
-                      href={`/catalog/${encodeURIComponent(String(p.id))}/optimized-suggestions?${new URLSearchParams({
-                        ...(selectedFeed ? { feedId: selectedFeed } : {}),
-                        title: p.title ?? "",
-                        description: p.description ?? "",
-                        brand: p.brand ?? "",
-                        price: p.price ?? "",
-                        availability: p.availability ?? "",
-                        condition: p.condition ?? "",
-                        googleProductCategory: p.googleProductCategory ?? "",
-                        imageLink: p.imageLink ?? "",
-                        link: p.link ?? "",
-                      }).toString()}`}
-                      className="flex-shrink-0 flex items-center gap-1.5 text-xs font-medium text-[#e60023] border border-[#e60023]/30 bg-[#e60023]/5 hover:bg-[#e60023]/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      Optimize
-                    </Link>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </>
