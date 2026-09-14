@@ -121,11 +121,9 @@ interface GroupProductsDebug {
   note?: string | null;
 }
 
-type Tab = "overview" | "audit" | "seo" | "products" | "groups" | "diagnostics";
+type Tab = "seo" | "products" | "groups" | "diagnostics";
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: "overview", label: "Overview", icon: BarChart2 },
-  { id: "audit", label: "Product Feed Audit", icon: AlertTriangle },
   { id: "seo", label: "Product SEO", icon: Search },
   { id: "products", label: "Products", icon: ShoppingBag },
   { id: "groups", label: "Product Groups", icon: Layers },
@@ -2145,7 +2143,7 @@ function EmptyState({ label }: { label: string }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CatalogPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [activeTab, setActiveTab] = useState<Tab>("seo");
   const [overviewData, setOverviewData] = useState<OverviewData | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [overviewError, setOverviewError] = useState("");
@@ -2254,8 +2252,6 @@ export default function CatalogPage() {
         <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center text-red-600 text-sm">{overviewError}</div>
       ) : !overviewData ? null : (
         <>
-          {activeTab === "overview" && <OverviewTab data={overviewData} />}
-          {activeTab === "audit" && <AuditTab data={overviewData} onRefresh={loadOverview} />}
           {activeTab === "seo" && (
             <ProductSeoTab
               products={products}
