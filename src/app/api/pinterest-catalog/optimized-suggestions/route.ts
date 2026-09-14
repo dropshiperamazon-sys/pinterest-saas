@@ -230,8 +230,9 @@ Rules:
     }
     aiResult = extractJson(content ?? "{}") as typeof aiResult;
   } catch (err) {
-    console.error("[optimized-suggestions] AI error:", err);
-    return NextResponse.json({ error: "AI generation failed" }, { status: 500 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[optimized-suggestions] AI error:", msg);
+    return NextResponse.json({ error: `AI generation failed: ${msg}` }, { status: 500 });
   }
 
   const suggestedTitle = (aiResult.suggestedTitle ?? title).slice(0, 150);
