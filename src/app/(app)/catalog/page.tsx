@@ -1319,13 +1319,12 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange, a
 
           {/* Product score breakdown */}
           <div className="bg-white rounded-2xl border border-gray-100">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900">Product Scores</h3>
-              <div className="flex items-center gap-6 text-xs font-medium text-gray-400 uppercase tracking-wide pr-1">
-                <span className="w-32 text-center">Keyword Suggestions</span>
-                <span className="w-10 text-right">Score</span>
-                <span className="w-20 text-center">Action</span>
-              </div>
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
+              <div className="w-10 flex-shrink-0" />
+              <h3 className="font-semibold text-gray-900 flex-1 min-w-0">Product Scores</h3>
+              <div className="w-64 flex-shrink-0 text-xs font-medium text-gray-400 uppercase tracking-wide text-center">Keyword Suggestions</div>
+              <div className="w-10 flex-shrink-0 text-xs font-medium text-gray-400 uppercase tracking-wide text-right">Score</div>
+              <div className="w-20 flex-shrink-0 text-xs font-medium text-gray-400 uppercase tracking-wide text-center">Action</div>
             </div>
             <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
               {products.sort((a, b) => a.seoScore - b.seoScore).map((p, i) => {
