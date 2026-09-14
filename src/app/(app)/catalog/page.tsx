@@ -200,10 +200,80 @@ function ScopeErrorBanner({ reason, message }: { reason?: string; message?: stri
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
+interface CatalogAnalytics {
+  id: string;
+  name: string;
+  catalogType: string;
+  impressions: number | null;
+  saves: number | null;
+  pinClicks: number | null;
+  outboundClicks: number | null;
+  engagement: number | null;
+}
+
+interface TopPin {
+  id: unknown;
+  title: string;
+  imageUrl: string;
+  link: string;
+  impressions: number;
+  saves: number;
+  pinClicks: number;
+  outboundClicks: number;
+  engagement: number;
+  type: string;
+}
+
+interface AnalyticsData {
+  period: { startDate: string; endDate: string; days: number };
+  type: string;
+  catalogs: CatalogAnalytics[];
+  topPins: TopPin[];
+}
+
+const SORT_METRICS = [
+  { value: "impressions", label: "Impressions" },
+  { value: "saves", label: "Saves" },
+  { value: "pinClicks", label: "Pin Clicks" },
+  { value: "outboundClicks", label: "Outbound Clicks" },
+  { value: "engagement", label: "Engagement" },
+] as const;
+type SortMetric = (typeof SORT_METRICS)[number]["value"];
+
+function fmt(n: number | null): string {
+  if (n == null) return "—";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
 function OverviewTab({ data }: { data: OverviewData }) {
   if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
 
   const { summary, feeds = [], catalogs = [] } = data;
+
+  const [analyticsType, setAnalyticsType] = useState<"ORGANIC" | "PAID" | "ALL">("ORGANIC");
+  const [sortMetric, setSortMetric] = useState<SortMetric>("impressions");
+  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    fetch(`/api/pinterest-catalog/analytics?type=${analyticsType}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) setAnalyticsError(d.error);
+        else setAnalyticsData(d);
+      })
+      .catch(() => setAnalyticsError("Failed to load analytics"))
+      .finally(() => setAnalyticsLoading(false));
+  }, [analyticsType]);
+
+  const sortedPins = analyticsData
+    ? [...analyticsData.topPins].sort((a, b) => (b[sortMetric] ?? 0) - (a[sortMetric] ?? 0))
+    : [];
 
   const statCards = [
     { label: "Catalogs", value: summary?.totalCatalogs ?? 0, icon: ShoppingBag, color: "bg-purple-100 text-purple-600" },
@@ -225,6 +295,165 @@ function OverviewTab({ data }: { data: OverviewData }) {
             <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
           </div>
         ))}
+      </div>
+
+      {/* ── Catalog Analytics ─────────────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="font-semibold text-gray-900">Catalog Analytics</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {analyticsData ? `Last 30 days · ${analyticsData.period.startDate} → ${analyticsData.period.endDate}` : "Last 30 days"}
+            </p>
+          </div>
+          <select
+            value={analyticsType}
+            onChange={(e) => setAnalyticsType(e.target.value as "ORGANIC" | "PAID" | "ALL")}
+            className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/30"
+          >
+            <option value="ORGANIC">Organic</option>
+            <option value="PAID">Paid</option>
+            <option value="ALL">All</option>
+          </select>
+        </div>
+
+        {analyticsLoading ? (
+          <div className="py-10 flex items-center justify-center gap-2 text-gray-400 text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin" /> Loading analytics…
+          </div>
+        ) : analyticsError ? (
+          <div className="py-8 text-center text-sm text-red-500">{analyticsError}</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left font-medium">Catalog</th>
+                  <th className="px-4 py-3 text-right font-medium">Engagement</th>
+                  <th className="px-4 py-3 text-right font-medium">Saves</th>
+                  <th className="px-4 py-3 text-right font-medium">Impressions</th>
+                  <th className="px-4 py-3 text-right font-medium">Pin Clicks</th>
+                  <th className="px-4 py-3 text-right font-medium pr-5">Outbound Clicks</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {(analyticsData?.catalogs ?? catalogs.map((c) => ({
+                  id: String(c.id), name: String(c.name || c.id), catalogType: String(c.catalog_type ?? ""),
+                  impressions: null, saves: null, pinClicks: null, outboundClicks: null, engagement: null,
+                }))).map((cat) => (
+                  <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                          <ShoppingBag className="w-4 h-4 text-purple-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">{cat.name}</p>
+                          <p className="text-xs text-gray-400">{cat.catalogType}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-right font-semibold text-gray-700">{fmt(cat.engagement)}</td>
+                    <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.saves)}</td>
+                    <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.impressions)}</td>
+                    <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.pinClicks)}</td>
+                    <td className="px-4 py-4 text-right text-gray-600 pr-5">{fmt(cat.outboundClicks)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {analyticsData && analyticsData.catalogs.every((c) => c.impressions == null) && (
+              <div className="px-5 py-3 border-t border-gray-100 flex items-start gap-2 text-xs text-amber-700 bg-amber-50">
+                <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                Pinterest doesn&apos;t expose per-catalog metrics in v5. Showing account-level data in Top Products below.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Top Converting Products ───────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="font-semibold text-gray-900">Top Converting Products</h3>
+            <p className="text-xs text-gray-400 mt-0.5">Products performing best — ideal candidates for Shopping ads</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-gray-400" />
+            <select
+              value={sortMetric}
+              onChange={(e) => setSortMetric(e.target.value as SortMetric)}
+              className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/30"
+            >
+              {SORT_METRICS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {analyticsLoading ? (
+          <div className="py-10 flex items-center justify-center gap-2 text-gray-400 text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin" /> Loading products…
+          </div>
+        ) : sortedPins.length === 0 ? (
+          <div className="py-12 text-center text-sm text-gray-400">No product analytics data available for this period.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left font-medium">Product</th>
+                  <th className="px-4 py-3 text-left font-medium">Type</th>
+                  <th className="px-4 py-3 text-right font-medium text-[#e60023]">
+                    {SORT_METRICS.find((m) => m.value === sortMetric)?.label}
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">Impressions</th>
+                  <th className="px-4 py-3 text-right font-medium">Saves</th>
+                  <th className="px-4 py-3 text-right font-medium pr-5">Pin Clicks</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {sortedPins.map((pin, i) => (
+                  <tr key={String(pin.id) + i} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-3">
+                        {pin.imageUrl ? (
+                          <img src={pin.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                        ) : (
+                          <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                            <ShoppingBag className="w-4 h-4 text-gray-300" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-900 truncate max-w-[220px]">{pin.title || "—"}</p>
+                          {pin.link && (
+                            <a href={pin.link} target="_blank" rel="noreferrer"
+                              className="text-xs text-[#e60023] hover:underline truncate block max-w-[220px]">
+                              {pin.link.replace(/^https?:\/\//, "").slice(0, 40)}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full",
+                        pin.type === "PAID" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"
+                      )}>
+                        {pin.type === "PAID" ? "Paid" : "Organic"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-bold text-[#e60023]">{fmt(pin[sortMetric])}</td>
+                    <td className="px-4 py-3 text-right text-gray-600">{fmt(pin.impressions)}</td>
+                    <td className="px-4 py-3 text-right text-gray-600">{fmt(pin.saves)}</td>
+                    <td className="px-4 py-3 text-right text-gray-600 pr-5">{fmt(pin.pinClicks)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Feeds overview */}
@@ -259,28 +488,6 @@ function OverviewTab({ data }: { data: OverviewData }) {
           </div>
         )}
       </div>
-
-      {/* Catalogs */}
-      {catalogs.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-900">Catalogs</h3>
-          </div>
-          <div className="divide-y divide-gray-50">
-            {catalogs.map((cat) => (
-              <div key={cat.id} className="px-5 py-4 flex items-center gap-3">
-                <div className="w-8 h-8 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <ShoppingBag className="w-4 h-4 text-purple-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 text-sm">{cat.name || cat.id}</p>
-                  <p className="text-xs text-gray-400">{cat.catalog_type}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
