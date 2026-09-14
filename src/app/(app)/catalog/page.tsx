@@ -1320,7 +1320,18 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange, a
                   </span>
                   {!!p.id && (
                     <Link
-                      href={`/catalog/${encodeURIComponent(String(p.id))}/optimized-suggestions${selectedFeed ? `?feedId=${encodeURIComponent(selectedFeed)}` : ""}`}
+                      href={`/catalog/${encodeURIComponent(String(p.id))}/optimized-suggestions?${new URLSearchParams({
+                        ...(selectedFeed ? { feedId: selectedFeed } : {}),
+                        title: p.title ?? "",
+                        description: p.description ?? "",
+                        brand: p.brand ?? "",
+                        price: p.price ?? "",
+                        availability: p.availability ?? "",
+                        condition: p.condition ?? "",
+                        googleProductCategory: p.googleProductCategory ?? "",
+                        imageLink: p.imageLink ?? "",
+                        link: p.link ?? "",
+                      }).toString()}`}
                       className="flex-shrink-0 flex items-center gap-1.5 text-xs font-medium text-[#e60023] border border-[#e60023]/30 bg-[#e60023]/5 hover:bg-[#e60023]/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
                     >
                       <Sparkles className="w-3 h-3" />

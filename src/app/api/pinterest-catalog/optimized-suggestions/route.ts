@@ -59,64 +59,82 @@ export async function POST(req: NextRequest) {
 
   const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
 
-  const body = await req.json() as { productId: string; feedId?: string; focusKeyword?: string };
-  const { productId, feedId, focusKeyword } = body;
+  const body = await req.json() as {
+    productId: string;
+    feedId?: string;
+    focusKeyword?: string;
+    productHint?: {
+      title?: string; description?: string; brand?: string; price?: string;
+      availability?: string; condition?: string; googleProductCategory?: string;
+      imageLink?: string; link?: string;
+    };
+  };
+  const { productId, feedId, focusKeyword, productHint } = body;
 
   if (!productId) return NextResponse.json({ error: "productId required" }, { status: 400 });
 
-  // Fetch the specific product from Pinterest catalog
-  // Try direct items endpoint first
-  let productData: Record<string, unknown> | null = null;
+  let title = productHint?.title ?? "";
+  let description = productHint?.description ?? "";
+  let link = productHint?.link ?? "";
+  let imageLink = productHint?.imageLink ?? "";
+  let availability = productHint?.availability ?? "";
+  let price = productHint?.price ?? "";
+  let brand = productHint?.brand ?? "";
+  let condition = productHint?.condition ?? "";
+  let googleProductCategory = productHint?.googleProductCategory ?? "";
 
-  const directData = await pGet(`/catalogs/items?item_ids=${encodeURIComponent(productId)}&country=US&language=EN`, accessToken);
-  if (directData?.items?.length) {
-    productData = directData.items[0] as Record<string, unknown>;
-  }
+  // Only fetch from Pinterest if the hint didn't supply useful data
+  if (!title && !description) {
+    let productData: Record<string, unknown> | null = null;
 
-  // Fallback: fetch via feed/product groups
-  if (!productData && feedId) {
-    const groupsData = await pGet(`/catalogs/product_groups?feed_id=${encodeURIComponent(feedId)}&page_size=50`, accessToken);
-    const groups: Record<string, unknown>[] = groupsData?.items ?? [];
-    for (const g of groups) {
-      if (productData) break;
-      const gProducts = await pGet(`/catalogs/product_groups/${encodeURIComponent(String(g.id))}/products?page_size=100`, accessToken);
-      if (Array.isArray(gProducts?.items)) {
-        for (const item of gProducts.items as Record<string, unknown>[]) {
-          const meta = (item.metadata && typeof item.metadata === "object" ? item.metadata : {}) as Record<string, unknown>;
-          const attrs = (item.attributes && typeof item.attributes === "object" ? item.attributes : {}) as Record<string, unknown>;
-          const pin = (item.pin && typeof item.pin === "object" ? item.pin : {}) as Record<string, unknown>;
-          const id = String(meta.item_id ?? attrs.item_id ?? pin.id ?? item.id ?? "");
-          if (id === productId) { productData = item; break; }
+    const directData = await pGet(`/catalogs/items?item_ids=${encodeURIComponent(productId)}&country=US&language=EN`, accessToken);
+    if (directData?.items?.length) {
+      productData = directData.items[0] as Record<string, unknown>;
+    }
+
+    if (!productData && feedId) {
+      const groupsData = await pGet(`/catalogs/product_groups?feed_id=${encodeURIComponent(feedId)}&page_size=50`, accessToken);
+      const groups: Record<string, unknown>[] = groupsData?.items ?? [];
+      for (const g of groups) {
+        if (productData) break;
+        const gProducts = await pGet(`/catalogs/product_groups/${encodeURIComponent(String(g.id))}/products?page_size=100`, accessToken);
+        if (Array.isArray(gProducts?.items)) {
+          for (const item of gProducts.items as Record<string, unknown>[]) {
+            const meta = (item.metadata && typeof item.metadata === "object" ? item.metadata : {}) as Record<string, unknown>;
+            const attrs = (item.attributes && typeof item.attributes === "object" ? item.attributes : {}) as Record<string, unknown>;
+            const pin = (item.pin && typeof item.pin === "object" ? item.pin : {}) as Record<string, unknown>;
+            const id = String(meta.item_id ?? attrs.item_id ?? pin.id ?? item.id ?? "");
+            if (id === productId) { productData = item; break; }
+          }
         }
       }
     }
+
+    if (!productData) {
+      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+    }
+
+    const meta = (productData.metadata && typeof productData.metadata === "object" ? productData.metadata : {}) as Record<string, unknown>;
+    const pin = (productData.pin && typeof productData.pin === "object" ? productData.pin : {}) as Record<string, unknown>;
+    const attrs = (productData.attributes && typeof productData.attributes === "object" ? productData.attributes : {}) as Record<string, unknown>;
+    const pinMedia = pin.media && typeof pin.media === "object" ? pin.media as Record<string, unknown> : {};
+    const pinImages = pinMedia.images && typeof pinMedia.images === "object"
+      ? pinMedia.images as Record<string, { url?: string }>
+      : (pin.images && typeof pin.images === "object" ? pin.images as Record<string, { url?: string }> : {});
+
+    title = (pin.title as string) ?? (attrs.title as string) ?? "";
+    description = (pin.description as string) ?? (attrs.description as string) ?? "";
+    link = (pin.link as string) ?? (attrs.link as string) ?? "";
+    imageLink =
+      pinImages["1200x"]?.url ?? pinImages["736x"]?.url ?? pinImages["600x"]?.url ??
+      pinImages["400x300"]?.url ?? pinImages["150x150"]?.url ??
+      (attrs.image_link as string) ?? "";
+    availability = (meta.availability as string) ?? (attrs.availability as string) ?? "";
+    price = String((meta.price as string | number) ?? (attrs.price as string) ?? "");
+    brand = (meta.brand as string) ?? (attrs.brand as string) ?? "";
+    condition = (meta.condition as string) ?? (attrs.condition as string) ?? "";
+    googleProductCategory = (meta.google_product_category as string) ?? (attrs.google_product_category as string) ?? "";
   }
-
-  if (!productData) {
-    return NextResponse.json({ error: "Product not found" }, { status: 404 });
-  }
-
-  // Extract product fields
-  const meta = (productData.metadata && typeof productData.metadata === "object" ? productData.metadata : {}) as Record<string, unknown>;
-  const pin = (productData.pin && typeof productData.pin === "object" ? productData.pin : {}) as Record<string, unknown>;
-  const attrs = (productData.attributes && typeof productData.attributes === "object" ? productData.attributes : {}) as Record<string, unknown>;
-  const pinMedia = pin.media && typeof pin.media === "object" ? pin.media as Record<string, unknown> : {};
-  const pinImages = pinMedia.images && typeof pinMedia.images === "object"
-    ? pinMedia.images as Record<string, { url?: string }>
-    : (pin.images && typeof pin.images === "object" ? pin.images as Record<string, { url?: string }> : {});
-
-  const title = (pin.title as string) ?? (attrs.title as string) ?? "";
-  const description = (pin.description as string) ?? (attrs.description as string) ?? "";
-  const link = (pin.link as string) ?? (attrs.link as string) ?? "";
-  const imageLink =
-    pinImages["1200x"]?.url ?? pinImages["736x"]?.url ?? pinImages["600x"]?.url ??
-    pinImages["400x300"]?.url ?? pinImages["150x150"]?.url ??
-    (attrs.image_link as string) ?? "";
-  const availability = (meta.availability as string) ?? (attrs.availability as string) ?? "";
-  const price = String((meta.price as string | number) ?? (attrs.price as string) ?? "");
-  const brand = (meta.brand as string) ?? (attrs.brand as string) ?? "";
-  const condition = (meta.condition as string) ?? (attrs.condition as string) ?? "";
-  const googleProductCategory = (meta.google_product_category as string) ?? (attrs.google_product_category as string) ?? "";
 
   const currentScoreResult = computeCatalogSeoScore({ title, description, imageLink, link, brand, googleProductCategory, condition, availability });
 

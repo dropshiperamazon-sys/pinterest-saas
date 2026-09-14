@@ -118,6 +118,19 @@ export default function OptimizedSuggestionsPage() {
   const { productId } = useParams() as { productId: string };
   const searchParams = useSearchParams();
   const feedId = searchParams.get("feedId") ?? undefined;
+
+  // Product data passed from the catalog page as query params — avoids re-fetching from Pinterest
+  const productHint = {
+    title: searchParams.get("title") ?? undefined,
+    description: searchParams.get("description") ?? undefined,
+    brand: searchParams.get("brand") ?? undefined,
+    price: searchParams.get("price") ?? undefined,
+    availability: searchParams.get("availability") ?? undefined,
+    condition: searchParams.get("condition") ?? undefined,
+    googleProductCategory: searchParams.get("googleProductCategory") ?? undefined,
+    imageLink: searchParams.get("imageLink") ?? undefined,
+    link: searchParams.get("link") ?? undefined,
+  };
   const router = useRouter();
 
   const [loading, setLoading] = useState(false);
@@ -159,7 +172,7 @@ export default function OptimizedSuggestionsPage() {
       const res = await fetch("/api/pinterest-catalog/optimized-suggestions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ productId: decodeURIComponent(productId), feedId, focusKeyword: kw ?? focusKeyword }),
+        body: JSON.stringify({ productId: decodeURIComponent(productId), feedId, focusKeyword: kw ?? focusKeyword, productHint }),
       });
       const json = await res.json() as OptimizedSuggestionsResponse & { error?: string };
       if (!res.ok || json.error) {
