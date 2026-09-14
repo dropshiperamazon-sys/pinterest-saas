@@ -57,7 +57,10 @@ function computeSeoScore(attrs: Record<string, unknown>) {
 }
 
 function mapItem(item: Record<string, unknown>) {
-  const attrs = (item.attributes ?? {}) as Record<string, unknown>;
+  // Pinterest v5 /products returns flat items; /catalogs/items nests fields under attributes
+  const attrs = (item.attributes && typeof item.attributes === "object"
+    ? item.attributes
+    : item) as Record<string, unknown>;
   const { score, issues } = computeSeoScore(attrs);
   return {
     id: item.id ?? item.item_id,
@@ -182,6 +185,8 @@ export async function GET(req: NextRequest) {
       note: usedFallback
         ? "Pinterest v5 /products endpoint not found — showing all products from feed (group filter not applied server-side)"
         : null,
+      rawFirstItemKeys: items[0] ? Object.keys(items[0] as object) : [],
+      rawFirstItemHasAttributes: items[0] ? "attributes" in (items[0] as object) : false,
     },
   });
 }
