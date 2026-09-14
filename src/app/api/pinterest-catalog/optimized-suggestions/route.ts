@@ -153,6 +153,9 @@ export async function POST(req: NextRequest) {
   } catch { /* keyword fetch is best-effort */ }
 
   // Build Claude prompt
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return NextResponse.json({ error: "ANTHROPIC_API_KEY is not configured in environment variables" }, { status: 500 });
+  }
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
 
