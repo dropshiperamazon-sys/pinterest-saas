@@ -191,18 +191,44 @@ Rules:
     keywords?: { primary?: string[]; secondary?: string[]; related?: string[] };
   } = {};
 
+  function extractJson(text: string): Record<string, unknown> {
+    // Try direct parse
+    try { return JSON.parse(text); } catch { /* fall through */ }
+    // Extract first {...} block
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch { /* fall through */ } }
+    return {};
+  }
+
   try {
-    const completion = await openai.chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.5,
-      max_tokens: 1200,
-      response_format: { type: "json_object" },
-    });
-    aiResult = JSON.parse(completion.choices[0]?.message?.content ?? "{}");
+    let content: string | null = null;
+    try {
+      const completion = await openai.chat.completions.create({
+        model: MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.5,
+        max_tokens: 1200,
+        response_format: { type: "json_object" },
+      });
+      content = completion.choices[0]?.message?.content ?? null;
+    } catch (jsonModeErr) {
+      // Fallback: retry without response_format (some model versions don't support it)
+      console.warn("[optimized-suggestions] json_object mode failed, retrying without:", (jsonModeErr as Error).message);
+      const completion2 = await openai.chat.completions.create({
+        model: MODEL,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt + "\n\nIMPORTANT: Respond with raw JSON only, no markdown code fences." },
+        ],
+        temperature: 0.5,
+        max_tokens: 1200,
+      });
+      content = completion2.choices[0]?.message?.content ?? null;
+    }
+    aiResult = extractJson(content ?? "{}") as typeof aiResult;
   } catch (err) {
     console.error("[optimized-suggestions] AI error:", err);
     return NextResponse.json({ error: "AI generation failed" }, { status: 500 });
