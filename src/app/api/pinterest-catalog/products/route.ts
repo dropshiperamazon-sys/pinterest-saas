@@ -124,20 +124,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ products: [], bookmark: null, totalCount: 0, _source: "groups-empty" });
   }
 
-  // Fetch products from all groups in parallel (up to first 5 groups, 25 products each)
-  const groupFetches = groups.slice(0, 5).map((g) =>
-    pGet(`/catalogs/product_groups/${encodeURIComponent(String(g.id))}/products?page_size=${Math.ceil(pageSize / Math.min(groups.length, 5))}${bookmarkParam}`, accessToken)
+  // Fetch products from all groups in parallel (100 per group to get broad coverage)
+  const groupFetches = groups.map((g) =>
+    pGet(`/catalogs/product_groups/${encodeURIComponent(String(g.id))}/products?page_size=100`, accessToken)
   );
   const groupResults = await Promise.all(groupFetches);
 
+  // Deduplicate by item_id across groups
+  const seen = new Set<string>();
   const allItems: Record<string, unknown>[] = [];
   for (const result of groupResults) {
     if (!result?._error && Array.isArray(result?.items)) {
-      allItems.push(...(result.items as Record<string, unknown>[]));
+      for (const it of result.items as Record<string, unknown>[]) {
+        const meta = (it.metadata && typeof it.metadata === "object" ? it.metadata : {}) as Record<string, unknown>;
+        const id = String(meta.item_id ?? (it.id as string) ?? "");
+        if (id && !seen.has(id)) { seen.add(id); allItems.push(it); }
+      }
     }
   }
 
-  const products = allItems.slice(0, pageSize).map(mapAttrs);
+  const products = allItems.map(mapAttrs);
 
   return NextResponse.json({
     products,

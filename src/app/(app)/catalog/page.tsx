@@ -1319,7 +1319,7 @@ export default function CatalogPage() {
     if (!feedId) return;
     setProductsLoading(true);
     setProductsApiError(null);
-    fetch(`/api/pinterest-catalog/products?feedId=${encodeURIComponent(feedId)}&pageSize=50`)
+    fetch(`/api/pinterest-catalog/products?feedId=${encodeURIComponent(feedId)}&pageSize=100`)
       .then((r) => r.json())
       .then((d) => {
         setProducts(d.products ?? []);
