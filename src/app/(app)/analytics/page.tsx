@@ -5,7 +5,7 @@ import { formatNumber } from "@/lib/utils";
 import {
   Eye, MousePointerClick, Heart, ArrowUpRight, ArrowDownRight,
   Loader2, TrendingUp, Percent, Activity, ExternalLink, Calendar, Zap,
-  Users, UserCheck, ChevronDown, ShoppingBag,
+  Users, UserCheck, ChevronDown, ShoppingBag, DollarSign, Target,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -127,6 +127,23 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
+type ContentType = "ALL" | "ORGANIC" | "PAID";
+
+interface PaidCampaign {
+  id: unknown; name: unknown; status: string;
+  spend: number; impressions: number; clicks: number;
+  saves: number; engagements: number;
+  ctr: number; cpc: number; cpm: number;
+}
+
+interface PaidData {
+  adAccountId: string;
+  adAccountName: string;
+  period: { startDate: string; endDate: string };
+  totals: { spend: number; impressions: number; clicks: number; saves: number; engagements: number };
+  campaigns: PaidCampaign[];
+}
+
 type PinSortKey = "impressions" | "engagements" | "pinClicks" | "outboundClicks" | "saves";
 const PIN_SORT_OPTIONS: { key: PinSortKey; label: string }[] = [
   { key: "impressions",    label: "Impressions" },
@@ -144,8 +161,12 @@ export default function AnalyticsPage() {
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [showCustom, setShowCustom] = useState(false);
+  const [contentType, setContentType] = useState<ContentType>("ALL");
   const [pinSort, setPinSort] = useState<PinSortKey>("impressions");
   const [pinImages, setPinImages] = useState<Record<string, { title: string; imageUrl: string }>>({});
+  const [paidData, setPaidData] = useState<PaidData | null>(null);
+  const [paidLoading, setPaidLoading] = useState(false);
+  const [paidError, setPaidError] = useState<string | null>(null);
 
   const fetchData = useCallback((start: string, end: string) => {
     setLoading(true);
@@ -156,13 +177,30 @@ export default function AnalyticsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const fetchPaid = useCallback((days: number) => {
+    setPaidLoading(true);
+    setPaidError(null);
+    fetch(`/api/pinterest-ads?days=${days}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) setPaidError(d.error);
+        else setPaidData(d as PaidData);
+      })
+      .catch(() => setPaidError("Unable to load paid data"))
+      .finally(() => setPaidLoading(false));
+  }, []);
+
   useEffect(() => {
     fetch("/api/pinterest-connection")
       .then(r => r.json())
       .then(d => {
         setConnected(d.connected);
-        if (d.connected) fetchData(dateStr(30), yesterday());
-        else setLoading(false);
+        if (d.connected) {
+          fetchData(dateStr(30), yesterday());
+          fetchPaid(30);
+        } else {
+          setLoading(false);
+        }
       })
       .catch(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -189,6 +227,7 @@ export default function AnalyticsPage() {
     setPreset(days);
     setShowCustom(false);
     fetchData(dateStr(days), yesterday());
+    fetchPaid(days);
   }
 
   function applyCustom() {
@@ -324,6 +363,21 @@ export default function AnalyticsPage() {
               </button>
             </div>
           )}
+          {/* Content type filter */}
+          <div className="flex items-center gap-1 bg-white border border-gray-200 rounded-xl p-1">
+            {(["ALL", "ORGANIC", "PAID"] as ContentType[]).map(ct => (
+              <button
+                key={ct}
+                onClick={() => setContentType(ct)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  contentType === ct ? "bg-[#e60023] text-white shadow-sm" : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                {ct === "ALL" ? "All" : ct === "ORGANIC" ? "Organic" : "Paid and earned"}
+              </button>
+            ))}
+          </div>
+
           {data?.period && (
             <span className="text-xs text-gray-400 ml-auto">{data.period.startDate} → {data.period.endDate}</span>
           )}
@@ -336,6 +390,119 @@ export default function AnalyticsPage() {
           </div>
         ) : (
           <>
+            {/* ── Paid Performance ─────────────────────────────────────── */}
+            {contentType !== "ORGANIC" && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                      <span className="w-5 h-5 bg-purple-100 rounded-lg flex items-center justify-center">
+                        <Target className="w-3 h-3 text-purple-600" />
+                      </span>
+                      Paid Performance
+                    </h2>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {paidData ? `${paidData.adAccountName} · ${paidData.period.startDate} – ${paidData.period.endDate}` : "Ad account data"}
+                    </p>
+                  </div>
+                  {paidData && (
+                    <span className="text-xs bg-purple-50 text-purple-600 font-medium px-3 py-1 rounded-xl">
+                      {paidData.campaigns.length} campaigns
+                    </span>
+                  )}
+                </div>
+
+                {paidLoading ? (
+                  <div className="py-10 flex items-center justify-center gap-2 text-gray-400 text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin text-purple-400" /> Loading paid data…
+                  </div>
+                ) : paidError ? (
+                  <div className="px-5 py-6 text-sm text-amber-600 flex items-center gap-2">
+                    <span className="text-lg">⚠️</span>
+                    {paidError === "No ad accounts found"
+                      ? "No Pinterest ad account linked to this Pinterest account."
+                      : paidError}
+                  </div>
+                ) : paidData ? (
+                  <div className="p-5 space-y-5">
+                    {/* Paid totals */}
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                      {[
+                        { label: "Spend", value: `$${paidData.totals.spend.toFixed(2)}`, icon: DollarSign, color: "text-purple-700", bg: "bg-purple-50 text-purple-600" },
+                        { label: "Impressions", value: formatNumber(paidData.totals.impressions), icon: Eye, color: "text-blue-700", bg: "bg-blue-50 text-blue-600" },
+                        { label: "Clicks", value: formatNumber(paidData.totals.clicks), icon: MousePointerClick, color: "text-indigo-700", bg: "bg-indigo-50 text-indigo-600" },
+                        { label: "Saves", value: formatNumber(paidData.totals.saves), icon: Heart, color: "text-pink-700", bg: "bg-pink-50 text-pink-600" },
+                        { label: "Engagements", value: formatNumber(paidData.totals.engagements), icon: Zap, color: "text-yellow-700", bg: "bg-yellow-50 text-yellow-600" },
+                      ].map(({ label, value, icon: Icon, color, bg }) => (
+                        <div key={label} className="bg-gray-50 rounded-2xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</span>
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${bg}`}>
+                              <Icon className="w-3 h-3" />
+                            </div>
+                          </div>
+                          <p className={`text-xl font-bold ${color}`}>{value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Campaign table */}
+                    {paidData.campaigns.length > 0 && (
+                      <div className="overflow-x-auto rounded-xl border border-gray-100">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide bg-gray-50">
+                              <th className="px-4 py-3 text-left font-medium">Campaign</th>
+                              <th className="px-3 py-3 text-left font-medium">Status</th>
+                              <th className="px-3 py-3 text-right font-medium">Spend</th>
+                              <th className="px-3 py-3 text-right font-medium">Impressions</th>
+                              <th className="px-3 py-3 text-right font-medium">Clicks</th>
+                              <th className="px-3 py-3 text-right font-medium">CTR</th>
+                              <th className="px-3 py-3 text-right font-medium">CPC</th>
+                              <th className="px-3 py-3 text-right font-medium pr-4">Saves</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {paidData.campaigns.map((c) => (
+                              <tr key={String(c.id)} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-4 py-3 font-medium text-gray-800 max-w-[200px] truncate">
+                                  {String(c.name)}
+                                </td>
+                                <td className="px-3 py-3">
+                                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                    c.status === "active"
+                                      ? "bg-green-100 text-green-700"
+                                      : c.status === "paused"
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-gray-100 text-gray-500"
+                                  }`}>
+                                    {c.status}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-3 text-right text-purple-700 font-semibold">
+                                  ${c.spend.toFixed(2)}
+                                </td>
+                                <td className="px-3 py-3 text-right text-gray-700">{formatNumber(c.impressions)}</td>
+                                <td className="px-3 py-3 text-right text-gray-700">{formatNumber(c.clicks)}</td>
+                                <td className="px-3 py-3 text-right text-gray-600">{c.ctr.toFixed(2)}%</td>
+                                <td className="px-3 py-3 text-right text-gray-600">
+                                  {c.cpc > 0 ? `$${c.cpc.toFixed(2)}` : "—"}
+                                </td>
+                                <td className="px-3 py-3 text-right text-gray-600 pr-4">{formatNumber(c.saves)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {/* ── Organic Performance ────────────────────────────────── */}
+            {contentType !== "PAID" && (
+              <>
             {/* Stat cards — row 1: Impressions, Engagements, Outbound, Saves */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {stats.slice(0, 4).map(s => <StatCard key={s.label} {...s} />)}
@@ -491,8 +658,8 @@ export default function AnalyticsPage() {
               </>
             )}
 
-            {/* ── Top Pins ─────────────────────────────────────────────── */}
-            {sortedPins.length > 0 && (
+            {/* ── Top Pins (organic) ────────────────────────────────── */}
+            {sortedPins.length > 0 && contentType !== ("PAID" as ContentType) && (
               <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
                 <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
                   <div>
@@ -577,6 +744,8 @@ export default function AnalyticsPage() {
                   </table>
                 </div>
               </div>
+            )}
+              </>
             )}
           </>
         )}
