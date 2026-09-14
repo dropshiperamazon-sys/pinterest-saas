@@ -57,14 +57,20 @@ function computeSeoScore(attrs: Record<string, unknown>) {
 }
 
 function mapItem(item: Record<string, unknown>) {
-  // Pinterest v5 /products returns flat items; /catalogs/items nests fields under attributes
-  const attrs = (item.attributes && typeof item.attributes === "object"
-    ? item.attributes
-    : item) as Record<string, unknown>;
+  // Pinterest v5 /products nests fields under 'metadata'
+  // Pinterest v5 /catalogs/items nests fields under 'attributes'
+  const attrs = (
+    item.metadata && typeof item.metadata === "object" ? item.metadata :
+    item.attributes && typeof item.attributes === "object" ? item.attributes :
+    item
+  ) as Record<string, unknown>;
+  const pin = (item.pin && typeof item.pin === "object" ? item.pin : {}) as Record<string, unknown>;
   const { score, issues } = computeSeoScore(attrs);
+  // id: prefer metadata.item_id, then pin.id, then item-level id fields
+  const resolvedId = (attrs.item_id as string) ?? (pin.id as string) ?? item.id ?? item.item_id ?? "";
   return {
-    id: item.id ?? item.item_id,
-    itemId: String(item.id ?? item.item_id ?? ""),
+    id: resolvedId,
+    itemId: String(resolvedId),
     itemGroupId: (attrs.item_group_id as string) ?? "",
     title: (attrs.title as string) ?? "",
     description: (attrs.description as string) ?? "",
@@ -186,7 +192,8 @@ export async function GET(req: NextRequest) {
         ? "Pinterest v5 /products endpoint not found — showing all products from feed (group filter not applied server-side)"
         : null,
       rawFirstItemKeys: items[0] ? Object.keys(items[0] as object) : [],
-      rawFirstItemHasAttributes: items[0] ? "attributes" in (items[0] as object) : false,
+      rawFirstItemMetadataKeys: items[0] && (items[0] as Record<string,unknown>).metadata
+        ? Object.keys((items[0] as Record<string,unknown>).metadata as object) : [],
     },
   });
 }
