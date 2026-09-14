@@ -930,7 +930,7 @@ function GroupsTab({ groups, loading, feeds }: { groups: ProductGroup[]; loading
                   <details className="mt-2">
                     <summary className="text-xs text-red-600 cursor-pointer hover:underline">Debug endpoints</summary>
                     <div className="mt-2 space-y-1">
-                      <p className="text-xs font-mono text-red-700 break-all">Count: {debug.countEndpoint} → {debug.countStatus}</p>
+                      <p className="text-xs font-mono text-red-700 break-all">Group: {debug.groupEndpoint} → {debug.groupStatus}</p>
                       <p className="text-xs font-mono text-red-700 break-all">Products: {debug.productsEndpoint} → {debug.productsStatus}</p>
                     </div>
                   </details>
@@ -956,7 +956,7 @@ function GroupsTab({ groups, loading, feeds }: { groups: ProductGroup[]; loading
                 <details className="mt-2">
                   <summary className="text-xs text-amber-600 cursor-pointer hover:underline">Debug info</summary>
                   <div className="mt-2 space-y-1">
-                    <p className="text-xs font-mono text-amber-700 break-all">Count: {debug.countEndpoint} → {debug.countStatus}</p>
+                    <p className="text-xs font-mono text-amber-700 break-all">Group: {debug.groupEndpoint} → {debug.groupStatus}</p>
                     <p className="text-xs font-mono text-amber-700 break-all">Products: {debug.productsEndpoint} → {debug.productsStatus}</p>
                   </div>
                 </details>
