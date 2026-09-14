@@ -198,6 +198,164 @@ function ScopeErrorBanner({ reason, message }: { reason?: string; message?: stri
   );
 }
 
+// ─── Pin Analytics Drawer ─────────────────────────────────────────────────────
+
+interface PinDailyRow {
+  date: string;
+  impression: number;
+  save: number;
+  pinClick: number;
+  outboundClick: number;
+  engagement: number;
+}
+
+interface PinAnalyticsResult {
+  pinId: string;
+  pin: { title: string; description: string; link: string; imageUrl: string } | null;
+  period: { startDate: string; endDate: string; days: number };
+  daily: PinDailyRow[];
+  totals: { impression: number; save: number; pinClick: number; outboundClick: number; engagement: number };
+}
+
+const PIN_CHART_METRICS = [
+  { key: "impression" as const, label: "Impressions", color: "#6366f1" },
+  { key: "save" as const, label: "Saves", color: "#10b981" },
+  { key: "pinClick" as const, label: "Pin Clicks", color: "#f59e0b" },
+  { key: "outboundClick" as const, label: "Outbound Clicks", color: "#e60023" },
+  { key: "engagement" as const, label: "Engagement", color: "#8b5cf6" },
+];
+
+function MiniBarChart({ data, metricKey, color }: { data: PinDailyRow[]; metricKey: keyof PinDailyRow; color: string }) {
+  const values = data.map((d) => Number(d[metricKey]));
+  const max = Math.max(...values, 1);
+  return (
+    <div className="flex items-end gap-0.5 h-16">
+      {values.map((v, i) => (
+        <div key={i} className="flex-1 rounded-sm transition-all" style={{ height: `${(v / max) * 100}%`, backgroundColor: color, opacity: 0.85 }} title={`${data[i]?.date}: ${v.toLocaleString()}`} />
+      ))}
+    </div>
+  );
+}
+
+function PinAnalyticsDrawer({ pinId, pinTitle, pinImage, onClose }: { pinId: string; pinTitle: string; pinImage: string; onClose: () => void }) {
+  const [result, setResult] = useState<PinAnalyticsResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeMetric, setActiveMetric] = useState<keyof PinDailyRow>("impression");
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`/api/pinterest-catalog/pin-analytics?pinId=${encodeURIComponent(pinId)}&days=30`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) setError(d.error);
+        else setResult(d);
+      })
+      .catch(() => setError("Failed to load pin analytics"))
+      .finally(() => setLoading(false));
+  }, [pinId]);
+
+  const activeConfig = PIN_CHART_METRICS.find((m) => m.key === activeMetric) ?? PIN_CHART_METRICS[0];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 rounded-t-3xl sm:rounded-t-2xl z-10">
+          {pinImage ? (
+            <img src={pinImage} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+          ) : (
+            <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+              <ShoppingBag className="w-5 h-5 text-gray-300" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-900 truncate">{pinTitle || `Pin ${pinId}`}</p>
+            <p className="text-xs text-gray-400">Last 30 days · pin-level analytics</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {loading ? (
+            <div className="py-16 flex items-center justify-center gap-2 text-gray-400 text-sm">
+              <RefreshCw className="w-4 h-4 animate-spin" /> Loading pin analytics…
+            </div>
+          ) : error ? (
+            <div className="py-10 text-center text-sm text-red-500">{error}</div>
+          ) : result ? (
+            <>
+              {/* Totals row */}
+              <div className="grid grid-cols-5 gap-3">
+                {PIN_CHART_METRICS.map((m) => {
+                  const val = result.totals[m.key as keyof typeof result.totals] ?? 0;
+                  const isActive = activeMetric === m.key;
+                  return (
+                    <button
+                      key={m.key}
+                      onClick={() => setActiveMetric(m.key as keyof PinDailyRow)}
+                      className={cn("rounded-xl p-3 text-left border transition-all", isActive ? "border-2 shadow-sm" : "border-gray-100 hover:border-gray-200")}
+                      style={isActive ? { borderColor: m.color, background: `${m.color}10` } : {}}
+                    >
+                      <p className="text-lg font-bold text-gray-900">{fmt(val)}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">{m.label}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Chart */}
+              {result.daily.length > 0 ? (
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-500 mb-3">{activeConfig.label} — daily trend</p>
+                  <MiniBarChart data={result.daily} metricKey={activeMetric} color={activeConfig.color} />
+                  <div className="flex justify-between mt-2 text-[10px] text-gray-400">
+                    <span>{result.daily[0]?.date}</span>
+                    <span>{result.daily[result.daily.length - 1]?.date}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-xl p-6 text-center text-sm text-gray-400">No daily data available for this period</div>
+              )}
+
+              {/* Daily table */}
+              {result.daily.length > 0 && (
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100 text-gray-500 uppercase tracking-wide">
+                        <th className="px-4 py-2.5 text-left font-medium">Date</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Impressions</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Saves</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Pin Clicks</th>
+                        <th className="px-3 py-2.5 text-right font-medium pr-4">Outbound</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {[...result.daily].reverse().map((row) => (
+                        <tr key={row.date} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-mono text-gray-600">{row.date}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{row.impression.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{row.save.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{row.pinClick.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-gray-700 pr-4">{row.outboundClick.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
 interface CatalogAnalytics {
@@ -257,6 +415,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [selectedPin, setSelectedPin] = useState<{ id: string; title: string; imageUrl: string } | null>(null);
 
   useEffect(() => {
     setAnalyticsLoading(true);
@@ -283,6 +442,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
   ];
 
   return (
+    <>
     <div className="space-y-6">
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -377,7 +537,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h3 className="font-semibold text-gray-900">Top Converting Products</h3>
-            <p className="text-xs text-gray-400 mt-0.5">Products performing best — ideal candidates for Shopping ads</p>
+            <p className="text-xs text-gray-400 mt-0.5">Click any row for daily pin-level analytics · ideal candidates for Shopping ads</p>
           </div>
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-gray-400" />
@@ -416,7 +576,11 @@ function OverviewTab({ data }: { data: OverviewData }) {
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {sortedPins.map((pin, i) => (
-                  <tr key={String(pin.id) + i} className="hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={String(pin.id) + i}
+                    className="hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => setSelectedPin({ id: String(pin.id), title: pin.title, imageUrl: pin.imageUrl })}
+                  >
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         {pin.imageUrl ? (
@@ -430,6 +594,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
                           <p className="font-medium text-gray-900 truncate max-w-[220px]">{pin.title || "—"}</p>
                           {pin.link && (
                             <a href={pin.link} target="_blank" rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
                               className="text-xs text-[#e60023] hover:underline truncate block max-w-[220px]">
                               {pin.link.replace(/^https?:\/\//, "").slice(0, 40)}
                             </a>
@@ -455,40 +620,9 @@ function OverviewTab({ data }: { data: OverviewData }) {
           </div>
         )}
       </div>
-
-      {/* Feeds overview */}
-      <div className="bg-white rounded-2xl border border-gray-100">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">Active Feeds</h3>
-        </div>
-        {feeds.length === 0 ? (
-          <div className="py-12 text-center text-gray-400 text-sm">No feeds found</div>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {feeds.map((feed) => {
-              const hs = healthScore(feed);
-              return (
-                <div key={feed.id} className="px-5 py-4 flex items-center gap-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 text-sm truncate">{feed.name || feed.id}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{feed.format} · {feed.catalog_type}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full", feedStatusColor(feed.status))}>
-                      {feed.status}
-                    </span>
-                  </div>
-                  <div className="w-20 text-right">
-                    <p className={cn("text-sm font-bold", hs != null ? scoreColor(hs) : "text-gray-400")}>{hs != null ? `${hs}%` : "—"}</p>
-                    <p className="text-xs text-gray-400">health</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
     </div>
+    <PinAnalyticsDrawerPortal selectedPin={selectedPin} onClose={() => setSelectedPin(null)} />
+    </>
   );
 }
 
@@ -605,6 +739,11 @@ function AuditTab({ data, onRefresh }: { data: OverviewData; onRefresh: () => vo
       )}
     </div>
   );
+}
+
+function PinAnalyticsDrawerPortal({ selectedPin, onClose }: { selectedPin: { id: string; title: string; imageUrl: string } | null; onClose: () => void }) {
+  if (!selectedPin) return null;
+  return <PinAnalyticsDrawer pinId={selectedPin.id} pinTitle={selectedPin.title} pinImage={selectedPin.imageUrl} onClose={onClose} />;
 }
 
 // ─── Product SEO Tab ──────────────────────────────────────────────────────────
