@@ -325,7 +325,7 @@ function CampaignHeader({
         <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-gray-400 animate-pulse">
           <span className="w-2 h-2 rounded-full bg-gray-300" /> Loading Pinterest campaign data…
         </div>
-      ) : real ? (
+      ) : real && campaigns.length > 0 ? (
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-green-700">
           <span className="w-2 h-2 rounded-full bg-green-500" />
           Live data from <strong className="mx-1">{real.adAccountName}</strong>
@@ -335,7 +335,9 @@ function CampaignHeader({
       ) : (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-amber-700">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          {error === "Pinterest not connected"
+          {real
+            ? `No active campaigns found in ${real.adAccountName} — showing sample data.`
+            : error === "Pinterest not connected"
             ? "Connect your Pinterest account to analyze real campaign data."
             : `Using sample data${error ? ` (${error})` : ""}. Connect Pinterest for live analysis.`}
         </div>
@@ -377,7 +379,7 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
   }), { spend: 0, impressions: 0, clicks: 0, saves: 0, engagements: 0 }) : null;
 
   const totals = liveTotals ?? { ...mockTotals, engagements: 0 };
-  const isReal = !!real;
+  const isReal = !!(real && campaigns.length > 0);
 
   const ctr = totals.impressions ? ((totals.clicks / totals.impressions) * 100).toFixed(2) : "0.00";
   const cpc = totals.clicks ? (totals.spend / totals.clicks).toFixed(2) : "0.00";
