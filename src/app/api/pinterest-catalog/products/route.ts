@@ -15,7 +15,8 @@ async function pGet(path: string, token: string) {
     cache: "no-store",
   });
   const text = await res.text();
-  if (!res.ok) return { _error: res.status };
+  console.log(`[products] GET ${path} → HTTP ${res.status}`, text.slice(0, 500));
+  if (!res.ok) return { _error: res.status, _body: text };
   try { return JSON.parse(text); } catch { return null; }
 }
 
@@ -110,6 +111,10 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     products,
     bookmark: data?.bookmark ?? null,
-    totalCount: data?.items?.length ?? 0,
+    totalCount: products.length,
+    _debug: {
+      endpoint: `${BASE}/catalogs/items?feed_id=${feedId}&page_size=${pageSize}`,
+      rawItemCount: (data?.items as unknown[] | undefined)?.length ?? 0,
+    },
   });
 }

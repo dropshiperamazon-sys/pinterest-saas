@@ -402,12 +402,13 @@ function AuditTab({ data, onRefresh }: { data: OverviewData; onRefresh: () => vo
 
 // ─── Product SEO Tab ──────────────────────────────────────────────────────────
 
-function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange }: {
+function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange, apiError }: {
   products: Product[];
   loading: boolean;
   feeds: Feed[];
   selectedFeed: string;
   onFeedChange: (id: string) => void;
+  apiError?: string | null;
 }) {
   if (loading) return <LoadingState label="Loading product SEO data..." />;
 
@@ -448,7 +449,26 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange }:
       )}
 
       {products.length === 0 ? (
-        <EmptyState label={feeds.length === 0 ? "No feeds found." : "No products found in this feed."} />
+        <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+          <ShoppingBag className="w-10 h-10 text-gray-300" />
+          {apiError ? (
+            <>
+              <p className="text-sm font-semibold text-red-600">Error loading products</p>
+              <p className="text-xs text-gray-500 max-w-sm">{apiError}</p>
+            </>
+          ) : feeds.length === 0 ? (
+            <p className="text-sm text-gray-500">No feeds found.</p>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-gray-700">No products returned for this feed</p>
+              <p className="text-xs text-gray-500 max-w-sm">
+                Pinterest may not expose feed-level product listings via this API. Try the{" "}
+                <span className="font-semibold text-[#e60023]">Product Groups</span> tab to browse
+                and analyze products by group.
+              </p>
+            </>
+          )}
+        </div>
       ) : (
         <>
           {/* Score summary */}
@@ -1269,6 +1289,7 @@ export default function CatalogPage() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [productsApiError, setProductsApiError] = useState<string | null>(null);
   const [selectedFeedId, setSelectedFeedId] = useState("");
 
   const [groups, setGroups] = useState<ProductGroup[]>([]);
@@ -1297,10 +1318,14 @@ export default function CatalogPage() {
   const loadProducts = useCallback((feedId: string) => {
     if (!feedId) return;
     setProductsLoading(true);
+    setProductsApiError(null);
     fetch(`/api/pinterest-catalog/products?feedId=${encodeURIComponent(feedId)}&pageSize=50`)
       .then((r) => r.json())
-      .then((d) => setProducts(d.products ?? []))
-      .catch(() => setProducts([]))
+      .then((d) => {
+        setProducts(d.products ?? []);
+        if (d.error) setProductsApiError(`${d.error}${d.status ? ` (${d.status})` : ""}`);
+      })
+      .catch(() => { setProducts([]); setProductsApiError("Failed to load products"); })
       .finally(() => setProductsLoading(false));
   }, []);
 
@@ -1375,6 +1400,7 @@ export default function CatalogPage() {
               feeds={feeds}
               selectedFeed={selectedFeedId}
               onFeedChange={handleFeedChange}
+              apiError={productsApiError}
             />
           )}
           {activeTab === "products" && (
