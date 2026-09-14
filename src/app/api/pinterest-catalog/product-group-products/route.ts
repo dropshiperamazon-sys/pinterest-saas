@@ -23,10 +23,10 @@ async function pGet(path: string, token: string) {
 function computeSeoScore(attrs: Record<string, unknown>) {
   const title = (attrs.title as string) ?? "";
   const description = (attrs.description as string) ?? "";
-  const imageLink = (attrs.image_link as string) ?? "";
+  const imageLink = (attrs.imageLink as string) ?? (attrs.image_link as string) ?? "";
   const link = (attrs.link as string) ?? "";
   const brand = (attrs.brand as string) ?? "";
-  const googleProductCategory = (attrs.google_product_category as string) ?? "";
+  const googleProductCategory = (attrs.googleProductCategory as string) ?? (attrs.google_product_category as string) ?? "";
   const condition = (attrs.condition as string) ?? "";
   const availability = (attrs.availability as string) ?? "";
 
@@ -57,37 +57,62 @@ function computeSeoScore(attrs: Record<string, unknown>) {
 }
 
 function mapItem(item: Record<string, unknown>) {
-  // Pinterest v5 /products nests fields under 'metadata'
-  // Pinterest v5 /catalogs/items nests fields under 'attributes'
-  const attrs = (
-    item.metadata && typeof item.metadata === "object" ? item.metadata :
-    item.attributes && typeof item.attributes === "object" ? item.attributes :
-    item
-  ) as Record<string, unknown>;
+  // Pinterest v5 /products response shape:
+  //   item.metadata  → catalog fields: item_id, item_group_id, availability, price, sale_price, currency, condition, google_product_category, brand
+  //   item.pin        → pin fields: title, description, link, images (for image URL)
+  // Pinterest v5 /catalogs/items response shape:
+  //   item.attributes → all fields flat
+  const meta = (item.metadata && typeof item.metadata === "object" ? item.metadata : {}) as Record<string, unknown>;
   const pin = (item.pin && typeof item.pin === "object" ? item.pin : {}) as Record<string, unknown>;
-  const { score, issues } = computeSeoScore(attrs);
-  // id: prefer metadata.item_id, then pin.id, then item-level id fields
-  const resolvedId = (attrs.item_id as string) ?? (pin.id as string) ?? item.id ?? item.item_id ?? "";
+  const attrs = (item.attributes && typeof item.attributes === "object" ? item.attributes : {}) as Record<string, unknown>;
+
+  // Derive each field: prefer /products structure (meta + pin), fall back to /catalogs/items (attrs)
+  const itemId = String((meta.item_id as string) ?? (attrs.item_id as string) ?? item.id ?? item.item_id ?? "");
+  const itemGroupId = String((meta.item_group_id as string) ?? (attrs.item_group_id as string) ?? "");
+  const title = (pin.title as string) ?? (attrs.title as string) ?? "";
+  const description = (pin.description as string) ?? (attrs.description as string) ?? "";
+  const link = (pin.link as string) ?? (attrs.link as string) ?? "";
+
+  // Image: pin.images is { "150x150": { url }, "400x300": { url }, "736x": { url } } — pick largest
+  const pinImages = pin.images && typeof pin.images === "object" ? pin.images as Record<string, { url?: string }> : {};
+  const imageLink =
+    pinImages["736x"]?.url ??
+    pinImages["400x300"]?.url ??
+    pinImages["150x150"]?.url ??
+    (attrs.image_link as string) ??
+    (Array.isArray(attrs.additional_image_links) ? (attrs.additional_image_links as string[])[0] : "") ??
+    "";
+
+  const price = String((meta.price as string | number) ?? (attrs.price as string) ?? "");
+  const salePrice = String((meta.sale_price as string | number) ?? (attrs.sale_price as string) ?? "");
+  const currency = (meta.currency as string) ?? (attrs.currency as string) ?? "";
+  const availability = (meta.availability as string) ?? (attrs.availability as string) ?? "";
+  const brand = (meta.brand as string) ?? (attrs.brand as string) ?? "";
+  const condition = (meta.condition as string) ?? (attrs.condition as string) ?? "";
+  const googleProductCategory = (meta.google_product_category as string) ?? (attrs.google_product_category as string) ?? "";
+  const productType = (meta.product_type as string) ?? (attrs.product_type as string) ?? "";
+  const status = (item.pin_status as string) ?? (pin.status as string) ?? "";
+
+  const enriched = { title, description, imageLink, link, brand, googleProductCategory, condition, availability };
+  const { score, issues } = computeSeoScore(enriched);
+
   return {
-    id: resolvedId,
-    itemId: String(resolvedId),
-    itemGroupId: (attrs.item_group_id as string) ?? "",
-    title: (attrs.title as string) ?? "",
-    description: (attrs.description as string) ?? "",
-    imageLink:
-      (attrs.image_link as string) ??
-      (Array.isArray(attrs.additional_image_links) ? (attrs.additional_image_links as string[])[0] : "") ??
-      "",
-    link: (attrs.link as string) ?? "",
-    price: (attrs.price as string) ?? "",
-    salePrice: (attrs.sale_price as string) ?? "",
-    currency: (attrs.currency as string) ?? "",
-    availability: (attrs.availability as string) ?? "",
-    brand: (attrs.brand as string) ?? "",
-    condition: (attrs.condition as string) ?? "",
-    googleProductCategory: (attrs.google_product_category as string) ?? "",
-    productType: (attrs.product_type as string) ?? "",
-    status: (item.pin_status as string) ?? "",
+    id: itemId,
+    itemId,
+    itemGroupId,
+    title,
+    description,
+    imageLink,
+    link,
+    price,
+    salePrice,
+    currency,
+    availability,
+    brand,
+    condition,
+    googleProductCategory,
+    productType,
+    status,
     seoScore: score,
     issues,
   };
