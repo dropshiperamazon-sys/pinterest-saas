@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { computeCatalogSeoScore } from "@/lib/catalog-seo-score";
 
 const redis = new Redis({
@@ -134,9 +134,9 @@ export async function POST(req: NextRequest) {
     }
   } catch { /* keyword fetch is best-effort */ }
 
-  // Build OpenAI prompt
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
+  // Build Claude prompt
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
 
   const systemPrompt = `You are a Pinterest product SEO specialist.
 Optimize Shopify/catalog product metadata for Pinterest discovery.
@@ -192,43 +192,21 @@ Rules:
   } = {};
 
   function extractJson(text: string): Record<string, unknown> {
-    // Try direct parse
     try { return JSON.parse(text); } catch { /* fall through */ }
-    // Extract first {...} block
     const m = text.match(/\{[\s\S]*\}/);
     if (m) { try { return JSON.parse(m[0]); } catch { /* fall through */ } }
     return {};
   }
 
   try {
-    let content: string | null = null;
-    try {
-      const completion = await openai.chat.completions.create({
-        model: MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        temperature: 0.5,
-        max_tokens: 1200,
-        response_format: { type: "json_object" },
-      });
-      content = completion.choices[0]?.message?.content ?? null;
-    } catch (jsonModeErr) {
-      // Fallback: retry without response_format (some model versions don't support it)
-      console.warn("[optimized-suggestions] json_object mode failed, retrying without:", (jsonModeErr as Error).message);
-      const completion2 = await openai.chat.completions.create({
-        model: MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt + "\n\nIMPORTANT: Respond with raw JSON only, no markdown code fences." },
-        ],
-        temperature: 0.5,
-        max_tokens: 1200,
-      });
-      content = completion2.choices[0]?.message?.content ?? null;
-    }
-    aiResult = extractJson(content ?? "{}") as typeof aiResult;
+    const message = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 1200,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+    const content = message.content[0]?.type === "text" ? message.content[0].text : "";
+    aiResult = extractJson(content) as typeof aiResult;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[optimized-suggestions] AI error:", msg);
