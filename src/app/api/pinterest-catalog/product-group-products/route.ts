@@ -84,9 +84,9 @@ export async function GET(req: NextRequest) {
   const countPath = `/catalogs/product_groups/${encodeURIComponent(productGroupId)}/product_count`;
 
   // Official Pinterest endpoint 2: list products by product group
+  // REST sub-resource pattern: /catalogs/product_groups/{id}/items
   const bookmarkParam = bookmark ? `&bookmark=${encodeURIComponent(bookmark)}` : "";
-  const feedParam = feedId ? `&feed_id=${encodeURIComponent(feedId)}` : "";
-  const productsPath = `/catalogs/items?product_group_id=${encodeURIComponent(productGroupId)}${feedParam}&page_size=${pageSize}${bookmarkParam}`;
+  const productsPath = `/catalogs/product_groups/${encodeURIComponent(productGroupId)}/items?page_size=${pageSize}${bookmarkParam}`;
 
   console.log(`[product-group-products] count endpoint: GET ${BASE}${countPath}`);
   console.log(`[product-group-products] products endpoint: GET ${BASE}${productsPath}`);
@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
     countData?._error ? null : (typeof countData?.count === "number" ? countData.count : null);
 
   const productsApiError = productsData?._error
-    ? { status: productsData._error, body: (productsData._body as string)?.slice(0, 800) }
+    ? { status: productsData._error, body: String(productsData._body ?? "").slice(0, 800) }
     : null;
 
   const items: Record<string, unknown>[] = productsData?.items ?? [];
