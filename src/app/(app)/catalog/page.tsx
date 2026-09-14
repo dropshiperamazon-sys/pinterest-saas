@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
   ShoppingBag,
@@ -15,6 +16,7 @@ import {
   ArrowUpRight,
   Info,
   Filter,
+  Sparkles,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -1313,9 +1315,18 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange, a
                       <p className="text-xs text-red-500 truncate">{p.issues[0]}{p.issues.length > 1 ? ` +${p.issues.length - 1} more` : ""}</p>
                     )}
                   </div>
-                  <span className={cn("text-sm font-bold w-10 text-right", scoreColor(p.seoScore))}>
+                  <span className={cn("text-sm font-bold w-10 text-right flex-shrink-0", scoreColor(p.seoScore))}>
                     {p.seoScore}
                   </span>
+                  {!!p.id && (
+                    <Link
+                      href={`/catalog/${encodeURIComponent(String(p.id))}/optimized-suggestions${selectedFeed ? `?feedId=${encodeURIComponent(selectedFeed)}` : ""}`}
+                      className="flex-shrink-0 flex items-center gap-1.5 text-xs font-medium text-[#e60023] border border-[#e60023]/30 bg-[#e60023]/5 hover:bg-[#e60023]/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      Optimize
+                    </Link>
+                  )}
                 </div>
               ))}
             </div>
