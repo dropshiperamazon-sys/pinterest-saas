@@ -476,6 +476,9 @@ function OverviewTab({ data }: { data: OverviewData }) {
   // Per-pin drill-down drawer
   const [selectedPin, setSelectedPin] = useState<{ id: string; title: string; imageUrl: string } | null>(null);
 
+  // Pin analytics cache — auto-fetched for all top organic pins so cards show inline data
+  const [pinCache, setPinCache] = useState<Record<string, PinAnalyticsResult | null>>({});
+
   useEffect(() => {
     setPerfLoading(true);
     setPerfError(null);
@@ -489,6 +492,25 @@ function OverviewTab({ data }: { data: OverviewData }) {
       .catch(() => setPerfError("Unable to retrieve Pinterest analytics."))
       .finally(() => setPerfLoading(false));
   }, [dateRange, source]);
+
+  // Auto-fetch per-pin analytics for top organic pins when they change
+  useEffect(() => {
+    if (!perfData?.topOrganicPins?.length) return;
+    const pins = perfData.topOrganicPins.slice(0, 12); // cap at 12 to stay within rate limits
+    for (const pin of pins) {
+      if (pinCache[pin.id] !== undefined) continue; // already fetched
+      setPinCache((prev) => ({ ...prev, [pin.id]: null })); // mark as loading
+      fetch(`/api/pinterest-catalog/pin-analytics?pinId=${encodeURIComponent(pin.id)}&days=30`)
+        .then((r) => r.json())
+        .then((d) => {
+          setPinCache((prev) => ({ ...prev, [pin.id]: d.error ? null : d }));
+        })
+        .catch(() => {
+          setPinCache((prev) => ({ ...prev, [pin.id]: null }));
+        });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perfData?.topOrganicPins]);
 
   // ── Derived data ──────────────────────────────────────────────────────────────
   // Sort catalogs by selected metric (paid side), nulls last
@@ -877,6 +899,100 @@ function OverviewTab({ data }: { data: OverviewData }) {
           </div>
         )}
       </div>
+
+      {/* ── Pin Performance Dashboard ────────────────────────────────── */}
+      {!perfLoading && (perfData?.topOrganicPins?.length ?? 0) > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-semibold text-gray-900">Pin Performance Dashboard</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Your top organic pins · 30-day analytics · Click any pin for daily breakdown
+              </p>
+            </div>
+            <span className="text-xs text-gray-400 bg-gray-50 rounded-xl px-3 py-1">
+              {perfData!.topOrganicPins.slice(0, 12).length} pins
+            </span>
+          </div>
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {perfData!.topOrganicPins.slice(0, 12).map((pin) => {
+              const pa = pinCache[pin.id];
+              const isLoading = pinCache[pin.id] === undefined || (pinCache[pin.id] === null && !(pin.id in pinCache));
+              const daily = pa?.daily ?? [];
+              const totals = pa?.totals;
+              // sparkline max for impression bars
+              const maxImp = Math.max(...daily.map((d) => d.impression), 1);
+              return (
+                <button
+                  key={pin.id}
+                  onClick={() => setSelectedPin({ id: pin.id, title: pin.title, imageUrl: pin.imageUrl })}
+                  className="group text-left bg-gray-50 hover:bg-gray-100 rounded-2xl p-4 transition-colors flex flex-col gap-3 border border-transparent hover:border-gray-200"
+                >
+                  {/* Pin header */}
+                  <div className="flex items-start gap-3">
+                    {pin.imageUrl ? (
+                      <img src={pin.imageUrl} alt="" className="w-14 h-14 rounded-xl object-cover flex-shrink-0 bg-gray-200" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl bg-gray-200 flex items-center justify-center flex-shrink-0">
+                        <ShoppingBag className="w-6 h-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm leading-snug line-clamp-2">
+                        {pin.title || `Pin ${pin.id}`}
+                      </p>
+                      {pin.link && (
+                        <p className="text-xs text-[#e60023] truncate mt-0.5">
+                          {pin.link.replace(/^https?:\/\//, "").slice(0, 36)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Metric row */}
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    {[
+                      { label: "Impr.", val: totals?.impression ?? pin.impressions, color: "text-blue-600" },
+                      { label: "Saves", val: totals?.save ?? pin.saves,            color: "text-emerald-600" },
+                      { label: "Clicks", val: totals?.pinClick ?? pin.pinClicks,   color: "text-violet-600" },
+                      { label: "Outbound", val: totals?.outboundClick ?? pin.outboundClicks, color: "text-orange-500" },
+                    ].map(({ label, val, color }) => (
+                      <div key={label} className="bg-white rounded-xl py-2 px-1">
+                        <p className={`text-sm font-bold ${color}`}>{fmt(val ?? null)}</p>
+                        <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Mini sparkline (impression trend) */}
+                  {daily.length > 0 ? (
+                    <div className="flex items-end gap-0.5 h-10">
+                      {daily.slice(-20).map((d, i) => (
+                        <div
+                          key={i}
+                          className="flex-1 rounded-sm bg-blue-400 opacity-70 group-hover:opacity-100 transition-opacity"
+                          style={{ height: `${Math.max(4, Math.round((d.impression / maxImp) * 40))}px` }}
+                          title={`${d.date}: ${d.impression.toLocaleString()} impressions`}
+                        />
+                      ))}
+                    </div>
+                  ) : isLoading ? (
+                    <div className="h-10 flex items-center justify-center">
+                      <RefreshCw className="w-3.5 h-3.5 text-gray-300 animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="h-10 flex items-center justify-center text-[10px] text-gray-300">No trend data</div>
+                  )}
+
+                  <p className="text-[10px] text-gray-400 text-center">
+                    {daily.length > 0 ? `Impressions trend · last ${daily.length} days` : "Click for daily breakdown"}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Shopping Ads Opportunities ────────────────────────────────── */}
       {!perfLoading && !perfError && (perfData?.opportunities?.length ?? 0) > 0 && (
