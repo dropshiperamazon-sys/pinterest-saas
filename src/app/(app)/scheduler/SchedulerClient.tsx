@@ -1303,6 +1303,12 @@ function DraftCard({
   const [productLinkInput, setProductLinkInput] = useState("");
   const [linkPreview, setLinkPreview] = useState<{ image: string | null; title: string } | null>(null);
   const [linkPreviewLoading, setLinkPreviewLoading] = useState(false);
+  // Catalog product picker
+  const [catalogProducts, setCatalogProducts] = useState<{ id: string; title: string; imageLink: string; link: string }[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const catalogRef = useRef<HTMLDivElement>(null);
   const [seoOpen, setSeoOpen] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const set = (field: keyof PinDraft, value: string) =>
@@ -1321,6 +1327,31 @@ function DraftCard({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (catalogRef.current && !catalogRef.current.contains(e.target as Node)) setCatalogOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  async function loadCatalogProducts() {
+    if (catalogProducts.length > 0) { setCatalogOpen(true); return; }
+    setCatalogLoading(true);
+    setCatalogOpen(true);
+    try {
+      const overviewRes = await fetch("/api/pinterest-catalog");
+      const overview = await overviewRes.json() as { feeds?: { id: string }[] };
+      const feedId = overview.feeds?.[0]?.id;
+      if (!feedId) { setCatalogLoading(false); return; }
+      const res = await fetch(`/api/pinterest-catalog/products?feedId=${encodeURIComponent(feedId)}&pageSize=100`);
+      const data = await res.json() as { products?: { id: unknown; title: string; imageLink: string; link: string }[] };
+      setCatalogProducts((data.products ?? []).map(p => ({ id: String(p.id), title: p.title, imageLink: p.imageLink, link: p.link })));
+    } catch { /* ignore */ } finally {
+      setCatalogLoading(false);
+    }
+  }
 
   const timeToInput = (label: string) => {
     const match = label.match(/(\d+):(\d+)\s*(AM|PM)/i);
@@ -1653,7 +1684,7 @@ function DraftCard({
             )}
           </div>
 
-          {/* Tag Products — Pinterest product search */}
+          {/* Tag Products — from catalog */}
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1.5">Tag Products</label>
             {/* Tagged products chips */}
@@ -1677,64 +1708,76 @@ function DraftCard({
                 ))}
               </div>
             )}
-            <div className="space-y-2">
-                <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-[#e60023]/20 focus-within:border-[#e60023]">
-                  <input
-                    value={productLinkInput}
-                    onChange={async (e) => {
-                      const val = e.target.value;
-                      setProductLinkInput(val);
-                      setLinkPreview(null);
-                      const trimmed = val.trim();
-                      if (trimmed.startsWith("http")) {
-                        setLinkPreviewLoading(true);
-                        try {
-                          const res = await fetch(`/api/fetch-link-preview?url=${encodeURIComponent(trimmed)}`);
-                          const data = await res.json();
-                          if (data.image || data.title) setLinkPreview({ image: data.image, title: data.title });
-                        } catch { /* ignore */ } finally {
-                          setLinkPreviewLoading(false);
-                        }
-                      }
-                    }}
-                    placeholder="Paste product URL…"
-                    className="flex-1 px-3 py-2 text-xs bg-transparent focus:outline-none"
-                  />
-                  <button
-                    onClick={() => {
-                      const url = productLinkInput.trim();
-                      if (url && !draft.taggedProducts.find((x) => x.url === url)) {
-                        onChange({ ...draft, taggedProducts: [...draft.taggedProducts, { url, image: linkPreview?.image ?? undefined, title: linkPreview?.title || undefined }] });
-                      }
-                      setProductLinkInput("");
-                      setLinkPreview(null);
-                    }}
-                    disabled={!productLinkInput.trim()}
-                    className="px-3 py-2 bg-[#e60023] text-white hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center flex-shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                {linkPreviewLoading && (
-                  <div className="flex items-center gap-2 text-xs text-gray-400 px-1">
-                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                    </svg>
-                    Fetching product…
-                  </div>
+            {/* Catalog product picker */}
+            <div ref={catalogRef} className="relative">
+              <button
+                type="button"
+                onClick={loadCatalogProducts}
+                className="w-full flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-500 hover:border-[#e60023] hover:text-[#e60023] transition-colors focus:outline-none focus:ring-2 focus:ring-[#e60023]/20"
+              >
+                <ShoppingCart className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="flex-1 text-left">Pick from catalog…</span>
+                {catalogLoading && (
+                  <svg className="w-3 h-3 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
                 )}
-                {linkPreview && !linkPreviewLoading && (
-                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2">
-                    {linkPreview.image && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={linkPreview.image} alt="product" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-gray-200" />
+              </button>
+              {catalogOpen && !catalogLoading && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                  <div className="p-2 border-b border-gray-100">
+                    <input
+                      autoFocus
+                      value={catalogQuery}
+                      onChange={(e) => setCatalogQuery(e.target.value)}
+                      placeholder="Search products…"
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:border-[#e60023]"
+                    />
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    {catalogProducts.length === 0 ? (
+                      <p className="text-xs text-gray-400 text-center py-4">No catalog products found</p>
+                    ) : (
+                      catalogProducts
+                        .filter(p => !catalogQuery || p.title.toLowerCase().includes(catalogQuery.toLowerCase()))
+                        .map(p => {
+                          const already = draft.taggedProducts.some(t => t.url === p.link);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              disabled={already}
+                              onClick={() => {
+                                if (!already && p.link) {
+                                  onChange({ ...draft, taggedProducts: [...draft.taggedProducts, { url: p.link, image: p.imageLink || undefined, title: p.title || undefined }] });
+                                }
+                                setCatalogOpen(false);
+                                setCatalogQuery("");
+                              }}
+                              className={cn(
+                                "w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 transition-colors",
+                                already && "opacity-40 cursor-not-allowed"
+                              )}
+                            >
+                              {p.imageLink ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={p.imageLink} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-gray-100" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                  <ShoppingCart className="w-3.5 h-3.5 text-gray-400" />
+                                </div>
+                              )}
+                              <span className="text-xs text-gray-700 truncate flex-1">{p.title || p.link}</span>
+                              {already && <span className="text-xs text-gray-400 flex-shrink-0">Added</span>}
+                            </button>
+                          );
+                        })
                     )}
-                    <span className="text-xs text-gray-700 line-clamp-2 flex-1">{linkPreview.title}</span>
                   </div>
-                )}
-                <p className="text-xs text-gray-400 px-1">You can add multiple product links — paste each URL and click Add.</p>
-              </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Alt Text */}
