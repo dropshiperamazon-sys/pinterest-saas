@@ -1173,14 +1173,10 @@ function PinSEOModal({ draft, onChange, onClose }: {
               {/* Actions */}
               <div className="space-y-2 pt-1">
                 <button
-                  onClick={runOptimize}
-                  disabled={optimizing}
-                  className="w-full bg-gradient-to-r from-violet-600 to-purple-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  onClick={onClose}
+                  className="w-full bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-all flex items-center justify-center gap-2"
                 >
-                  {optimizing ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Optimizing…</> : <><Sparkles className="w-4 h-4" />✨ Optimize Pin with AI</>}
-                </button>
-                <button onClick={onClose} className="w-full py-2 text-xs text-gray-400 hover:text-gray-600">
-                  Skip — keep original
+                  Finish
                 </button>
               </div>
             </div>
