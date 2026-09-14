@@ -20,12 +20,14 @@ import {
   Telescope,
   Database,
   ShoppingBag,
+  BookmarkCheck,
 } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/analytics", icon: BarChart2, label: "Analytics" },
   { href: "/keywords", icon: Search, label: "Keyword Research" },
+  { href: "/track-keywords", icon: BookmarkCheck, label: "Track Keywords" },
   { href: "/pin-analysis", icon: LineChart, label: "Pin Analysis" },
   { href: "/seo-audit", icon: ScanSearch, label: "Pinterest SEO Audit" },
   { href: "/keyword-extractor", icon: Telescope, label: "Keyword Extractor" },
