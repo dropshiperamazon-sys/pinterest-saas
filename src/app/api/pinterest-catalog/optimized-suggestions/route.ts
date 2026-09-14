@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { computeCatalogSeoScore } from "@/lib/catalog-seo-score";
 
 const redis = new Redis({
@@ -152,12 +152,9 @@ export async function POST(req: NextRequest) {
     }
   } catch { /* keyword fetch is best-effort */ }
 
-  // Build Claude prompt
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY is not configured in environment variables" }, { status: 500 });
+  if (!process.env.GEMINI_API_KEY) {
+    return NextResponse.json({ error: "GEMINI_API_KEY is not configured in environment variables" }, { status: 500 });
   }
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5-20251001";
 
   const systemPrompt = `You are a Pinterest product SEO specialist.
 Optimize Shopify/catalog product metadata for Pinterest discovery.
@@ -204,6 +201,12 @@ Rules:
 - issues: list problems with the CURRENT content (missing info, too short, poor keyword placement etc).
 - keywords: only terms genuinely relevant to this specific product. Never generic filler.`;
 
+  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+  const geminiModel = genAI.getGenerativeModel({
+    model: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+    systemInstruction: systemPrompt,
+  });
+
   let aiResult: {
     suggestedTitle?: string;
     suggestedDescription?: string;
@@ -220,13 +223,8 @@ Rules:
   }
 
   try {
-    const message = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1200,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    });
-    const content = message.content[0]?.type === "text" ? message.content[0].text : "";
+    const geminiResult = await geminiModel.generateContent(userPrompt);
+    const content = geminiResult.response.text();
     aiResult = extractJson(content) as typeof aiResult;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
