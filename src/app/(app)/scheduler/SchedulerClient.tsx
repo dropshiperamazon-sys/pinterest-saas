@@ -887,6 +887,14 @@ function PinSEOModal({ draft, onChange, onClose }: {
   const [selectedKws, setSelectedKws] = useState<string[]>([]);
   const [optimizing, setOptimizing] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<{ title: string; description: string } | null>(null);
+  const [kwCopied, setKwCopied] = useState(false);
+  const [kwSaving, setKwSaving] = useState(false);
+  const [kwSaveStep, setKwSaveStep] = useState<"idle" | "pick-folder" | "done">("idle");
+  const [kwFolders, setKwFolders] = useState<{ id: string; name: string }[]>([]);
+  const [kwFoldersLoading, setKwFoldersLoading] = useState(false);
+  const [kwSelectedFolder, setKwSelectedFolder] = useState("");
+  const [kwNewFolderName, setKwNewFolderName] = useState("");
+  const [kwSaveError, setKwSaveError] = useState("");
   const [recheckResult, setRecheckResult] = useState<ReturnType<typeof calcSeoScore> | null>(null);
 
   const suggestFocusKw = async () => {
@@ -1158,14 +1166,135 @@ function PinSEOModal({ draft, onChange, onClose }: {
                     })}
                   </div>
                   {selectedKws.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {selectedKws.map(k => (
-                        <span key={k} className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                          {k}
-                          <button onClick={() => setSelectedKws(selectedKws.filter(x => x !== k))}><X className="w-2.5 h-2.5" /></button>
-                        </span>
-                      ))}
-                    </div>
+                    <>
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {selectedKws.map(k => (
+                          <span key={k} className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            {k}
+                            <button onClick={() => setSelectedKws(selectedKws.filter(x => x !== k))}><X className="w-2.5 h-2.5" /></button>
+                          </span>
+                        ))}
+                      </div>
+                      {/* Copy + Save to Track Keywords */}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(selectedKws.join(", "));
+                            setKwCopied(true);
+                            setTimeout(() => setKwCopied(false), 2000);
+                          }}
+                          className="flex items-center gap-1.5 text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-colors"
+                        >
+                          <Copy className="w-3 h-3" />
+                          {kwCopied ? "Copied!" : "Copy"}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setKwSaveError("");
+                            setKwFoldersLoading(true);
+                            setKwSaveStep("pick-folder");
+                            try {
+                              const res = await fetch("/api/track-keywords/folders");
+                              const data = await res.json() as { folders?: { id: string; name: string }[] };
+                              setKwFolders(data.folders ?? []);
+                              if (data.folders?.[0]) setKwSelectedFolder(data.folders[0].id);
+                            } catch { setKwSaveError("Failed to load folders"); }
+                            finally { setKwFoldersLoading(false); }
+                          }}
+                          className="flex items-center gap-1.5 text-xs border border-[#e60023]/30 bg-[#e60023]/5 rounded-lg px-3 py-1.5 text-[#e60023] hover:bg-[#e60023]/10 transition-colors"
+                        >
+                          <Tag className="w-3 h-3" />
+                          Save to Track Keywords
+                        </button>
+                      </div>
+                      {/* Folder picker inline */}
+                      {kwSaveStep === "pick-folder" && (
+                        <div className="border border-gray-200 rounded-xl p-3 space-y-2 bg-gray-50">
+                          {kwFoldersLoading ? (
+                            <p className="text-xs text-gray-400 text-center py-2">Loading folders…</p>
+                          ) : (
+                            <>
+                              {kwFolders.length > 0 ? (
+                                <select
+                                  value={kwSelectedFolder}
+                                  onChange={e => setKwSelectedFolder(e.target.value)}
+                                  className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#e60023]"
+                                >
+                                  {kwFolders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                  <option value="__new__">+ Create new folder…</option>
+                                </select>
+                              ) : (
+                                <p className="text-xs text-gray-500">No folders yet — create one:</p>
+                              )}
+                              {(kwSelectedFolder === "__new__" || kwFolders.length === 0) && (
+                                <input
+                                  autoFocus
+                                  value={kwNewFolderName}
+                                  onChange={e => setKwNewFolderName(e.target.value)}
+                                  placeholder="Folder name…"
+                                  className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#e60023]"
+                                />
+                              )}
+                              {kwSaveError && <p className="text-xs text-red-500">{kwSaveError}</p>}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => { setKwSaveStep("idle"); setKwSaveError(""); setKwNewFolderName(""); }}
+                                  className="flex-1 text-xs border border-gray-200 rounded-lg py-1.5 text-gray-500 hover:bg-gray-100 transition-colors"
+                                >Cancel</button>
+                                <button
+                                  disabled={kwSaving}
+                                  onClick={async () => {
+                                    setKwSaveError("");
+                                    setKwSaving(true);
+                                    try {
+                                      let folderId = kwSelectedFolder;
+                                      // Create folder if needed
+                                      if (folderId === "__new__" || kwFolders.length === 0) {
+                                        const name = kwNewFolderName.trim() || "Pin Keywords";
+                                        const fr = await fetch("/api/track-keywords/folders", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ name }),
+                                        });
+                                        const fd = await fr.json() as { folder?: { id: string } };
+                                        if (!fd.folder?.id) throw new Error("Failed to create folder");
+                                        folderId = fd.folder.id;
+                                      }
+                                      // Save each selected keyword
+                                      await Promise.all(selectedKws.map(kw => {
+                                        const rec = kwRecs.find(r => r.keyword === kw);
+                                        return fetch("/api/track-keywords/keywords", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({
+                                            folderId,
+                                            keyword: kw,
+                                            monthlySearches: rec?.monthlySearches ?? null,
+                                            competition: rec?.competition ?? null,
+                                            isTracked: true,
+                                          }),
+                                        });
+                                      }));
+                                      setKwSaveStep("done");
+                                    } catch (e) {
+                                      setKwSaveError(e instanceof Error ? e.message : "Failed to save");
+                                    } finally { setKwSaving(false); }
+                                  }}
+                                  className="flex-1 text-xs bg-[#e60023] text-white rounded-lg py-1.5 font-medium hover:bg-[#ad081b] disabled:opacity-50 transition-colors"
+                                >
+                                  {kwSaving ? "Saving…" : `Save ${selectedKws.length} keyword${selectedKws.length !== 1 ? "s" : ""}`}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {kwSaveStep === "done" && (
+                        <p className="text-xs text-green-600 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> {selectedKws.length} keyword{selectedKws.length !== 1 ? "s" : ""} saved to Track Keywords
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               )}
