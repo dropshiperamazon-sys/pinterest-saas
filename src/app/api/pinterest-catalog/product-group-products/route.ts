@@ -64,7 +64,9 @@ function mapItem(item: Record<string, unknown>) {
   //   item.attributes → all fields flat
   const meta = (item.metadata && typeof item.metadata === "object" ? item.metadata : {}) as Record<string, unknown>;
   const pin = (item.pin && typeof item.pin === "object" ? item.pin : {}) as Record<string, unknown>;
-  const attrs = (item.attributes && typeof item.attributes === "object" ? item.attributes : {}) as Record<string, unknown>;
+  // _enriched = full attributes from /catalogs/items (has brand, condition, google_product_category, image_link)
+  const extra = (item._enriched && typeof item._enriched === "object" ? item._enriched : {}) as Record<string, unknown>;
+  const attrs = (item.attributes && typeof item.attributes === "object" ? item.attributes : extra) as Record<string, unknown>;
 
   // Derive each field: prefer /products structure (meta + pin), fall back to /catalogs/items (attrs)
   const itemId = String((meta.item_id as string) ?? (attrs.item_id as string) ?? item.id ?? item.item_id ?? "");
@@ -73,12 +75,18 @@ function mapItem(item: Record<string, unknown>) {
   const description = (pin.description as string) ?? (attrs.description as string) ?? "";
   const link = (pin.link as string) ?? (attrs.link as string) ?? "";
 
-  // Image: pin.images is { "150x150": { url }, "400x300": { url }, "736x": { url } } — pick largest
-  const pinImages = pin.images && typeof pin.images === "object" ? pin.images as Record<string, { url?: string }> : {};
+  // Image: pin.media.images has size keys like "1200x", "600x", "400x300", "150x150"
+  const pinMedia = pin.media && typeof pin.media === "object" ? pin.media as Record<string, unknown> : {};
+  const pinImages = pinMedia.images && typeof pinMedia.images === "object"
+    ? pinMedia.images as Record<string, { url?: string }>
+    : (pin.images && typeof pin.images === "object" ? pin.images as Record<string, { url?: string }> : {});
   const imageLink =
+    pinImages["1200x"]?.url ??
     pinImages["736x"]?.url ??
+    pinImages["600x"]?.url ??
     pinImages["400x300"]?.url ??
     pinImages["150x150"]?.url ??
+    (extra.image_link as string) ??
     (attrs.image_link as string) ??
     (Array.isArray(attrs.additional_image_links) ? (attrs.additional_image_links as string[])[0] : "") ??
     "";
@@ -87,10 +95,10 @@ function mapItem(item: Record<string, unknown>) {
   const salePrice = String((meta.sale_price as string | number) ?? (attrs.sale_price as string) ?? "");
   const currency = (meta.currency as string) ?? (attrs.currency as string) ?? "";
   const availability = (meta.availability as string) ?? (attrs.availability as string) ?? "";
-  const brand = (meta.brand as string) ?? (attrs.brand as string) ?? "";
-  const condition = (meta.condition as string) ?? (attrs.condition as string) ?? "";
-  const googleProductCategory = (meta.google_product_category as string) ?? (attrs.google_product_category as string) ?? "";
-  const productType = (meta.product_type as string) ?? (attrs.product_type as string) ?? "";
+  const brand = (meta.brand as string) ?? (extra.brand as string) ?? (attrs.brand as string) ?? "";
+  const condition = (meta.condition as string) ?? (extra.condition as string) ?? (attrs.condition as string) ?? "";
+  const googleProductCategory = (meta.google_product_category as string) ?? (extra.google_product_category as string) ?? (attrs.google_product_category as string) ?? "";
+  const productType = (meta.product_type as string) ?? (extra.product_type as string) ?? (attrs.product_type as string) ?? "";
   const status = (item.pin_status as string) ?? (pin.status as string) ?? "";
 
   const enriched = { title, description, imageLink, link, brand, googleProductCategory, condition, availability };
@@ -197,6 +205,46 @@ export async function GET(req: NextRequest) {
     }
   } else {
     items = productsData?.items ?? [];
+  }
+
+  // Enrich items from /products with full attributes (brand, condition, google_product_category)
+  // by calling /catalogs/items?item_ids[]= for all item IDs on this page.
+  // /products only returns metadata (price, availability) + pin (title, description, link, images).
+  if (!usedFallback && items.length > 0) {
+    const itemIds = items
+      .map((it) => {
+        const m = (it.metadata && typeof it.metadata === "object" ? it.metadata : {}) as Record<string, unknown>;
+        return String(m.item_id ?? "");
+      })
+      .filter(Boolean);
+
+    if (itemIds.length > 0) {
+      const idsParam = itemIds.map((id) => `item_ids[]=${encodeURIComponent(id)}`).join("&");
+      const catalogId = groupData?.catalog_id as string | undefined;
+      const catalogParam = catalogId ? `&catalog_id=${encodeURIComponent(catalogId)}` : "";
+      console.log(`[pgp] enriching ${itemIds.length} items via /catalogs/items`);
+      const enrichData = await pGet(`/catalogs/items?${idsParam}${catalogParam}`, accessToken);
+      if (!enrichData?._error && Array.isArray(enrichData?.items)) {
+        // Build lookup: retailer_id → attributes
+        const attrMap = new Map<string, Record<string, unknown>>();
+        for (const ei of enrichData.items as Record<string, unknown>[]) {
+          const eAttrs = (ei.attributes && typeof ei.attributes === "object" ? ei.attributes : {}) as Record<string, unknown>;
+          const eId = String((eAttrs.id as string) ?? (ei.id as string) ?? (ei.item_id as string) ?? "");
+          if (eId) attrMap.set(eId, eAttrs);
+        }
+        // Merge attributes into items
+        items = items.map((it) => {
+          const m = (it.metadata && typeof it.metadata === "object" ? it.metadata : {}) as Record<string, unknown>;
+          const id = String(m.item_id ?? "");
+          const eAttrs = attrMap.get(id);
+          if (!eAttrs) return it;
+          return { ...it, _enriched: eAttrs };
+        });
+        console.log(`[pgp] enriched ${attrMap.size}/${itemIds.length} items`);
+      } else {
+        console.log(`[pgp] enrichment call failed or returned no items: ${enrichData?._error ?? "unknown"}`);
+      }
+    }
   }
 
   const products = items.map(mapItem);
