@@ -216,9 +216,7 @@ export async function GET(req: NextRequest) {
       note: usedFallback
         ? "Pinterest v5 /products endpoint not found — showing all products from feed (group filter not applied server-side)"
         : null,
-      rawFirstItemKeys: items[0] ? Object.keys(items[0] as object) : [],
-      rawFirstItemMetadataKeys: items[0] && (items[0] as Record<string,unknown>).metadata
-        ? Object.keys((items[0] as Record<string,unknown>).metadata as object) : [],
+      rawFirstItem: items[0] ?? null,
     },
   });
 }
