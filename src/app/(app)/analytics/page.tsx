@@ -134,13 +134,17 @@ interface PaidCampaign {
   spend: number; impressions: number; clicks: number;
   saves: number; engagements: number;
   ctr: number; cpc: number; cpm: number;
+  checkouts: number; addToCart: number; pageVisits: number; revenue: number; aov: number;
 }
 
 interface PaidData {
   adAccountId: string;
   adAccountName: string;
   period: { startDate: string; endDate: string };
-  totals: { spend: number; impressions: number; clicks: number; saves: number; engagements: number };
+  totals: {
+    spend: number; impressions: number; clicks: number; saves: number; engagements: number;
+    checkouts: number; addToCart: number; pageVisits: number; revenue: number; aov: number;
+  };
   campaigns: PaidCampaign[];
 }
 
@@ -433,6 +437,11 @@ export default function AnalyticsPage() {
                         { label: "Clicks", value: formatNumber(paidData.totals.clicks), icon: MousePointerClick, color: "text-indigo-700", bg: "bg-indigo-50 text-indigo-600" },
                         { label: "Saves", value: formatNumber(paidData.totals.saves), icon: Heart, color: "text-pink-700", bg: "bg-pink-50 text-pink-600" },
                         { label: "Engagements", value: formatNumber(paidData.totals.engagements), icon: Zap, color: "text-yellow-700", bg: "bg-yellow-50 text-yellow-600" },
+                        { label: "Revenue", value: `$${paidData.totals.revenue.toFixed(2)}`, icon: TrendingUp, color: "text-emerald-700", bg: "bg-emerald-50 text-emerald-600" },
+                        { label: "Checkouts", value: formatNumber(paidData.totals.checkouts), icon: ShoppingBag, color: "text-teal-700", bg: "bg-teal-50 text-teal-600" },
+                        { label: "Add to Cart", value: formatNumber(paidData.totals.addToCart), icon: ShoppingBag, color: "text-cyan-700", bg: "bg-cyan-50 text-cyan-600" },
+                        { label: "Page Visits", value: formatNumber(paidData.totals.pageVisits), icon: Activity, color: "text-orange-700", bg: "bg-orange-50 text-orange-600" },
+                        { label: "AOV", value: paidData.totals.aov > 0 ? `$${paidData.totals.aov.toFixed(2)}` : "—", icon: DollarSign, color: "text-violet-700", bg: "bg-violet-50 text-violet-600" },
                       ].map(({ label, value, icon: Icon, color, bg }) => (
                         <div key={label} className="bg-gray-50 rounded-2xl p-4">
                           <div className="flex items-center justify-between mb-2">
@@ -459,7 +468,11 @@ export default function AnalyticsPage() {
                               <th className="px-3 py-3 text-right font-medium">Clicks</th>
                               <th className="px-3 py-3 text-right font-medium">CTR</th>
                               <th className="px-3 py-3 text-right font-medium">CPC</th>
-                              <th className="px-3 py-3 text-right font-medium pr-4">Saves</th>
+                              <th className="px-3 py-3 text-right font-medium">Saves</th>
+                              <th className="px-3 py-3 text-right font-medium">Revenue</th>
+                              <th className="px-3 py-3 text-right font-medium">Checkouts</th>
+                              <th className="px-3 py-3 text-right font-medium">Add to Cart</th>
+                              <th className="px-3 py-3 text-right font-medium pr-4">AOV</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-50">
@@ -488,7 +501,15 @@ export default function AnalyticsPage() {
                                 <td className="px-3 py-3 text-right text-gray-600">
                                   {c.cpc > 0 ? `$${c.cpc.toFixed(2)}` : "—"}
                                 </td>
-                                <td className="px-3 py-3 text-right text-gray-600 pr-4">{formatNumber(c.saves)}</td>
+                                <td className="px-3 py-3 text-right text-gray-600">{formatNumber(c.saves)}</td>
+                                <td className="px-3 py-3 text-right text-emerald-700 font-semibold">
+                                  {c.revenue > 0 ? `$${c.revenue.toFixed(2)}` : "—"}
+                                </td>
+                                <td className="px-3 py-3 text-right text-teal-700">{c.checkouts > 0 ? formatNumber(c.checkouts) : "—"}</td>
+                                <td className="px-3 py-3 text-right text-cyan-700">{c.addToCart > 0 ? formatNumber(c.addToCart) : "—"}</td>
+                                <td className="px-3 py-3 text-right text-violet-700 pr-4">
+                                  {c.aov > 0 ? `$${c.aov.toFixed(2)}` : "—"}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

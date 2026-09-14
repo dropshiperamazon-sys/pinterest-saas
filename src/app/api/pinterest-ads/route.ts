@@ -56,7 +56,7 @@ export async function GET(req: Request) {
   const [campaignsData, analyticsData] = await Promise.all([
     pinterestGet(`/ad_accounts/${adAccountId}/campaigns?page_size=25`, accessToken),
     pinterestGet(
-      `/ad_accounts/${adAccountId}/analytics?start_date=${startDate}&end_date=${endDate}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_CLICKTHROUGH,TOTAL_ENGAGEMENT,TOTAL_SAVE&granularity=TOTAL`,
+      `/ad_accounts/${adAccountId}/analytics?start_date=${startDate}&end_date=${endDate}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_CLICKTHROUGH,TOTAL_ENGAGEMENT,TOTAL_SAVE,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_ADD_TO_CART,TOTAL_PAGE_VISIT&granularity=TOTAL`,
       accessToken
     ),
   ]);
@@ -71,9 +71,9 @@ export async function GET(req: Request) {
     startTime: c.start_time,
     endTime: c.end_time,
     createdTime: c.created_time,
-    // Pre-initialize analytics fields so they're always numbers even if analytics fetch fails
     spend: 0, impressions: 0, clicks: 0, saves: 0, engagements: 0,
     ctr: 0, cpc: 0, cpm: 0, saveRate: 0,
+    checkouts: 0, addToCart: 0, pageVisits: 0, revenue: 0, aov: 0,
   }));
 
   // 3. Fetch per-campaign analytics + ad groups in parallel
@@ -82,7 +82,7 @@ export async function GET(req: Request) {
 
     const [camAnalytics, adGroupsData] = await Promise.all([
       pinterestGet(
-        `/ad_accounts/${adAccountId}/campaigns/analytics?start_date=${startDate}&end_date=${endDate}&campaign_ids=${ids}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_SAVE,TOTAL_ENGAGEMENT&granularity=TOTAL`,
+        `/ad_accounts/${adAccountId}/campaigns/analytics?start_date=${startDate}&end_date=${endDate}&campaign_ids=${ids}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_SAVE,TOTAL_ENGAGEMENT,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_ADD_TO_CART,TOTAL_PAGE_VISIT&granularity=TOTAL`,
         accessToken
       ),
       pinterestGet(`/ad_accounts/${adAccountId}/ad_groups?page_size=50`, accessToken),
@@ -107,10 +107,19 @@ export async function GET(req: Request) {
         (c as Record<string, unknown>).clicks      = rawClicks;
         (c as Record<string, unknown>).saves       = rawSaves;
         (c as Record<string, unknown>).engagements = rawEngage;
-        (c as Record<string, unknown>).ctr      = Math.round((rawClicks / imps) * 10000) / 100;
-        (c as Record<string, unknown>).cpc      = rawClicks > 0 ? Math.round((rawSpend / rawClicks) * 100) / 100 : 0;
-        (c as Record<string, unknown>).cpm      = Math.round((rawSpend / imps) * 1000 * 100) / 100;
-        (c as Record<string, unknown>).saveRate = rawClicks > 0 ? Math.round(rawSaves / rawClicks * 10000) / 100 : 0;
+        const rawCheckouts = Number(row.TOTAL_CHECKOUT) || 0;
+        const rawAddToCart = Number(row.TOTAL_ADD_TO_CART) || 0;
+        const rawPageVisit = Number(row.TOTAL_PAGE_VISIT) || 0;
+        const rawRevenue   = Number(row.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000 || 0;
+        (c as Record<string, unknown>).ctr        = Math.round((rawClicks / imps) * 10000) / 100;
+        (c as Record<string, unknown>).cpc        = rawClicks > 0 ? Math.round((rawSpend / rawClicks) * 100) / 100 : 0;
+        (c as Record<string, unknown>).cpm        = Math.round((rawSpend / imps) * 1000 * 100) / 100;
+        (c as Record<string, unknown>).saveRate   = rawClicks > 0 ? Math.round(rawSaves / rawClicks * 10000) / 100 : 0;
+        (c as Record<string, unknown>).checkouts  = rawCheckouts;
+        (c as Record<string, unknown>).addToCart  = rawAddToCart;
+        (c as Record<string, unknown>).pageVisits = rawPageVisit;
+        (c as Record<string, unknown>).revenue    = rawRevenue;
+        (c as Record<string, unknown>).aov        = rawCheckouts > 0 ? Math.round((rawRevenue / rawCheckouts) * 100) / 100 : 0;
       }
     }
 
@@ -150,6 +159,13 @@ export async function GET(req: Request) {
       clicks:      Number(totals.CLICK_1)            || 0,
       saves:       Number(totals.TOTAL_SAVE)         || 0,
       engagements: Number(totals.TOTAL_ENGAGEMENT)   || 0,
+      checkouts:   Number(totals.TOTAL_CHECKOUT)     || 0,
+      addToCart:   Number(totals.TOTAL_ADD_TO_CART)  || 0,
+      pageVisits:  Number(totals.TOTAL_PAGE_VISIT)   || 0,
+      revenue:     Number(totals.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000 || 0,
+      aov:         Number(totals.TOTAL_CHECKOUT) > 0
+        ? (Number(totals.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000) / Number(totals.TOTAL_CHECKOUT)
+        : 0,
     },
     campaigns,
   });
