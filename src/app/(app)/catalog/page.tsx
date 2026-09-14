@@ -109,11 +109,12 @@ interface GroupProduct {
 }
 
 interface GroupProductsDebug {
-  countEndpoint: string;
+  groupEndpoint?: string;
+  groupStatus?: number;
   productsEndpoint: string;
-  countStatus: number;
   productsStatus: number;
   productsApiError?: { status: number; body: string } | null;
+  note?: string | null;
 }
 
 type Tab = "overview" | "audit" | "seo" | "products" | "groups" | "diagnostics";
@@ -760,6 +761,7 @@ function GroupsTab({ groups, loading, feeds }: { groups: ProductGroup[]; loading
   const [pageIndex, setPageIndex] = useState(0);
   const [search, setSearch] = useState("");
   const [debug, setDebug] = useState<GroupProductsDebug | null>(null);
+  const [usedFallback, setUsedFallback] = useState(false);
 
   const fetchGroupProducts = useCallback((group: ProductGroup, bookmark: string | null) => {
     setProductsLoading(true);
@@ -776,6 +778,7 @@ function GroupsTab({ groups, loading, feeds }: { groups: ProductGroup[]; loading
         setProductCount(d.productCount ?? null);
         setNextBookmark(d.bookmark ?? null);
         setDebug(d._debug ?? null);
+        setUsedFallback(d.usedFallback ?? false);
         if (d._debug?.productsApiError) {
           setProductsError(`Pinterest API ${d._debug.productsApiError.status}: ${d._debug.productsApiError.body}`);
         }
@@ -903,6 +906,17 @@ function GroupsTab({ groups, loading, feeds }: { groups: ProductGroup[]; loading
             <ArrowUpRight className="w-3.5 h-3.5" />
           </a>
         </div>
+
+        {/* Fallback notice */}
+        {usedFallback && debug?.note && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-800 text-sm">Showing all feed products</p>
+              <p className="text-xs text-amber-700 mt-1">{debug.note}</p>
+            </div>
+          </div>
+        )}
 
         {/* API error */}
         {productsError && (

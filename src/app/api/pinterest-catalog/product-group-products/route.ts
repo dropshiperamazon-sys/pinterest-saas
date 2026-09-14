@@ -10,14 +10,12 @@ const redis = new Redis({
 const BASE = "https://api.pinterest.com/v5";
 
 async function pGet(path: string, token: string) {
-  const url = `${BASE}${path}`;
-  const res = await fetch(url, {
+  const res = await fetch(`${BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     cache: "no-store",
   });
   const text = await res.text();
-  // Server-side debug log (never logs the token)
-  console.log(`[product-group-products] ${path} → HTTP ${res.status}`, text.slice(0, 800));
+  console.log(`[pgp] GET ${path} → HTTP ${res.status}`, text.slice(0, 800));
   if (!res.ok) return { _error: res.status, _body: text };
   try { return JSON.parse(text); } catch { return null; }
 }
@@ -58,6 +56,34 @@ function computeSeoScore(attrs: Record<string, unknown>) {
   return { score, issues };
 }
 
+function mapItem(item: Record<string, unknown>) {
+  const attrs = (item.attributes ?? {}) as Record<string, unknown>;
+  const { score, issues } = computeSeoScore(attrs);
+  return {
+    id: item.id ?? item.item_id,
+    itemId: String(item.id ?? item.item_id ?? ""),
+    itemGroupId: (attrs.item_group_id as string) ?? "",
+    title: (attrs.title as string) ?? "",
+    description: (attrs.description as string) ?? "",
+    imageLink:
+      (attrs.image_link as string) ??
+      (Array.isArray(attrs.additional_image_links) ? (attrs.additional_image_links as string[])[0] : "") ??
+      "",
+    link: (attrs.link as string) ?? "",
+    price: (attrs.price as string) ?? "",
+    salePrice: (attrs.sale_price as string) ?? "",
+    currency: (attrs.currency as string) ?? "",
+    availability: (attrs.availability as string) ?? "",
+    brand: (attrs.brand as string) ?? "",
+    condition: (attrs.condition as string) ?? "",
+    googleProductCategory: (attrs.google_product_category as string) ?? "",
+    productType: (attrs.product_type as string) ?? "",
+    status: (item.pin_status as string) ?? "",
+    seoScore: score,
+    issues,
+  };
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   const email = session?.user?.email;
@@ -78,73 +104,84 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "productGroupId required" }, { status: 400 });
   }
 
-  console.log(`[product-group-products] productGroupId=${productGroupId} feedId=${feedId} pageSize=${pageSize} bookmark=${bookmark}`);
+  console.log(`[pgp] productGroupId=${productGroupId} feedId=${feedId} pageSize=${pageSize} bookmark=${bookmark}`);
 
-  // Official Pinterest endpoint 1: product count
-  const countPath = `/catalogs/product_groups/${encodeURIComponent(productGroupId)}/product_count`;
-
-  // Official Pinterest endpoint 2: list products by product group
-  // REST sub-resource pattern: /catalogs/product_groups/{id}/items
   const bookmarkParam = bookmark ? `&bookmark=${encodeURIComponent(bookmark)}` : "";
-  const productsPath = `/catalogs/product_groups/${encodeURIComponent(productGroupId)}/items?page_size=${pageSize}${bookmarkParam}`;
 
-  console.log(`[product-group-products] count endpoint: GET ${BASE}${countPath}`);
-  console.log(`[product-group-products] products endpoint: GET ${BASE}${productsPath}`);
+  // Strategy:
+  // 1. GET /catalogs/product_groups/{id}  → product_count field on the group object
+  // 2. GET /catalogs/product_groups/{id}/products  → paginated product list (Pinterest v5)
+  // Fallback: GET /catalogs/items?feed_id={id}  if /products returns 404
 
-  const [countData, productsData] = await Promise.all([
-    pGet(countPath, accessToken),
+  const groupPath = `/catalogs/product_groups/${encodeURIComponent(productGroupId)}`;
+  const productsPath = `/catalogs/product_groups/${encodeURIComponent(productGroupId)}/products?page_size=${pageSize}${bookmarkParam}`;
+
+  console.log(`[pgp] group endpoint:    GET ${BASE}${groupPath}`);
+  console.log(`[pgp] products endpoint: GET ${BASE}${productsPath}`);
+
+  const [groupData, productsData] = await Promise.all([
+    pGet(groupPath, accessToken),
     pGet(productsPath, accessToken),
   ]);
 
+  // Product count: read from the product group object (no separate count endpoint in v5)
   const productCount: number | null =
-    countData?._error ? null : (typeof countData?.count === "number" ? countData.count : null);
+    groupData?._error
+      ? null
+      : typeof groupData?.product_count === "number"
+        ? groupData.product_count
+        : null;
 
-  const productsApiError = productsData?._error
-    ? { status: productsData._error, body: String(productsData._body ?? "").slice(0, 800) }
-    : null;
+  let items: Record<string, unknown>[] = [];
+  let productsApiError: { status: number; body: string } | null = null;
+  let actualProductsPath = `${BASE}${productsPath}`;
+  let productsStatus = productsData?._error ?? 200;
+  let usedFallback = false;
 
-  const items: Record<string, unknown>[] = productsData?.items ?? [];
+  if (productsData?._error) {
+    productsApiError = { status: productsData._error, body: String(productsData._body ?? "").slice(0, 800) };
 
-  const products = items.map((item) => {
-    const attrs = (item.attributes ?? {}) as Record<string, unknown>;
-    const { score, issues } = computeSeoScore(attrs);
-    return {
-      id: item.id ?? item.item_id,
-      itemId: String(item.id ?? item.item_id ?? ""),
-      itemGroupId: (attrs.item_group_id as string) ?? "",
-      title: (attrs.title as string) ?? "",
-      description: (attrs.description as string) ?? "",
-      imageLink:
-        (attrs.image_link as string) ??
-        (Array.isArray(attrs.additional_image_links) ? (attrs.additional_image_links as string[])[0] : "") ??
-        "",
-      link: (attrs.link as string) ?? "",
-      price: (attrs.price as string) ?? "",
-      salePrice: (attrs.sale_price as string) ?? "",
-      currency: (attrs.currency as string) ?? "",
-      availability: (attrs.availability as string) ?? "",
-      brand: (attrs.brand as string) ?? "",
-      condition: (attrs.condition as string) ?? "",
-      googleProductCategory: (attrs.google_product_category as string) ?? "",
-      productType: (attrs.product_type as string) ?? "",
-      status: (item.pin_status as string) ?? "",
-      seoScore: score,
-      issues,
-    };
-  });
+    // If /products returned 404 (endpoint doesn't exist in this API version),
+    // fall back to /catalogs/items?feed_id= (all feed products — noted in response)
+    if ((productsData._error === 404 || productsData._error === 405) && feedId) {
+      const fallbackPath = `/catalogs/items?feed_id=${encodeURIComponent(feedId)}&page_size=${pageSize}${bookmarkParam}`;
+      console.log(`[pgp] /products 404/405 — fallback: GET ${BASE}${fallbackPath}`);
+      const fallbackData = await pGet(fallbackPath, accessToken);
+      if (!fallbackData?._error) {
+        items = fallbackData?.items ?? [];
+        actualProductsPath = `${BASE}${fallbackPath}`;
+        productsStatus = 200;
+        productsApiError = null;
+        usedFallback = true;
+      } else {
+        productsApiError = {
+          status: fallbackData._error,
+          body: String(fallbackData._body ?? "").slice(0, 800),
+        };
+        productsStatus = fallbackData._error;
+      }
+    }
+  } else {
+    items = productsData?.items ?? [];
+  }
+
+  const products = items.map(mapItem);
 
   return NextResponse.json({
     productCount,
     products,
-    bookmark: productsData?.bookmark ?? null,
+    bookmark: !usedFallback ? (productsData?.bookmark ?? null) : null,
     totalReturnedThisPage: products.length,
-    // Debug/audit fields
+    usedFallback,
     _debug: {
-      countEndpoint: `${BASE}${countPath}`,
-      productsEndpoint: `${BASE}${productsPath}`,
-      countStatus: countData?._error ?? 200,
-      productsStatus: productsData?._error ?? 200,
+      groupEndpoint: `${BASE}${groupPath}`,
+      groupStatus: groupData?._error ?? 200,
+      productsEndpoint: actualProductsPath,
+      productsStatus,
       productsApiError,
+      note: usedFallback
+        ? "Pinterest v5 /products endpoint not found — showing all products from feed (group filter not applied server-side)"
+        : null,
     },
   });
 }
