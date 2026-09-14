@@ -356,95 +356,189 @@ function PinAnalyticsDrawer({ pinId, pinTitle, pinImage, onClose }: { pinId: str
   );
 }
 
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
+// ─── Overview Tab — Catalog Performance ──────────────────────────────────────
 
-interface CatalogAnalytics {
-  id: string;
-  name: string;
-  catalogType: string;
-  impressions: number | null;
-  saves: number | null;
-  pinClicks: number | null;
-  outboundClicks: number | null;
-  engagement: number | null;
-}
+// Metric definitions follow Pinterest's official API definitions.
+// "Engagements" per Pinterest = Saves + Pin clicks + Outbound clicks + other engagement actions.
 
-interface TopPin {
-  id: unknown;
-  title: string;
-  imageUrl: string;
-  link: string;
-  impressions: number;
-  saves: number;
-  pinClicks: number;
-  outboundClicks: number;
-  engagement: number;
-  type: string;
-}
+type TrafficSource = "ALL" | "ORGANIC" | "PAID";
+type SortMetric =
+  | "checkouts" | "addToCart" | "pageVisits"
+  | "saves" | "pinClicks" | "impressions" | "outboundClicks" | "engagement";
 
-interface AnalyticsData {
-  period: { startDate: string; endDate: string; days: number };
-  type: string;
-  catalogs: CatalogAnalytics[];
-  topPins: TopPin[];
-}
-
-const SORT_METRICS = [
-  { value: "impressions", label: "Impressions" },
-  { value: "saves", label: "Saves" },
-  { value: "pinClicks", label: "Pin Clicks" },
+const SORT_OPTIONS: { value: SortMetric; label: string }[] = [
+  { value: "checkouts",      label: "Checkouts" },
+  { value: "addToCart",      label: "Add to Cart" },
+  { value: "pageVisits",     label: "Page Visits" },
+  { value: "saves",          label: "Saves" },
+  { value: "pinClicks",      label: "Pin Clicks" },
+  { value: "impressions",    label: "Impressions" },
   { value: "outboundClicks", label: "Outbound Clicks" },
-  { value: "engagement", label: "Engagement" },
-] as const;
-type SortMetric = (typeof SORT_METRICS)[number]["value"];
+  { value: "engagement",     label: "Engagement" },
+];
 
-function fmt(n: number | null): string {
+interface PerfCatalog {
+  id: string; name: string; catalogType: string; organicNote: string;
+  paid: {
+    impressions: number | null; pinClicks: number | null; outboundClicks: number | null;
+    engagement: number | null; saves: number | null; checkouts: number | null;
+    addToCart: number | null; pageVisits: number | null; spend: number | null;
+    roas: number | null; groupCount: number;
+  } | null;
+  opportunityScore: "STRONG" | "GOOD" | "NEEDS_REVIEW" | "INSUFFICIENT_DATA";
+  opportunityReasons: string[];
+  recommendation: string;
+  bestAdProductGroupId: string | null;
+  adAccountId: string | null;
+}
+
+interface TopOrganicPin {
+  id: string; title: string; imageUrl: string; link: string;
+  impressions: number; saves: number; pinClicks: number;
+  outboundClicks: number; engagement: number;
+  checkouts: null; addToCart: null; pageVisits: null;
+  source: "ORGANIC";
+}
+
+interface TopPaidGroup {
+  id: string; name: string; catalogId: string | null; catalogName: string | null;
+  impressions: number | null; pinClicks: number | null; outboundClicks: number | null;
+  checkouts: number | null; addToCart: number | null; pageVisits: number | null;
+  spend: number | null; source: "PAID";
+}
+
+interface Opportunity {
+  type: "ORGANIC_PIN" | "PAID_CATALOG";
+  id: string; name: string; imageUrl: string;
+  strength: "STRONG" | "GOOD" | "POTENTIAL";
+  signals: string[]; recommendation: string;
+  adProductGroupId: string | null; adAccountId: string | null;
+}
+
+interface PerfData {
+  period: { startDate: string; endDate: string; range: string };
+  source: TrafficSource;
+  organicAccountTotals: {
+    engagement: number | null; saves: number | null; impressions: number | null;
+    pinClicks: number | null; outboundClicks: number | null;
+  } | null;
+  organicNote: string;
+  catalogs: PerfCatalog[];
+  topOrganicPins: TopOrganicPin[];
+  topPaidProductGroups: TopPaidGroup[];
+  opportunities: Opportunity[];
+  _meta: { adAccountId: string | null; adAccountName: string | null; errors: string[] };
+}
+
+function fmt(n: number | null | undefined): string {
   if (n == null) return "—";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return n.toLocaleString();
 }
 
+const SCORE_CONFIG = {
+  STRONG:           { label: "Strong Opportunity", color: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" },
+  GOOD:             { label: "Good Opportunity",   color: "bg-blue-100 text-blue-700",       dot: "bg-blue-500"   },
+  NEEDS_REVIEW:     { label: "Needs Review",        color: "bg-amber-100 text-amber-700",     dot: "bg-amber-500"  },
+  INSUFFICIENT_DATA:{ label: "Insufficient Data",   color: "bg-gray-100 text-gray-500",       dot: "bg-gray-400"   },
+} as const;
+
+// Tooltip for metrics Pinterest does not expose at catalog level
+function UnavailableTooltip({ text }: { text: string }) {
+  return (
+    <span
+      className="cursor-help text-gray-300 hover:text-gray-500 transition-colors"
+      title={text}
+    >
+      <Info className="w-3 h-3 inline-block" />
+    </span>
+  );
+}
+
 function OverviewTab({ data }: { data: OverviewData }) {
   if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
 
-  const { summary, feeds = [], catalogs = [] } = data;
+  const { summary } = data;
 
-  const [analyticsType, setAnalyticsType] = useState<"ORGANIC" | "PAID" | "ALL">("ORGANIC");
-  const [sortMetric, setSortMetric] = useState<SortMetric>("impressions");
-  const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  // ── Controls ────────────────────────────────────────────────────────────────
+  const [dateRange,  setDateRange]  = useState<"7d" | "30d" | "90d">("30d");
+  const [source,     setSource]     = useState<TrafficSource>("ALL");
+  const [catSort,    setCatSort]    = useState<SortMetric>("checkouts");
+  const [prodSort,   setProdSort]   = useState<SortMetric>("checkouts");
+  const [prodSource, setProdSource] = useState<TrafficSource>("ALL");
+
+  // ── Data loading ─────────────────────────────────────────────────────────────
+  const [perfData,    setPerfData]    = useState<PerfData | null>(null);
+  const [perfLoading, setPerfLoading] = useState(false);
+  const [perfError,   setPerfError]   = useState<string | null>(null);
+
+  // Per-pin drill-down drawer
   const [selectedPin, setSelectedPin] = useState<{ id: string; title: string; imageUrl: string } | null>(null);
 
   useEffect(() => {
-    setAnalyticsLoading(true);
-    setAnalyticsError(null);
-    fetch(`/api/pinterest-catalog/analytics?type=${analyticsType}`)
+    setPerfLoading(true);
+    setPerfError(null);
+    const params = new URLSearchParams({ range: dateRange, source });
+    fetch(`/api/pinterest-catalog/performance?${params}`)
       .then((r) => r.json())
       .then((d) => {
-        if (d.error) setAnalyticsError(d.error);
-        else setAnalyticsData(d);
+        if (d.error) setPerfError(d.error);
+        else setPerfData(d);
       })
-      .catch(() => setAnalyticsError("Failed to load analytics"))
-      .finally(() => setAnalyticsLoading(false));
-  }, [analyticsType]);
+      .catch(() => setPerfError("Unable to retrieve Pinterest analytics."))
+      .finally(() => setPerfLoading(false));
+  }, [dateRange, source]);
 
-  const sortedPins = analyticsData
-    ? [...analyticsData.topPins].sort((a, b) => (b[sortMetric] ?? 0) - (a[sortMetric] ?? 0))
+  // ── Derived data ──────────────────────────────────────────────────────────────
+  // Sort catalogs by selected metric (paid side), nulls last
+  const sortedCatalogs = perfData
+    ? [...perfData.catalogs].sort((a, b) => {
+        const av = a.paid?.[catSort as keyof typeof a.paid] as number | null ?? null;
+        const bv = b.paid?.[catSort as keyof typeof b.paid] as number | null ?? null;
+        if (av === null && bv === null) return 0;
+        if (av === null) return 1;
+        if (bv === null) return -1;
+        return bv - av;
+      })
     : [];
 
+  // Combined top products (organic pins + paid product groups), filtered by source
+  type TopItem = (TopOrganicPin | TopPaidGroup) & { _sortVal: number };
+  const topProducts: TopItem[] = (() => {
+    if (!perfData) return [];
+    const organic: TopItem[] = prodSource !== "PAID"
+      ? perfData.topOrganicPins.map((p) => ({
+          ...p,
+          _sortVal: (p[prodSort as keyof TopOrganicPin] as number | null) ?? -1,
+        }))
+      : [];
+    const paid: TopItem[] = prodSource !== "ORGANIC"
+      ? perfData.topPaidProductGroups.map((g) => ({
+          ...g,
+          _sortVal: (g[prodSort as keyof TopPaidGroup] as number | null) ?? -1,
+        }))
+      : [];
+    return [...organic, ...paid].sort((a, b) => b._sortVal - a._sortVal).slice(0, 25);
+  })();
+
+  // ── Shared select class ───────────────────────────────────────────────────────
+  const sel = "text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/30";
+
   const statCards = [
-    { label: "Catalogs", value: summary?.totalCatalogs ?? 0, icon: ShoppingBag, color: "bg-purple-100 text-purple-600" },
-    { label: "Feeds", value: summary?.totalFeeds ?? 0, icon: Layers, color: "bg-blue-100 text-blue-600" },
-    { label: "Total Products", value: summary?.totalProducts != null ? summary.totalProducts.toLocaleString() : "—", icon: BarChart2, color: "bg-green-100 text-green-600" },
-    { label: "Products with Errors", value: summary?.totalErrors != null ? summary.totalErrors.toLocaleString() : "—", icon: XCircle, color: "bg-red-100 text-red-600" },
+    { label: "Catalogs",          value: summary?.totalCatalogs ?? 0,                                               icon: ShoppingBag, color: "bg-purple-100 text-purple-600" },
+    { label: "Feeds",             value: summary?.totalFeeds ?? 0,                                                  icon: Layers,      color: "bg-blue-100 text-blue-600"   },
+    { label: "Total Products",    value: summary?.totalProducts != null ? summary.totalProducts.toLocaleString() : "—", icon: BarChart2,   color: "bg-green-100 text-green-600" },
+    { label: "Products w/ Errors",value: summary?.totalErrors  != null ? summary.totalErrors.toLocaleString()  : "—", icon: XCircle,     color: "bg-red-100 text-red-600"     },
   ];
+
+  const ORGANIC_CATALOG_NOTE = "Pinterest does not provide organic analytics at catalog level via its API. Account-level organic totals are shown above the table.";
 
   return (
     <>
     <div className="space-y-6">
-      {/* Stat cards */}
+
+      {/* ── Stat cards ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((s) => (
           <div key={s.label} className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -457,75 +551,215 @@ function OverviewTab({ data }: { data: OverviewData }) {
         ))}
       </div>
 
-      {/* ── Catalog Analytics ─────────────────────────────────────────── */}
+      {/* ── Catalog Performance ───────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h3 className="font-semibold text-gray-900">Catalog Analytics</h3>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {analyticsData ? `Last 30 days · ${analyticsData.period.startDate} → ${analyticsData.period.endDate}` : "Last 30 days"}
-            </p>
+
+        {/* Controls header */}
+        <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-semibold text-gray-900">Catalog Performance</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {perfData
+                  ? `${perfData.period.startDate} → ${perfData.period.endDate}`
+                  : "Select a date range"}
+              </p>
+            </div>
+            {perfLoading && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Loading catalog performance…
+              </div>
+            )}
           </div>
-          <select
-            value={analyticsType}
-            onChange={(e) => setAnalyticsType(e.target.value as "ORGANIC" | "PAID" | "ALL")}
-            className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/30"
-          >
-            <option value="ORGANIC">Organic</option>
-            <option value="PAID">Paid</option>
-            <option value="ALL">All</option>
-          </select>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Date range */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+              {(["7d","30d","90d"] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setDateRange(r)}
+                  className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                    dateRange === r ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  {r === "7d" ? "Last 7 Days" : r === "30d" ? "Last 30 Days" : "Last 90 Days"}
+                </button>
+              ))}
+            </div>
+            {/* Traffic source */}
+            <select value={source} onChange={(e) => setSource(e.target.value as TrafficSource)} className={sel}>
+              <option value="ALL">All Traffic</option>
+              <option value="ORGANIC">Organic</option>
+              <option value="PAID">Paid</option>
+            </select>
+            {/* Sort by */}
+            <div className="flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-gray-400" />
+              <select value={catSort} onChange={(e) => setCatSort(e.target.value as SortMetric)} className={sel}>
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
-        {analyticsLoading ? (
-          <div className="py-10 flex items-center justify-center gap-2 text-gray-400 text-sm">
-            <RefreshCw className="w-4 h-4 animate-spin" /> Loading analytics…
+        {/* Error state */}
+        {perfError && !perfLoading && (
+          <div className="px-5 py-6 flex items-center gap-2 text-sm text-red-600">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {perfError === "Pinterest not connected"
+              ? "Pinterest account not connected."
+              : perfError.includes("rate limit") || perfError.includes("429")
+                ? "Pinterest API rate limit reached. Please try again later."
+                : `Unable to retrieve Pinterest analytics. ${perfError}`}
           </div>
-        ) : analyticsError ? (
-          <div className="py-8 text-center text-sm text-red-500">{analyticsError}</div>
-        ) : (
+        )}
+
+        {/* Account-level organic totals banner (only when organic data is available) */}
+        {!perfLoading && !perfError && perfData?.organicAccountTotals && source !== "PAID" && (
+          <div className="mx-5 mt-4 mb-1 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+            <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5">
+              <Info className="w-3.5 h-3.5" />
+              Account-Level Organic Analytics (not per-catalog — Pinterest API limitation)
+            </p>
+            <div className="grid grid-cols-5 gap-3">
+              {[
+                { label: "Impressions",     val: perfData.organicAccountTotals.impressions    },
+                { label: "Engagement",      val: perfData.organicAccountTotals.engagement     },
+                { label: "Saves",           val: perfData.organicAccountTotals.saves          },
+                { label: "Pin Clicks",      val: perfData.organicAccountTotals.pinClicks      },
+                { label: "Outbound Clicks", val: perfData.organicAccountTotals.outboundClicks },
+              ].map((m) => (
+                <div key={m.label}>
+                  <p className="text-base font-bold text-blue-900">{fmt(m.val)}</p>
+                  <p className="text-[10px] text-blue-600">{m.label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Catalog table */}
+        {!perfError && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
                   <th className="px-5 py-3 text-left font-medium">Catalog</th>
-                  <th className="px-4 py-3 text-right font-medium">Engagement</th>
-                  <th className="px-4 py-3 text-right font-medium">Saves</th>
-                  <th className="px-4 py-3 text-right font-medium">Impressions</th>
-                  <th className="px-4 py-3 text-right font-medium">Pin Clicks</th>
-                  <th className="px-4 py-3 text-right font-medium pr-5">Outbound Clicks</th>
+                  <th className="px-4 py-3 text-left font-medium">Opportunity
+                    <span className="ml-1 font-normal normal-case text-gray-400">(My Pin Pro)</span>
+                  </th>
+                  {source !== "ORGANIC" && <>
+                    <th className="px-4 py-3 text-right font-medium">Checkouts</th>
+                    <th className="px-4 py-3 text-right font-medium">Add to Cart</th>
+                    <th className="px-4 py-3 text-right font-medium">Impressions</th>
+                    <th className="px-4 py-3 text-right font-medium">Pin Clicks</th>
+                    <th className="px-4 py-3 text-right font-medium pr-5">Outbound</th>
+                  </>}
+                  {source === "ORGANIC" && <>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Engagement <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Saves <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Impressions <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Pin Clicks <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium pr-5">
+                      Outbound <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                  </>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {(analyticsData?.catalogs ?? catalogs.map((c) => ({
-                  id: String(c.id), name: String(c.name || c.id), catalogType: String(c.catalog_type ?? ""),
-                  impressions: null, saves: null, pinClicks: null, outboundClicks: null, engagement: null,
-                }))).map((cat) => (
-                  <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                          <ShoppingBag className="w-4 h-4 text-purple-600" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{cat.name}</p>
-                          <p className="text-xs text-gray-400">{cat.catalogType}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-right font-semibold text-gray-700">{fmt(cat.engagement)}</td>
-                    <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.saves)}</td>
-                    <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.impressions)}</td>
-                    <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.pinClicks)}</td>
-                    <td className="px-4 py-4 text-right text-gray-600 pr-5">{fmt(cat.outboundClicks)}</td>
-                  </tr>
-                ))}
+                {perfLoading
+                  ? Array.from({ length: 3 }).map((_, i) => (
+                      <tr key={i}>
+                        <td colSpan={7} className="px-5 py-4">
+                          <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
+                        </td>
+                      </tr>
+                    ))
+                  : sortedCatalogs.length === 0
+                    ? (
+                      <tr>
+                        <td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">
+                          No analytics available for this period.
+                        </td>
+                      </tr>
+                    )
+                    : sortedCatalogs.map((cat) => {
+                        const sc = SCORE_CONFIG[cat.opportunityScore];
+                        return (
+                          <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                  <ShoppingBag className="w-4 h-4 text-purple-600" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-gray-900">{cat.name}</p>
+                                  <p className="text-xs text-gray-400">{cat.catalogType}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", sc.dot)} />
+                                <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full", sc.color)}>
+                                  {sc.label}
+                                </span>
+                              </div>
+                              {cat.adAccountId && cat.bestAdProductGroupId && (
+                                <a
+                                  href={`/ads`}
+                                  className="mt-1.5 flex items-center gap-1 text-xs text-[#e60023] hover:underline"
+                                  title="Open Pinterest Ads to promote this catalog"
+                                >
+                                  <ArrowUpRight className="w-3 h-3" />
+                                  Promote with Ads
+                                </a>
+                              )}
+                            </td>
+                            {source !== "ORGANIC" ? <>
+                              <td className="px-4 py-4 text-right font-semibold text-gray-700">{fmt(cat.paid?.checkouts)}</td>
+                              <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.paid?.addToCart)}</td>
+                              <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.paid?.impressions)}</td>
+                              <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.paid?.pinClicks)}</td>
+                              <td className="px-4 py-4 text-right text-gray-600 pr-5">{fmt(cat.paid?.outboundClicks)}</td>
+                            </> : <>
+                              {/* Organic catalog-level metrics are not available — Pinterest API limitation */}
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs">—</td>
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs">—</td>
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs">—</td>
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs">—</td>
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs pr-5">—</td>
+                            </>}
+                          </tr>
+                        );
+                      })}
               </tbody>
             </table>
-            {analyticsData && analyticsData.catalogs.every((c) => c.impressions == null) && (
+
+            {/* Organic limitation notice */}
+            {source === "ORGANIC" && !perfLoading && (
               <div className="px-5 py-3 border-t border-gray-100 flex items-start gap-2 text-xs text-amber-700 bg-amber-50">
                 <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                Pinterest doesn&apos;t expose per-catalog metrics in v5. Showing account-level data in Top Products below.
+                Pinterest does not provide organic analytics at catalog level.
+                Catalog-level organic metrics are not available from the Pinterest API v5.
+                Account-level organic totals are shown above. Switch to &ldquo;All&rdquo; or &ldquo;Paid&rdquo; to see paid catalog metrics.
+              </div>
+            )}
+            {source !== "ORGANIC" && !perfLoading && sortedCatalogs.length > 0 && sortedCatalogs.every((c) => !c.paid) && (
+              <div className="px-5 py-3 border-t border-gray-100 flex items-start gap-2 text-xs text-amber-700 bg-amber-50">
+                <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                No Pinterest Shopping Ads product groups found for this account.
+                Paid catalog metrics require active Shopping campaigns targeting these catalogs.
               </div>
             )}
           </div>
@@ -537,89 +771,176 @@ function OverviewTab({ data }: { data: OverviewData }) {
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h3 className="font-semibold text-gray-900">Top Converting Products</h3>
-            <p className="text-xs text-gray-400 mt-0.5">Click any row for daily pin-level analytics · ideal candidates for Shopping ads</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Organic = top pins by account analytics · Paid = top product groups by ads reporting · Click organic pin for daily breakdown
+            </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-gray-400" />
-            <select
-              value={sortMetric}
-              onChange={(e) => setSortMetric(e.target.value as SortMetric)}
-              className="text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/30"
-            >
-              {SORT_METRICS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            <select value={prodSource} onChange={(e) => setProdSource(e.target.value as TrafficSource)} className={sel}>
+              <option value="ALL">All Traffic</option>
+              <option value="ORGANIC">Organic</option>
+              <option value="PAID">Paid</option>
             </select>
+            <div className="flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-gray-400" />
+              <select value={prodSort} onChange={(e) => setProdSort(e.target.value as SortMetric)} className={sel}>
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
-        {analyticsLoading ? (
+        {perfLoading ? (
           <div className="py-10 flex items-center justify-center gap-2 text-gray-400 text-sm">
             <RefreshCw className="w-4 h-4 animate-spin" /> Loading products…
           </div>
-        ) : sortedPins.length === 0 ? (
-          <div className="py-12 text-center text-sm text-gray-400">No product analytics data available for this period.</div>
+        ) : topProducts.length === 0 ? (
+          <div className="py-12 text-center text-sm text-gray-400">
+            No analytics available for this period.
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
-                  <th className="px-5 py-3 text-left font-medium">Product</th>
-                  <th className="px-4 py-3 text-left font-medium">Type</th>
+                  <th className="px-5 py-3 text-left font-medium">Product / Group</th>
+                  <th className="px-4 py-3 text-left font-medium">Source</th>
                   <th className="px-4 py-3 text-right font-medium text-[#e60023]">
-                    {SORT_METRICS.find((m) => m.value === sortMetric)?.label}
+                    {SORT_OPTIONS.find((o) => o.value === prodSort)?.label}
                   </th>
-                  <th className="px-4 py-3 text-right font-medium">Impressions</th>
+                  <th className="px-4 py-3 text-right font-medium">Checkouts</th>
+                  <th className="px-4 py-3 text-right font-medium">Add to Cart</th>
                   <th className="px-4 py-3 text-right font-medium">Saves</th>
-                  <th className="px-4 py-3 text-right font-medium pr-5">Pin Clicks</th>
+                  <th className="px-4 py-3 text-right font-medium">Pin Clicks</th>
+                  <th className="px-4 py-3 text-right font-medium pr-5">Impressions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {sortedPins.map((pin, i) => (
-                  <tr
-                    key={String(pin.id) + i}
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => setSelectedPin({ id: String(pin.id), title: pin.title, imageUrl: pin.imageUrl })}
-                  >
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-3">
-                        {pin.imageUrl ? (
-                          <img src={pin.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
-                        ) : (
-                          <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-                            <ShoppingBag className="w-4 h-4 text-gray-300" />
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <p className="font-medium text-gray-900 truncate max-w-[220px]">{pin.title || "—"}</p>
-                          {pin.link && (
-                            <a href={pin.link} target="_blank" rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-xs text-[#e60023] hover:underline truncate block max-w-[220px]">
-                              {pin.link.replace(/^https?:\/\//, "").slice(0, 40)}
-                            </a>
+                {topProducts.map((item, i) => {
+                  const isOrganic = item.source === "ORGANIC";
+                  const pin = isOrganic ? (item as TopOrganicPin) : null;
+                  const group = !isOrganic ? (item as TopPaidGroup) : null;
+                  const sortVal = item[prodSort as keyof typeof item] as number | null;
+                  return (
+                    <tr
+                      key={item.id + i}
+                      className={cn("hover:bg-gray-50 transition-colors", isOrganic && "cursor-pointer")}
+                      onClick={isOrganic && pin ? () => setSelectedPin({ id: pin.id, title: pin.title, imageUrl: pin.imageUrl }) : undefined}
+                    >
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3">
+                          {pin?.imageUrl ? (
+                            <img src={pin.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                              <ShoppingBag className="w-4 h-4 text-gray-300" />
+                            </div>
                           )}
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-900 truncate max-w-[200px]">
+                              {(pin?.title || group?.name || "—")}
+                            </p>
+                            {group?.catalogName && (
+                              <p className="text-xs text-gray-400 truncate max-w-[200px]">{group.catalogName}</p>
+                            )}
+                            {pin?.link && (
+                              <a href={pin.link} target="_blank" rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-xs text-[#e60023] hover:underline truncate block max-w-[200px]">
+                                {pin.link.replace(/^https?:\/\//, "").slice(0, 40)}
+                              </a>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full",
-                        pin.type === "PAID" ? "bg-purple-100 text-purple-700" : "bg-green-100 text-green-700"
-                      )}>
-                        {pin.type === "PAID" ? "Paid" : "Organic"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-[#e60023]">{fmt(pin[sortMetric])}</td>
-                    <td className="px-4 py-3 text-right text-gray-600">{fmt(pin.impressions)}</td>
-                    <td className="px-4 py-3 text-right text-gray-600">{fmt(pin.saves)}</td>
-                    <td className="px-4 py-3 text-right text-gray-600 pr-5">{fmt(pin.pinClicks)}</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full",
+                          isOrganic ? "bg-green-100 text-green-700" : "bg-purple-100 text-purple-700"
+                        )}>
+                          {isOrganic ? "Organic" : "Paid"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-[#e60023]">{fmt(sortVal)}</td>
+                      {/* Checkouts: organic pins don't have checkout data (Pinterest organic analytics don't include conversions) */}
+                      <td className="px-4 py-3 text-right text-gray-600">{fmt(item.checkouts)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmt(item.addToCart)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmt(isOrganic ? pin?.saves : null)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmt(isOrganic ? pin?.pinClicks : group?.pinClicks)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600 pr-5">{fmt(isOrganic ? pin?.impressions : group?.impressions)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      {/* ── Shopping Ads Opportunities ────────────────────────────────── */}
+      {!perfLoading && !perfError && (perfData?.opportunities?.length ?? 0) > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900">Shopping Ads Opportunities</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              My Pin Pro analysis based on your authorized account data.
+              These are recommendations only — no ads are created automatically.
+            </p>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {perfData!.opportunities.map((opp, idx) => {
+              const strengthColor = opp.strength === "STRONG" ? "text-emerald-600" : opp.strength === "GOOD" ? "text-blue-600" : "text-amber-600";
+              return (
+                <div key={opp.id + idx} className="px-5 py-4 flex items-start gap-4">
+                  <div className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-sm font-bold text-gray-500">
+                    {idx + 1}
+                  </div>
+                  {opp.imageUrl && (
+                    <img src={opp.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-gray-900">{opp.name}</p>
+                      <span className={cn("text-xs font-semibold", strengthColor)}>
+                        {opp.strength === "STRONG" ? "Strong Signal" : opp.strength === "GOOD" ? "Good Signal" : "Potential"}
+                      </span>
+                    </div>
+                    <ul className="mt-1 space-y-0.5">
+                      {opp.signals.map((s, si) => (
+                        <li key={si} className="text-xs text-gray-500 flex items-center gap-1">
+                          <span className="w-1 h-1 bg-gray-300 rounded-full flex-shrink-0" />
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-gray-700 italic">{opp.recommendation}</p>
+                  </div>
+                  {opp.adAccountId && (
+                    <a
+                      href="/ads"
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#c0001f] transition-colors"
+                      title="Opens Pinterest Ads workflow — you must review and launch the campaign manually"
+                    >
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                      View in Ads
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* API errors debug (only when data loaded) */}
+      {!perfLoading && perfData?._meta?.errors?.length ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 text-xs text-amber-700 space-y-1">
+          <p className="font-semibold flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> Some data could not be loaded:</p>
+          {perfData._meta.errors.map((e, i) => <p key={i}>• {e}</p>)}
+        </div>
+      ) : null}
+
     </div>
     <PinAnalyticsDrawerPortal selectedPin={selectedPin} onClose={() => setSelectedPin(null)} />
     </>
