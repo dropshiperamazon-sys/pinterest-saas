@@ -52,11 +52,26 @@ export async function GET(req: NextRequest) {
     return res.json();
   }
 
+  async function fetchTopPins(start: string, end: string, sortBy: string) {
+    const params = new URLSearchParams({
+      start_date: start, end_date: end,
+      sort_by: sortBy, from_claimed_content: "BOTH",
+      pin_format: "ALL", app_types: "ALL", num_of_pins: "25",
+    });
+    const res = await fetch(`https://api.pinterest.com/v5/user_account/top_pins_analytics?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    return res.json();
+  }
+
   // Fetch each group separately to avoid one bad metric name killing all results
   const [
     coreCurrent, corePrev,
     outboundCurrent, outboundPrev,
     engageCurrent, engagePrev,
+    audienceCurrent,
+    topPinsImp,
   ] = await Promise.all([
     fetchMetrics(startDate, endDate, "IMPRESSION,PIN_CLICK,SAVE"),
     fetchMetrics(prevStartStr, prevEndStr, "IMPRESSION,PIN_CLICK,SAVE"),
@@ -64,6 +79,8 @@ export async function GET(req: NextRequest) {
     fetchMetrics(prevStartStr, prevEndStr, "OUTBOUND_CLICK"),
     fetchMetrics(startDate, endDate, "ENGAGEMENT"),
     fetchMetrics(prevStartStr, prevEndStr, "ENGAGEMENT"),
+    fetchMetrics(startDate, endDate, "TOTAL_AUDIENCE,ENGAGED_AUDIENCE"),
+    fetchTopPins(startDate, endDate, "IMPRESSION"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -148,12 +165,32 @@ export async function GET(req: NextRequest) {
   const saveRate = rate(saves, impressions);
   const prevSaveRate = rate(prevSaves, prevImpressions);
 
+  const totalAudience = extract(audienceCurrent, "TOTAL_AUDIENCE");
+  const engagedAudience = extract(audienceCurrent, "ENGAGED_AUDIENCE");
+
+  // Normalize top pins — Pinterest returns { pins: [{ metrics, pin_id }] }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawPins: any[] = topPinsImp?.pins ?? [];
+  const topPins = rawPins.map((p: Record<string, unknown>) => {
+    const metrics = (p.metrics ?? {}) as Record<string, number>;
+    return {
+      pinId: String(p.pin_id ?? ""),
+      impressions: Number(metrics.IMPRESSION ?? 0),
+      saves: Number(metrics.SAVE ?? 0),
+      pinClicks: Number(metrics.PIN_CLICK ?? 0),
+      outboundClicks: Number(metrics.OUTBOUND_CLICK ?? 0),
+      engagements: Number(metrics.ENGAGEMENT ?? 0),
+    };
+  });
+
   return NextResponse.json({
     impressions,
     pinClicks,
     outboundClicks,
     saves,
     engagements,
+    totalAudience,
+    engagedAudience,
     ctr,
     saveRate,
     impressionsChange: pct(impressions, prevImpressions),
@@ -164,6 +201,7 @@ export async function GET(req: NextRequest) {
     ctrChange: pct(ctr, prevCtr),
     saveRateChange: pct(saveRate, prevSaveRate),
     daily,
+    topPins,
     period: { startDate, endDate },
   });
 }

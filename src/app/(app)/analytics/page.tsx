@@ -5,6 +5,7 @@ import { formatNumber } from "@/lib/utils";
 import {
   Eye, MousePointerClick, Heart, ArrowUpRight, ArrowDownRight,
   Loader2, TrendingUp, Percent, Activity, ExternalLink, Calendar, Zap,
+  Users, UserCheck, ChevronDown, ShoppingBag,
 } from "lucide-react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -22,12 +23,23 @@ interface DayData {
   saveRate: number;
 }
 
+interface TopPin {
+  pinId: string;
+  impressions: number;
+  saves: number;
+  pinClicks: number;
+  outboundClicks: number;
+  engagements: number;
+}
+
 interface Analytics {
   impressions: number;
   pinClicks: number;
   outboundClicks: number;
   saves: number;
   engagements: number;
+  totalAudience: number;
+  engagedAudience: number;
   ctr: number;
   saveRate: number;
   impressionsChange: number | null;
@@ -38,6 +50,7 @@ interface Analytics {
   ctrChange: number | null;
   saveRateChange: number | null;
   daily: DayData[];
+  topPins: TopPin[];
   period: { startDate: string; endDate: string };
 }
 
@@ -114,6 +127,15 @@ function CustomTooltip({ active, payload, label }: any) {
   );
 }
 
+type PinSortKey = "impressions" | "engagements" | "pinClicks" | "outboundClicks" | "saves";
+const PIN_SORT_OPTIONS: { key: PinSortKey; label: string }[] = [
+  { key: "impressions",    label: "Impressions" },
+  { key: "engagements",   label: "Engagements" },
+  { key: "pinClicks",     label: "Pin clicks" },
+  { key: "outboundClicks", label: "Outbound clicks" },
+  { key: "saves",         label: "Saves" },
+];
+
 export default function AnalyticsPage() {
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -122,6 +144,8 @@ export default function AnalyticsPage() {
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [showCustom, setShowCustom] = useState(false);
+  const [pinSort, setPinSort] = useState<PinSortKey>("impressions");
+  const [pinImages, setPinImages] = useState<Record<string, { title: string; imageUrl: string }>>({});
 
   const fetchData = useCallback((start: string, end: string) => {
     setLoading(true);
@@ -143,6 +167,23 @@ export default function AnalyticsPage() {
       .catch(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Enrich top pin IDs with images + titles via pin-analytics endpoint
+  useEffect(() => {
+    if (!data?.topPins?.length) return;
+    for (const pin of data.topPins.slice(0, 12)) {
+      if (pinImages[pin.pinId]) continue;
+      fetch(`/api/pinterest-catalog/pin-analytics?pinId=${encodeURIComponent(pin.pinId)}&days=1`)
+        .then(r => r.json())
+        .then(d => {
+          if (d.pin) {
+            setPinImages(prev => ({ ...prev, [pin.pinId]: { title: d.pin.title, imageUrl: d.pin.imageUrl } }));
+          }
+        })
+        .catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.topPins]);
 
   function applyPreset(days: number) {
     setPreset(days);
@@ -194,9 +235,9 @@ export default function AnalyticsPage() {
       tooltip: "Total times your pins were shown to people",
     },
     {
-      label: "Pin Clicks", value: data?.pinClicks ?? 0, change: data?.pinClicksChange ?? null,
-      icon: MousePointerClick, iconBg: "bg-indigo-50 text-indigo-600", valueColor: "text-indigo-700",
-      tooltip: "Clicks to view your pin in closeup (not to your website)",
+      label: "Engagements", value: data?.engagements ?? 0, change: data?.engagementsChange ?? null,
+      icon: Zap, iconBg: "bg-yellow-50 text-yellow-600", valueColor: "text-yellow-700",
+      tooltip: "Total interactions: clicks + saves + closeups",
     },
     {
       label: "Outbound Clicks", value: data?.outboundClicks ?? 0, change: data?.outboundClicksChange ?? null,
@@ -209,9 +250,19 @@ export default function AnalyticsPage() {
       tooltip: "Times people saved your pins to their boards",
     },
     {
-      label: "Engagements", value: data?.engagements ?? 0, change: data?.engagementsChange ?? null,
-      icon: Zap, iconBg: "bg-yellow-50 text-yellow-600", valueColor: "text-yellow-700",
-      tooltip: "Total interactions: clicks + saves + closeups",
+      label: "Total Audience", value: data?.totalAudience ?? 0, change: null,
+      icon: Users, iconBg: "bg-cyan-50 text-cyan-600", valueColor: "text-cyan-700",
+      tooltip: "Unique people who saw your pins in this period",
+    },
+    {
+      label: "Engaged Audience", value: data?.engagedAudience ?? 0, change: null,
+      icon: UserCheck, iconBg: "bg-teal-50 text-teal-600", valueColor: "text-teal-700",
+      tooltip: "Unique people who interacted with your pins",
+    },
+    {
+      label: "Pin Clicks", value: data?.pinClicks ?? 0, change: data?.pinClicksChange ?? null,
+      icon: MousePointerClick, iconBg: "bg-indigo-50 text-indigo-600", valueColor: "text-indigo-700",
+      tooltip: "Clicks to view your pin in closeup (not to your website)",
     },
     {
       label: "Click-Through Rate", value: data?.ctr ?? 0, change: data?.ctrChange ?? null,
@@ -226,6 +277,8 @@ export default function AnalyticsPage() {
       tooltip: "Saves ÷ Impressions — how often people save your pins",
     },
   ];
+
+  const sortedPins = [...(data?.topPins ?? [])].sort((a, b) => b[pinSort] - a[pinSort]);
 
   return (
     <div>
@@ -283,11 +336,12 @@ export default function AnalyticsPage() {
           </div>
         ) : (
           <>
-            {/* 7 stat cards */}
+            {/* Stat cards — row 1: Impressions, Engagements, Outbound, Saves */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {stats.slice(0, 4).map(s => <StatCard key={s.label} {...s} />)}
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Row 2: Total Audience, Engaged Audience, Pin Clicks, CTR, Save Rate */}
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
               {stats.slice(4).map(s => <StatCard key={s.label} {...s} />)}
             </div>
 
@@ -435,6 +489,94 @@ export default function AnalyticsPage() {
                   </ResponsiveContainer>
                 </div>
               </>
+            )}
+
+            {/* ── Top Pins ─────────────────────────────────────────────── */}
+            {sortedPins.length > 0 && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
+                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h2 className="text-base font-semibold text-gray-900">Top Pins</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Displays up to 25 pins based on the sorted metric · {data?.period.startDate} – {data?.period.endDate}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-sm">
+                    <span className="text-xs text-gray-500">Sort by</span>
+                    <div className="relative">
+                      <select
+                        value={pinSort}
+                        onChange={(e) => setPinSort(e.target.value as PinSortKey)}
+                        className="appearance-none text-sm border border-gray-200 rounded-xl pl-3 pr-8 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/30 cursor-pointer"
+                      >
+                        {PIN_SORT_OPTIONS.map(o => (
+                          <option key={o.key} value={o.key}>{o.label}</option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    </div>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                        <th className="px-5 py-3 text-left font-medium">Pin</th>
+                        <th className="px-4 py-3 text-left font-medium">Type</th>
+                        <th className={`px-4 py-3 text-right font-medium ${pinSort === "impressions" ? "text-[#e60023]" : ""}`}>Impressions</th>
+                        <th className={`px-4 py-3 text-right font-medium ${pinSort === "engagements" ? "text-[#e60023]" : ""}`}>Engagements</th>
+                        <th className={`px-4 py-3 text-right font-medium ${pinSort === "pinClicks" ? "text-[#e60023]" : ""}`}>Pin Clicks</th>
+                        <th className={`px-4 py-3 text-right font-medium ${pinSort === "outboundClicks" ? "text-[#e60023]" : ""}`}>Outbound Clicks</th>
+                        <th className="px-4 py-3 text-right font-medium pr-5">Saves</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {sortedPins.map((pin, i) => {
+                        const meta = pinImages[pin.pinId];
+                        return (
+                          <tr key={pin.pinId} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-3">
+                                {meta?.imageUrl ? (
+                                  <img src={meta.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                    <ShoppingBag className="w-4 h-4 text-gray-300" />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium text-gray-800 truncate max-w-[220px]">
+                                    {meta?.title || `Pin ${pin.pinId}`}
+                                  </p>
+                                  <p className="text-xs text-gray-400 font-mono">#{i + 1}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Organic</span>
+                            </td>
+                            <td className={`px-4 py-3 text-right font-semibold ${pinSort === "impressions" ? "text-[#e60023]" : "text-gray-700"}`}>
+                              {formatNumber(pin.impressions)}
+                            </td>
+                            <td className={`px-4 py-3 text-right ${pinSort === "engagements" ? "font-semibold text-[#e60023]" : "text-gray-600"}`}>
+                              {formatNumber(pin.engagements)}
+                            </td>
+                            <td className={`px-4 py-3 text-right ${pinSort === "pinClicks" ? "font-semibold text-[#e60023]" : "text-gray-600"}`}>
+                              {formatNumber(pin.pinClicks)}
+                            </td>
+                            <td className={`px-4 py-3 text-right ${pinSort === "outboundClicks" ? "font-semibold text-[#e60023]" : "text-gray-600"}`}>
+                              {formatNumber(pin.outboundClicks)}
+                            </td>
+                            <td className={`px-4 py-3 text-right pr-5 ${pinSort === "saves" ? "font-semibold text-[#e60023]" : "text-gray-600"}`}>
+                              {formatNumber(pin.saves)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             )}
           </>
         )}
