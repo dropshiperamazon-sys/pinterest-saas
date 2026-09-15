@@ -22,8 +22,10 @@ const QUICK_ACTIONS = [
 interface Analytics {
   impressions: number;
   pinClicks: number;
+  outboundClicks: number;
   impressionsChange: number;
   pinClicksChange: number;
+  outboundClicksChange: number;
   period?: { startDate: string; endDate: string };
 }
 
@@ -65,12 +67,12 @@ export default function Dashboard() {
       color: "bg-green-50 text-green-600",
     },
     {
-      label: "Keywords Tracked",
-      value: 248,
-      change: 15.0,
-      icon: Search,
+      label: "Outbound Clicks",
+      value: analytics?.outboundClicks ?? null,
+      change: analytics?.outboundClicksChange ?? null,
+      icon: TrendingUp,
       color: "bg-purple-50 text-purple-600",
-      static: true,
+      placeholder: "Connect Pinterest",
     },
     {
       label: "Ad Spend",
@@ -89,7 +91,7 @@ export default function Dashboard() {
       <div className="p-6 space-y-6">
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map(({ label, value, change, icon: Icon, color, isCurrency, placeholder, static: isStatic }) => (
+          {stats.map(({ label, value, change, icon: Icon, color, isCurrency, placeholder }) => (
             <div key={label} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-gray-500 font-medium">{label}</span>
@@ -97,7 +99,7 @@ export default function Dashboard() {
                   <Icon className="w-4 h-4" />
                 </div>
               </div>
-              {analyticsLoading && !isStatic && value === null ? (
+              {analyticsLoading && value === null ? (
                 <div className="flex items-center gap-2 text-gray-400 mt-1">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">Loading…</span>
