@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { computeCatalogSeoScore } from "@/lib/catalog-seo-score";
 
@@ -54,10 +55,9 @@ export async function POST(req: NextRequest) {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const raw = await redis.get(`pinterest_connection:${email}`);
-  if (!raw) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
+  const accessToken = await getActivePinterestToken(email);
+  if (!accessToken) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
 
-  const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
 
   const body = await req.json() as {
     productId: string;

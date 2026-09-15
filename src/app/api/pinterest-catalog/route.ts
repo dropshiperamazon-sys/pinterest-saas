@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestAccount } from "@/lib/pinterest-token";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -27,13 +28,9 @@ export async function GET() {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const raw = await redis.get(`pinterest_connection:${email}`);
-  if (!raw) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
+  const connection = await getActivePinterestAccount(email);
+  if (!connection) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
 
-  const connection = (typeof raw === "string" ? JSON.parse(raw) : raw) as {
-    accessToken: string;
-    grantedScopes?: string[];
-  };
   const { accessToken } = connection;
   const grantedScopes: string[] = connection.grantedScopes ?? [];
 

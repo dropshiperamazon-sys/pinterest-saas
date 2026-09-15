@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 import {
   getKeywordById, updateKeyword,
   setPinAssociations, setPinSnapshot,
@@ -54,9 +55,8 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ kw
   if (!kw) return NextResponse.json({ error: "Keyword not found" }, { status: 404 });
 
   // Load Pinterest token
-  const raw = await redis.get(`pinterest_connection:${email}`);
-  if (!raw) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
-  const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
+  const accessToken = await getActivePinterestToken(email);
+  if (!accessToken) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
 
   // Mark as syncing
   await updateKeyword(email, kwId, { trackingStatus: "SYNCING" });

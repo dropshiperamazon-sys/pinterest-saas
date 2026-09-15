@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 
 async function handler(req: NextRequest) {
   try {
@@ -21,9 +22,7 @@ async function handler(req: NextRequest) {
     // Prefer token stored in pin, fall back to user's connection record
     let accessToken: string = pin.accessToken || "";
     if (!accessToken && pin.email) {
-      const connRaw = await redis.get<string>(`pinterest_connection:${pin.email}`);
-      const conn = connRaw ? (typeof connRaw === "string" ? JSON.parse(connRaw) : connRaw) as { accessToken?: string } : null;
-      accessToken = conn?.accessToken ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
+      accessToken = await getActivePinterestToken(pin.email) ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
     }
     if (!accessToken) accessToken = process.env.PINTEREST_ACCESS_TOKEN ?? "";
 

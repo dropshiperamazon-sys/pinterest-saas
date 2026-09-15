@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 
 async function getToken(req: NextRequest): Promise<string> {
   const auth = req.headers.get("authorization");
@@ -8,9 +9,8 @@ async function getToken(req: NextRequest): Promise<string> {
   const email = req.headers.get("x-user-email");
   if (email) {
     const redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL!, token: process.env.UPSTASH_REDIS_REST_TOKEN! });
-    const raw = await redis.get<string>(`pinterest_connection:${email}`);
-    const conn = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken?: string } : null;
-    if (conn?.accessToken) return conn.accessToken;
+    const token = await getActivePinterestToken(email);
+    if (token) return token;
   }
   return process.env.PINTEREST_ACCESS_TOKEN ?? "";
 }
