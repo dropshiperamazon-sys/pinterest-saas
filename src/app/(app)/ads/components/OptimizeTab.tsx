@@ -496,9 +496,23 @@ export default function OptimizeTab() {
                 <h2 className="text-lg font-bold text-gray-900">Automated Rules</h2>
                 <p className="text-sm text-gray-500 mt-0.5">Set-and-forget rules that run on your schedule</p>
               </div>
-              <button className="px-4 py-2 bg-[#e60023] text-white text-sm font-medium rounded-lg hover:bg-[#c8001e]">+ New Rule</button>
+              <button
+                title={!isReal ? "Create a campaign first to activate rules" : undefined}
+                className={cn("px-4 py-2 text-sm font-medium rounded-lg",
+                  isReal ? "bg-[#e60023] text-white hover:bg-[#c8001e]" : "bg-gray-100 text-gray-400 cursor-not-allowed")}>
+                + New Rule
+              </button>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            {!isReal && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">No active campaigns</p>
+                  <p className="mt-0.5 text-amber-700">These are example rules. Create a campaign in Pinterest Ads Manager, then come back to activate automated rules for it.</p>
+                </div>
+              </div>
+            )}
+            <div className={cn("bg-white rounded-xl border border-gray-200 overflow-hidden", !isReal && "opacity-60")}>
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr className="text-left text-xs text-gray-500">
@@ -513,24 +527,28 @@ export default function OptimizeTab() {
                       <td className="px-4 py-3 text-gray-600">{rule.action}</td>
                       <td className="px-4 py-3 text-gray-500">{rule.frequency}</td>
                       <td className="px-4 py-3">
-                        <button onClick={() => setRuleStatuses(prev => ({ ...prev, [rule.id]: prev[rule.id] === "active" ? "paused" : "active" }))}
+                        <button
+                          disabled={!isReal}
+                          onClick={() => isReal && setRuleStatuses(prev => ({ ...prev, [rule.id]: prev[rule.id] === "active" ? "paused" : "active" }))}
                           className={cn("relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                            ruleStatuses[rule.id] === "active" ? "bg-green-500" : "bg-gray-200")}>
+                            !isReal ? "bg-gray-200 cursor-not-allowed" : ruleStatuses[rule.id] === "active" ? "bg-green-500" : "bg-gray-200")}>
                           <span className={cn("inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform",
-                            ruleStatuses[rule.id] === "active" ? "translate-x-4" : "translate-x-1")} />
+                            isReal && ruleStatuses[rule.id] === "active" ? "translate-x-4" : "translate-x-1")} />
                         </button>
                       </td>
                       <td className="px-4 py-3">
-                        <button className="text-xs text-gray-400 hover:text-[#e60023]">Edit</button>
+                        <button disabled={!isReal} className={cn("text-xs", isReal ? "text-gray-400 hover:text-[#e60023]" : "text-gray-300 cursor-not-allowed")}>Edit</button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4 text-sm text-yellow-800">
-              <strong>Tip:</strong> The &quot;No conversion pause&quot; rule is paused. Enable it to automatically pause ads with 0 conversions after 1,000 impressions.
-            </div>
+            {isReal && (
+              <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4 text-sm text-yellow-800">
+                <strong>Tip:</strong> The &quot;No conversion pause&quot; rule is paused. Enable it to automatically pause ads with 0 conversions after 1,000 impressions.
+              </div>
+            )}
           </div>
         )}
 
