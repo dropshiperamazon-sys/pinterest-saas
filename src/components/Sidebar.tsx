@@ -257,9 +257,9 @@ export default function Sidebar() {
             <span className="text-sm font-semibold">Upgrade to Pro</span>
           </div>
           <p className="text-xs opacity-80 mb-3">Unlock unlimited keywords, advanced competitor insights & more.</p>
-          <button className="w-full bg-white text-[#e60023] text-xs font-semibold py-2 rounded-lg hover:bg-red-50 transition-colors">
+          <Link href="/pricing" className="block w-full bg-white text-[#e60023] text-xs font-semibold py-2 rounded-lg hover:bg-red-50 transition-colors text-center">
             Get Pro Access
-          </button>
+          </Link>
         </div>
       </div>
     </aside>
