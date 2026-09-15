@@ -11,14 +11,15 @@ const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? "";
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { userEmail: string } }
+  { params }: { params: Promise<{ userEmail: string }> }
 ) {
   const session = await auth();
   if (!session?.user?.email || session.user.email !== ADMIN_EMAIL) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const targetEmail = decodeURIComponent(params.userEmail);
+  const { userEmail } = await params;
+  const targetEmail = decodeURIComponent(userEmail);
   const body = await req.json() as Record<string, unknown>;
 
   const raw = await redis.get(`user:${targetEmail}`);
