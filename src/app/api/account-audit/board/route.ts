@@ -76,6 +76,42 @@ function extractKeywordsForPin(title: string, description: string): {
   return result.slice(0, 12);
 }
 
+function dateStr(daysAgo: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return d.toISOString().slice(0, 10);
+}
+
+async function fetchPinAnalytics(pinId: string, accessToken: string): Promise<{
+  impressions: number; engagements: number; saves: number; outboundClicks: number;
+}> {
+  const start = dateStr(30);
+  const end = dateStr(0);
+  const url = `https://api.pinterest.com/v5/pins/${encodeURIComponent(pinId)}/analytics` +
+    `?start_date=${start}&end_date=${end}&metric_types=ENGAGEMENT,IMPRESSION,SAVE,OUTBOUND_CLICK&app_types=ALL`;
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" });
+    if (!res.ok) return { impressions: 0, engagements: 0, saves: 0, outboundClicks: 0 };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await res.json();
+    const daily: Record<string, unknown>[] = Array.isArray(data?.all?.daily_metrics)
+      ? data.all.daily_metrics
+      : Array.isArray(data) ? data : [];
+    const totals = daily.reduce((acc: { impressions: number; engagements: number; saves: number; outboundClicks: number }, row) => {
+      const m = (row.metrics ?? row) as Record<string, number>;
+      return {
+        impressions: acc.impressions + (Number(m.IMPRESSION) || 0),
+        engagements: acc.engagements + (Number(m.ENGAGEMENT) || 0),
+        saves: acc.saves + (Number(m.SAVE) || 0),
+        outboundClicks: acc.outboundClicks + (Number(m.OUTBOUND_CLICK) || 0),
+      };
+    }, { impressions: 0, engagements: 0, saves: 0, outboundClicks: 0 });
+    return totals;
+  } catch {
+    return { impressions: 0, engagements: 0, saves: 0, outboundClicks: 0 };
+  }
+}
+
 export async function GET(req: NextRequest) {
   const session = await auth();
   const email = session?.user?.email;
@@ -87,6 +123,7 @@ export async function GET(req: NextRequest) {
 
   const boardId = req.nextUrl.searchParams.get("boardId");
   if (!boardId) return NextResponse.json({ error: "boardId required" }, { status: 400 });
+  const withAnalytics = req.nextUrl.searchParams.get("analytics") === "true";
 
   const headers = { Authorization: `Bearer ${accessToken}` };
 
@@ -106,7 +143,7 @@ export async function GET(req: NextRequest) {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const enriched = (pins as any[]).map((pin: any) => {
+  const basePins = (pins as any[]).map((pin: any) => {
     const title = (pin.title ?? "").trim();
     const description = (pin.description ?? "").trim();
     const link = (pin.link ?? "").trim();
@@ -115,7 +152,6 @@ export async function GET(req: NextRequest) {
       pin.media?.images?.["400x300"]?.url ??
       pin.media?.images?.["600x"]?.url ??
       "";
-
     return {
       id: pin.id,
       title,
@@ -125,8 +161,19 @@ export async function GET(req: NextRequest) {
       altText: pin.alt_text ?? "",
       keywords: extractKeywordsForPin(title, description),
       createdAt: pin.created_at ?? "",
+      analytics: null as null | { impressions: number; engagements: number; saves: number; outboundClicks: number },
     };
   });
 
-  return NextResponse.json({ pins: enriched, total: enriched.length });
+  if (withAnalytics) {
+    // Fetch analytics in batches of 5 to respect rate limits
+    const BATCH = 5;
+    for (let i = 0; i < basePins.length; i += BATCH) {
+      const batch = basePins.slice(i, i + BATCH);
+      const results = await Promise.all(batch.map(p => fetchPinAnalytics(p.id, accessToken)));
+      results.forEach((r, j) => { basePins[i + j].analytics = r; });
+    }
+  }
+
+  return NextResponse.json({ pins: basePins, total: basePins.length });
 }

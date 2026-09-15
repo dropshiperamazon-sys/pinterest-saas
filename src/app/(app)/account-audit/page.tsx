@@ -21,6 +21,13 @@ interface PinKeyword {
   type: "short" | "long";
 }
 
+interface PinAnalytics {
+  impressions: number;
+  engagements: number;
+  saves: number;
+  outboundClicks: number;
+}
+
 interface BoardPin {
   id: string;
   title: string;
@@ -30,6 +37,7 @@ interface BoardPin {
   altText: string;
   keywords: PinKeyword[];
   createdAt: string;
+  analytics: PinAnalytics | null;
 }
 
 interface OwnAudit {
@@ -159,9 +167,10 @@ function BoardDetail({
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [showDupsOnly, setShowDupsOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<"default" | "impressions" | "engagements" | "saves" | "outboundClicks">("default");
 
   useEffect(() => {
-    fetch(`/api/account-audit/board?boardId=${board.id}`)
+    fetch(`/api/account-audit/board?boardId=${board.id}&analytics=true`)
       .then((r) => r.json())
       .then((d) => {
         if (d.error) throw new Error(d.error);
@@ -172,13 +181,18 @@ function BoardDetail({
   }, [board.id]);
 
   const dupMap = buildDuplicateMap(pins);
-  const dupPinCount = dupMap.size; // total pins that have at least one duplicate
+  const dupPinCount = dupMap.size;
 
-  const filtered = pins.filter((p) => {
-    const matchSearch = !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase());
-    const matchDup = !showDupsOnly || dupMap.has(p.id);
-    return matchSearch && matchDup;
-  });
+  const filtered = pins
+    .filter((p) => {
+      const matchSearch = !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase());
+      const matchDup = !showDupsOnly || dupMap.has(p.id);
+      return matchSearch && matchDup;
+    })
+    .sort((a, b) => {
+      if (sortBy === "default") return 0;
+      return (b.analytics?.[sortBy] ?? 0) - (a.analytics?.[sortBy] ?? 0);
+    });
 
   return (
     <div className="space-y-4">
@@ -261,15 +275,28 @@ function BoardDetail({
         </span>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search pins by title or description…"
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-        />
+      {/* Search + Sort */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search pins by title or description…"
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+          />
+        </div>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+          className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white"
+        >
+          <option value="default">Sort: Default</option>
+          <option value="impressions">Sort: Impressions</option>
+          <option value="engagements">Sort: Engagements</option>
+          <option value="saves">Sort: Saves</option>
+          <option value="outboundClicks">Sort: Outbound Clicks</option>
+        </select>
       </div>
 
       {loading ? (
@@ -292,7 +319,7 @@ function BoardDetail({
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-52">Title</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-64">Description</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Link</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keywords</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Analytics (30d)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -381,16 +408,26 @@ function BoardDetail({
                       )}
                     </td>
 
-                    {/* Keywords */}
+                    {/* Analytics */}
                     <td className="px-4 py-3">
-                      {pin.keywords.length === 0 ? (
-                        <span className="text-xs text-gray-300 italic">—</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1 max-w-xs">
-                          {pin.keywords.map((kw) => (
-                            <PinKwChip key={kw.keyword} kw={kw} />
+                      {loading ? (
+                        <span className="text-xs text-gray-300 italic">Loading…</span>
+                      ) : pin.analytics ? (
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 min-w-[160px]">
+                          {[
+                            { label: "Impressions", value: pin.analytics.impressions },
+                            { label: "Engagements", value: pin.analytics.engagements },
+                            { label: "Saves", value: pin.analytics.saves },
+                            { label: "Outbound", value: pin.analytics.outboundClicks },
+                          ].map(({ label, value }) => (
+                            <div key={label}>
+                              <p className="text-[10px] text-gray-400 leading-none">{label}</p>
+                              <p className="text-xs font-semibold text-gray-800">{value.toLocaleString()}</p>
+                            </div>
                           ))}
                         </div>
+                      ) : (
+                        <span className="text-xs text-gray-300 italic">—</span>
                       )}
                     </td>
                   </tr>
