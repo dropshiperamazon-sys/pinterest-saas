@@ -97,13 +97,13 @@ function generateRecs(campaigns: RealCampaign[]): Rec[] {
   return recs.sort((a, b) => order[a.priority] - order[b.priority]);
 }
 
-function DataBanner({ loading, data, error }: { loading: boolean; data: AdsApiData | null; error: string | null }) {
+function DataBanner({ loading, data, error, hasCampaigns }: { loading: boolean; data: AdsApiData | null; error: string | null; hasCampaigns: boolean }) {
   if (loading) return (
     <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-gray-400 animate-pulse">
       <span className="w-2 h-2 rounded-full bg-gray-300" /> Loading Pinterest data…
     </div>
   );
-  if (data) return (
+  if (data && hasCampaigns) return (
     <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-green-700">
       <span className="w-2 h-2 rounded-full bg-green-500" />
       Live data · <strong className="mx-1">{data.adAccountName}</strong> · {data.period.startDate} → {data.period.endDate}
@@ -112,7 +112,11 @@ function DataBanner({ loading, data, error }: { loading: boolean; data: AdsApiDa
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-amber-700">
       <AlertCircle className="w-4 h-4 flex-shrink-0" />
-      {error === "Pinterest not connected" ? "Connect your Pinterest account to see live optimization data." : `Using sample data${error ? ` (${error})` : ""}.`}
+      {data
+        ? `No active campaigns found in ${data.adAccountName} — showing sample data.`
+        : error === "Pinterest not connected"
+        ? "Connect your Pinterest account to see live optimization data."
+        : `Using sample data${error ? ` (${error})` : ""}.`}
     </div>
   );
 }
@@ -136,7 +140,7 @@ export default function OptimizeTab() {
   ]);
 
   const campaigns: RealCampaign[] = data?.campaigns ?? [];
-  const isReal = !!data;
+  const isReal = !!(data && campaigns.length > 0);
   const opportunity = isReal
     ? computeOpportunityScore(campaigns)
     : { overall: 72, breakdown: [
@@ -195,7 +199,7 @@ export default function OptimizeTab() {
         {/* ── Opportunity Score ── */}
         {activeSection === "Opportunity Score" && (
           <div className="space-y-5">
-            <DataBanner loading={loading} data={data} error={error} />
+            <DataBanner loading={loading} data={data} error={error} hasCampaigns={isReal} />
             <div>
               <h2 className="text-lg font-bold text-gray-900">Opportunity Score</h2>
               <p className="text-sm text-gray-500 mt-0.5">{isReal ? "Calculated from your live campaign metrics" : "Account health score"}</p>
@@ -255,7 +259,7 @@ export default function OptimizeTab() {
         {/* ── Recommendations ── */}
         {activeSection === "Recommendations" && (
           <div className="space-y-5">
-            <DataBanner loading={loading} data={data} error={error} />
+            <DataBanner loading={loading} data={data} error={error} hasCampaigns={isReal} />
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Optimization Recommendations</h2>
@@ -302,7 +306,7 @@ export default function OptimizeTab() {
         {/* ── Budget & Bid ── */}
         {activeSection === "Budget & Bid" && (
           <div className="space-y-5">
-            <DataBanner loading={loading} data={data} error={error} />
+            <DataBanner loading={loading} data={data} error={error} hasCampaigns={isReal} />
             <div>
               <h2 className="text-lg font-bold text-gray-900">Budget & Bid Optimization</h2>
               <p className="text-sm text-gray-500 mt-0.5">Suggested budget reallocation based on live performance</p>
@@ -533,7 +537,7 @@ export default function OptimizeTab() {
         {/* ── AI Copilot ── */}
         {activeSection === "AI Copilot" && (
           <div className="space-y-5">
-            <DataBanner loading={loading} data={data} error={error} />
+            <DataBanner loading={loading} data={data} error={error} hasCampaigns={isReal} />
             <div>
               <h2 className="text-lg font-bold text-gray-900">AI Growth Copilot</h2>
               <p className="text-sm text-gray-500 mt-0.5">
