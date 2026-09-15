@@ -21,6 +21,7 @@ import {
   Database,
   ShoppingBag,
   BookmarkCheck,
+  Users,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -35,9 +36,10 @@ const NAV_ITEMS = [
   { href: "/ads", icon: Megaphone, label: "Pinterest Ads" },
   { href: "/catalog", icon: ShoppingBag, label: "Pinterest Catalog" },
   { href: "/admin/keywords", icon: Database, label: "Keyword Admin" },
+  { href: "/admin", icon: Users, label: "Admin Panel" },
 ];
 
-const ADMIN_NAV_HREFS = new Set(["/admin/keywords"]);
+const ADMIN_NAV_HREFS = new Set(["/admin/keywords", "/admin"]);
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -84,7 +86,7 @@ export default function Sidebar() {
           if (!ADMIN_NAV_HREFS.has(href)) return true;
           return session?.user?.email === adminEmail && !!adminEmail;
         }).map(({ href, icon: Icon, label }) => {
-          const active = pathname === href || (href !== "/" && pathname.startsWith(href));
+          const active = pathname === href || (href !== "/" && href !== "/admin" && pathname.startsWith(href));
           return (
             <Link
               key={href}
