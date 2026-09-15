@@ -311,6 +311,15 @@ export default function OptimizeTab() {
               <h2 className="text-lg font-bold text-gray-900">Budget & Bid Optimization</h2>
               <p className="text-sm text-gray-500 mt-0.5">Suggested budget reallocation based on live performance</p>
             </div>
+            {!isReal && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">No active campaigns — sample data</p>
+                  <p className="mt-0.5 text-amber-700">Bid strategy suggestions below are examples. Real recommendations will be calculated from your live campaign performance.</p>
+                </div>
+              </div>
+            )}
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h3 className="text-sm font-semibold text-gray-800 mb-4">Campaign Budget Allocation</h3>
               <div className="overflow-x-auto">
@@ -359,7 +368,7 @@ export default function OptimizeTab() {
               </div>
               {isReal && <p className="text-xs text-gray-400 mt-3">+30% for CTR &gt;0.8% · −30% for CTR &lt;0.3% · Apply changes in Pinterest Ads Manager.</p>}
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
               <h3 className="text-sm font-semibold text-gray-800 mb-4">Bid Strategy Recommendations</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
@@ -383,11 +392,21 @@ export default function OptimizeTab() {
         {/* ── Audience ── */}
         {activeSection === "Audience" && (
           <div className="space-y-5">
+            <DataBanner loading={loading} data={data} error={error} hasCampaigns={isReal} />
             <div>
               <h2 className="text-lg font-bold text-gray-900">Audience Optimization</h2>
               <p className="text-sm text-gray-500 mt-0.5">Expand reach and improve targeting efficiency</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
+            {!isReal && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">No active campaigns — sample data</p>
+                  <p className="mt-0.5 text-amber-700">These are example audience segments. Real audience performance data will appear once you have active campaigns.</p>
+                </div>
+              </div>
+            )}
+            <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
               <h3 className="text-sm font-semibold text-gray-800 mb-4">Audience Performance Review</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -407,7 +426,7 @@ export default function OptimizeTab() {
                           {aud.convRate}%
                         </td>
                         <td className="py-3">
-                          <button className="text-xs text-[#e60023] font-medium hover:underline">
+                          <button disabled={!isReal} className={cn("text-xs font-medium", isReal ? "text-[#e60023] hover:underline" : "text-gray-300 cursor-not-allowed")}>
                             {aud.type === "retargeting" ? "Create Lookalike" : "Increase Budget"}
                           </button>
                         </td>
@@ -417,7 +436,7 @@ export default function OptimizeTab() {
                 </table>
               </div>
             </div>
-            <div className="bg-blue-50 rounded-xl border border-blue-100 p-5">
+            <div className={cn("bg-blue-50 rounded-xl border border-blue-100 p-5", !isReal && "opacity-60")}>
               <h3 className="text-sm font-semibold text-blue-800 mb-2">💡 Audience Expansion Suggestion</h3>
               <p className="text-sm text-blue-700">
                 Create a 1% lookalike from your <strong>Website Visitors (30d)</strong> retargeting list — estimated reach of <strong>2.1M similar users</strong> at 3–4% conv. rate.
