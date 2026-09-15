@@ -433,7 +433,16 @@ export default function OptimizeTab() {
               <h2 className="text-lg font-bold text-gray-900">Creative & Keyword Optimization</h2>
               <p className="text-sm text-gray-500 mt-0.5">Refresh underperforming creatives and tighten keyword strategy</p>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
+            {!isReal && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
+                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">No active campaigns — sample data</p>
+                  <p className="mt-0.5 text-amber-700">These are example suggestions. Once you have active campaigns, real creative fatigue and keyword data will appear here.</p>
+                </div>
+              </div>
+            )}
+            <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
               <h3 className="text-sm font-semibold text-gray-800 mb-4">Creative Refresh Queue</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
@@ -449,12 +458,12 @@ export default function OptimizeTab() {
                         {" · "}{item.drop}
                       </p>
                     </div>
-                    <button className="flex-shrink-0 text-xs bg-[#e60023] text-white px-3 py-1.5 rounded-lg hover:bg-[#c8001e]">{item.action}</button>
+                    <button disabled={!isReal} className={cn("flex-shrink-0 text-xs px-3 py-1.5 rounded-lg", isReal ? "bg-[#e60023] text-white hover:bg-[#c8001e]" : "bg-gray-100 text-gray-400 cursor-not-allowed")}>{item.action}</button>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
               <h3 className="text-sm font-semibold text-gray-800 mb-4">Keyword Optimization</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -478,7 +487,7 @@ export default function OptimizeTab() {
                         </td>
                         <td className="py-2.5 pr-4 text-gray-600">{kw.volume ? formatNumber(kw.volume) : "—"}</td>
                         <td className="py-2.5 pr-4 text-gray-600">{kw.suggestedBid ? formatCurrency(kw.suggestedBid) : "—"}</td>
-                        <td className="py-2.5">{!kw.negative && <button className="text-xs text-[#e60023] font-medium hover:underline">{kw.competition === "high" ? "Review bid" : "Add"}</button>}</td>
+                        <td className="py-2.5">{!kw.negative && <button disabled={!isReal} className={cn("text-xs font-medium", isReal ? "text-[#e60023] hover:underline" : "text-gray-300 cursor-not-allowed")}>{kw.competition === "high" ? "Review bid" : "Add"}</button>}</td>
                       </tr>
                     ))}
                   </tbody>
