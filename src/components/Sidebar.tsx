@@ -98,13 +98,16 @@ export default function Sidebar() {
 
   async function handleSwitch(username: string) {
     setDropdownOpen(false);
-    await fetch("/api/pinterest-switch", {
+    const res = await fetch("/api/pinterest-switch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username }),
     });
-    setActiveUsername(username);
-    router.refresh();
+    if (res.ok) {
+      setActiveUsername(username);
+      loadConnection();
+      router.refresh();
+    }
   }
 
   async function handleDisconnect(username: string) {
@@ -232,7 +235,7 @@ export default function Sidebar() {
                 ) : (
                   <div className="flex items-center gap-2 px-3 py-2.5 text-xs text-gray-400">
                     <Plus className="w-3 h-3" />
-                    Max 3 accounts reached
+                    Account limit reached — upgrade to add more
                   </div>
                 )}
               </div>

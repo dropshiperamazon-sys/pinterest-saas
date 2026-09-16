@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getUserLimits } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -47,6 +48,7 @@ export async function GET() {
   if (accounts.length === 0) return NextResponse.json({ connected: false, accounts: [] });
 
   const active = accounts.find((a) => a.username === activeUsername) ?? accounts[0];
+  const planLimits = await getUserLimits(email);
 
   return NextResponse.json({
     connected: true,
@@ -57,6 +59,6 @@ export async function GET() {
     grantedScopes: active.grantedScopes,
     hasAds: active.grantedScopes?.includes("ads:read"),
     hasCatalog: active.grantedScopes?.includes("catalogs:read"),
-    canAddMore: accounts.length < 3,
+    canAddMore: accounts.length < planLimits.maxPinterestAccounts,
   });
 }
