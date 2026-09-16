@@ -25,13 +25,13 @@ interface User {
 const PLAN_LABELS: Record<string, string> = {
   free: "Free",
   pro: "Pro",
-  business: "Business",
+  enterprise: "Enterprise",
 };
 
 const PLAN_COLORS: Record<string, string> = {
   free: "bg-gray-100 text-gray-600",
-  pro: "bg-blue-100 text-blue-700",
-  business: "bg-purple-100 text-purple-700",
+  pro: "bg-violet-100 text-violet-700",
+  enterprise: "bg-amber-100 text-amber-700",
 };
 
 function trialStatus(user: User): { label: string; color: string } {
@@ -284,7 +284,7 @@ export default function AdminPage() {
                               <button
                                 onClick={() => {
                                   setSubModal({ user });
-                                  setSubPlan(user.plan === "free" ? "pro" : user.plan);
+                                  setSubPlan(user.plan === "free" ? "pro" : (user.plan === "business" ? "enterprise" : user.plan));
                                   setSubAction("grant");
                                   setSubEndDate("");
                                 }}
@@ -468,7 +468,7 @@ export default function AdminPage() {
                       className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none"
                     >
                       <option value="pro">Pro</option>
-                      <option value="business">Business</option>
+                      <option value="enterprise">Enterprise</option>
                       <option value="free">Free</option>
                     </select>
                   </div>
