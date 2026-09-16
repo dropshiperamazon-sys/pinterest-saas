@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
@@ -34,6 +36,10 @@ function timeAgo(ms: number): string {
 }
 
 export default function TrackKeywordsPage() {
+  const { limits, loading: planLoading } = usePlan();
+  if (planLoading) return null;
+  if (!limits.canTrackKeywords) return <UpgradeGate requiredPlan="pro" feature="Track Keywords" />;
+
   const [folders, setFolders] = useState<FolderWithStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

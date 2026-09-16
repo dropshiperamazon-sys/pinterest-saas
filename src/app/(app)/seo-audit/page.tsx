@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -65,6 +67,10 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
 }
 
 export default function SEOAuditPage() {
+  const { limits, loading: planLoading } = usePlan();
+  if (planLoading) return null;
+  if (!limits.canSeoAudit) return <UpgradeGate requiredPlan="pro" feature="Pinterest SEO Audit" />;
+
   const router = useRouter();
   const [data, setData] = useState<AccountData | null>(null);
   const [loading, setLoading] = useState(true);

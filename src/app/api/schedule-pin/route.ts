@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
 import { getActivePinterestToken } from "@/lib/pinterest-token";
+import { guardPinSchedule, incrementScheduledPin } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -65,6 +66,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Title and scheduledAt are required" }, { status: 400 });
     }
 
+    // Plan guard: check monthly pin schedule limit
+    const scheduleGuard = await guardPinSchedule(email);
+    if (!scheduleGuard.allowed) {
+      return NextResponse.json(
+        { error: scheduleGuard.error, upgradeRequired: scheduleGuard.upgradeRequired, count: scheduleGuard.count, limit: scheduleGuard.limit },
+        { status: 403 }
+      );
+    }
+
     const pinId = `pin_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     let resolvedImageUrl: string = imageUrl || "";
     if (resolvedImageUrl.startsWith("data:")) {
@@ -96,6 +106,7 @@ export async function POST(req: NextRequest) {
         ex: 60 * 60 * 24 * 90,
       }),
       redis.sadd(userPinSetKey(email), pinId),
+      incrementScheduledPin(email),
     ]);
 
     // Try QStash (non-fatal if missing)

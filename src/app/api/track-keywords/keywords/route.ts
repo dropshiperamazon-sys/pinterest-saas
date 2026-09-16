@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getFolder, saveKeyword } from "@/lib/track-keywords-db";
+import { guardFeature } from "@/lib/plan-limits";
 
 export async function POST(req: NextRequest) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const featureGuard = await guardFeature(email, "canTrackKeywords");
+  if (!featureGuard.allowed) {
+    return NextResponse.json({ error: featureGuard.error, upgradeRequired: featureGuard.upgradeRequired }, { status: 403 });
+  }
 
   const body = await req.json() as {
     folderId: string;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
 import { getActivePinterestToken } from "@/lib/pinterest-token";
+import { guardFeature } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -33,9 +34,13 @@ export async function GET(req: Request) {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
+  const featureGuard = await guardFeature(email, "canAds");
+  if (!featureGuard.allowed) {
+    return NextResponse.json({ error: featureGuard.error, upgradeRequired: featureGuard.upgradeRequired }, { status: 403 });
+  }
+
   const accessToken = await getActivePinterestToken(email);
   if (!accessToken) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
-
 
   const { searchParams } = new URL(req.url);
   const days = Math.min(90, Math.max(1, Number(searchParams.get("days") ?? "30")));

@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Header from "@/components/Header";
@@ -456,6 +458,10 @@ function BoardDetail({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function AccountAuditPage() {
+  const { limits, loading: planLoading } = usePlan();
+  if (planLoading) return null;
+  if (!limits.canAccountAudit) return <UpgradeGate requiredPlan="pro" feature="Account Audit" />;
+
   const { data: session } = useSession();
   const [activeTab, setActiveTab] = useState<"own" | "external">("own");
 

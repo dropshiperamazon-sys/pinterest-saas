@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 import { useEffect, useState, useCallback } from "react";
 import Header from "@/components/Header";
 import { formatNumber } from "@/lib/utils";
@@ -158,6 +160,10 @@ const PIN_SORT_OPTIONS: { key: PinSortKey; label: string }[] = [
 ];
 
 export default function AnalyticsPage() {
+  const { limits, loading: planLoading } = usePlan();
+  if (planLoading) return null;
+  if (!limits.canAnalytics) return <UpgradeGate requiredPlan="pro" feature="Analytics Dashboard" />;
+
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);

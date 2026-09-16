@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -2142,6 +2144,10 @@ function EmptyState({ label }: { label: string }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CatalogPage() {
+  const { limits, loading: planLoading } = usePlan();
+  if (planLoading) return null;
+  if (!limits.canCatalog) return <UpgradeGate requiredPlan="enterprise" feature="Pinterest Catalog" />;
+
   const [activeTab, setActiveTab] = useState<Tab>("seo");
   const [overviewData, setOverviewData] = useState<OverviewData | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);

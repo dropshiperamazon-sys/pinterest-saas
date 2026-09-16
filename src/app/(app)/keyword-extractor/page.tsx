@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 import { useState, useMemo, useRef } from "react";
 import {
   Globe, Copy, Download, Sparkles, CheckCircle,
@@ -49,6 +51,10 @@ const PAGE_SIZE = 25;
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function KeywordExtractorPage() {
+  const { limits, loading: planLoading } = usePlan();
+  if (planLoading) return null;
+  if (!limits.canKeywordExtractor) return <UpgradeGate requiredPlan="pro" feature="Keyword Extractor" />;
+
   const [domain, setDomain] = useState("");
   const [domainError, setDomainError] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);

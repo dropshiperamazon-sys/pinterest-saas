@@ -1,6 +1,7 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
 import Header from "@/components/Header";
+import { usePlan } from "@/hooks/usePlan";
 import { formatNumber } from "@/lib/utils";
 import { PINTEREST_CATEGORIES, generateKeywords, type KeywordResult } from "@/lib/pinterest-data";
 import type { KeywordIntelligenceResult, KeywordEntry } from "@/lib/openai-keyword-analyzer";
@@ -724,6 +725,7 @@ function AIIntelligenceSection({
 
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function KeywordsPage() {
+  const { limits } = usePlan();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<KeywordResult[]>([]);
   const [relatedResults, setRelatedResults] = useState<KeywordResult[]>([]);
@@ -736,7 +738,7 @@ export default function KeywordsPage() {
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [searchRemaining, setSearchRemaining] = useState<number | null>(null);
-  const [searchLimit, setSearchLimit] = useState(10);
+  const [searchLimit, setSearchLimit] = useState<number | null>(10);
   const [showLimitGate, setShowLimitGate] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -775,7 +777,8 @@ export default function KeywordsPage() {
   // Fetch remaining searches on mount
   useEffect(() => {
     fetch("/api/search-limit").then(r => r.json()).then(d => {
-      if (d.remaining != null) { setSearchRemaining(d.remaining); setSearchLimit(d.limit); }
+      if (d.unlimited) { setSearchRemaining(null); setSearchLimit(null); }
+      else if (d.remaining != null) { setSearchRemaining(d.remaining); setSearchLimit(d.limit); }
     }).catch(() => {});
   }, []);
 
@@ -944,11 +947,16 @@ export default function KeywordsPage() {
     return sortAsc ? diff : -diff;
   });
 
+  // Apply plan keyword result limit (free = 15 max)
+  const maxResults = limits.maxKeywordResults === -1 ? Infinity : limits.maxKeywordResults;
+  const limitedSorted = sorted.slice(0, maxResults);
+  const resultsLimited = sorted.length > limitedSorted.length;
+
   const RELATED_PER_PAGE = 50;
-  const relatedTotalPages = Math.ceil(sorted.length / RELATED_PER_PAGE);
+  const relatedTotalPages = Math.ceil(limitedSorted.length / RELATED_PER_PAGE);
   const pagedSorted = dataTab === "related" && relatedResults.length > 0
-    ? sorted.slice((relatedPage - 1) * RELATED_PER_PAGE, relatedPage * RELATED_PER_PAGE)
-    : sorted;
+    ? limitedSorted.slice((relatedPage - 1) * RELATED_PER_PAGE, relatedPage * RELATED_PER_PAGE)
+    : limitedSorted;
 
   const toggleSort = (key: SortKey) => { if (sortKey === key) setSortAsc(p => !p); else { setSortKey(key); setSortAsc(false); } };
 
@@ -1046,7 +1054,7 @@ export default function KeywordsPage() {
       {showLimitGate && (
         <SearchLimitGate
           remaining={searchRemaining ?? 0}
-          limit={searchLimit}
+          limit={searchLimit ?? 0}
           onClose={() => setShowLimitGate(false)}
         />
       )}
@@ -1222,11 +1230,19 @@ export default function KeywordsPage() {
                     </button>
                   </div>
                 )}
+                {resultsLimited && (
+                  <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-amber-50 border-b border-amber-100">
+                    <span className="text-xs text-amber-700">
+                      Showing {maxResults} of {sorted.length} results. Upgrade to Pro to unlock all results.
+                    </span>
+                    <a href="/pricing" className="text-xs font-semibold text-[#e60023] hover:underline whitespace-nowrap">Upgrade →</a>
+                  </div>
+                )}
                 <div className="flex items-center justify-between p-4 border-b border-gray-100">
                   <div className="flex items-center gap-2">
                     <BarChart2 className="w-4 h-4 text-gray-400" />
                     <span className="text-sm font-semibold text-gray-700">
-                      {sorted.length} keyword{sorted.length !== 1 ? "s" : ""}
+                      {limitedSorted.length} keyword{limitedSorted.length !== 1 ? "s" : ""}
                     </span>
                     <span
                       title={isLive ? "Data pulled live from Pinterest API" : "Estimated figures based on Pinterest category benchmarks. Trend direction and match types are accurate; volume & CPC are approximate."}

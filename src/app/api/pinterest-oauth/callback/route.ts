@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getUserLimits } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
-
-const MAX_ACCOUNTS = 3;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -82,11 +81,13 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Update if same username already connected, otherwise append (up to MAX_ACCOUNTS)
+  // Update if same username already connected, otherwise append (up to plan limit)
+  const planLimits = await getUserLimits(email);
+  const maxAccounts = planLimits.maxPinterestAccounts;
   const existingIdx = accounts.findIndex((a) => a.username === newAccount.username);
   if (existingIdx >= 0) {
     accounts[existingIdx] = newAccount;
-  } else if (accounts.length < MAX_ACCOUNTS) {
+  } else if (accounts.length < maxAccounts) {
     accounts.push(newAccount);
   } else {
     return NextResponse.redirect(`${baseUrl}/account?pinterest=limit`);

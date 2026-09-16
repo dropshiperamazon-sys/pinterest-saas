@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
 import { getActivePinterestAccount } from "@/lib/pinterest-token";
+import { guardFeature } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -27,6 +28,11 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  const featureGuard = await guardFeature(email, "canCatalog");
+  if (!featureGuard.allowed) {
+    return NextResponse.json({ error: featureGuard.error, upgradeRequired: featureGuard.upgradeRequired }, { status: 403 });
+  }
 
   const connection = await getActivePinterestAccount(email);
   if (!connection) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
