@@ -393,7 +393,7 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
     : { spend: 12.4, impressions: 8.1, clicks: -5.3, saves: 18.6, ctr: -13.2, cpc: 7.4 };
 
   const stats = [
-    { label: "Total Spend",   value: `$${formatNumber(totals.spend)}`,       key: "spend",       icon: DollarSign,       color: "bg-[#e60023]/10 text-[#e60023]",  inverse: true },
+    { label: "Total Spend",   value: `$${formatNumber(Math.round(totals.spend * 100) / 100)}`,       key: "spend",       icon: DollarSign,       color: "bg-[#e60023]/10 text-[#e60023]",  inverse: true },
     { label: "Impressions",   value: formatNumber(totals.impressions),        key: "impressions", icon: Eye,              color: "bg-blue-50 text-blue-600",        inverse: false },
     { label: "Clicks",        value: formatNumber(totals.clicks),             key: "clicks",      icon: MousePointerClick,color: "bg-purple-50 text-purple-600",    inverse: false },
     { label: "Saves",         value: formatNumber(totals.saves),              key: "saves",       icon: Bookmark,         color: "bg-pink-50 text-pink-600",        inverse: false },
@@ -454,7 +454,7 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
                     <td className="px-3 py-3">
                       <span className={cn("text-xs px-2 py-0.5 rounded-full font-semibold capitalize", STATUS_STYLE[c.status] ?? "bg-gray-100 text-gray-600")}>{c.status}</span>
                     </td>
-                    <td className="px-3 py-3 text-sm font-semibold text-gray-800">${formatNumber(isReal ? rc.spend : mc.totalSpend)}</td>
+                    <td className="px-3 py-3 text-sm font-semibold text-gray-800">${formatNumber(isReal ? Math.round(rc.spend * 100) / 100 : mc.totalSpend)}</td>
                     <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.impressions : mc.impressions)}</td>
                     <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.clicks : mc.clicks)}</td>
                     <td className="px-3 py-3 text-sm font-semibold text-gray-800">{(isReal ? rc.ctr : mc.ctr).toFixed(2)}%</td>
