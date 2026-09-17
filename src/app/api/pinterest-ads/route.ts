@@ -57,11 +57,27 @@ export async function GET(req: Request) {
   const startDate = dateStr(days);
   const endDate = dateStr(1);
 
+  // Pinterest v5 column names for analytics endpoints
+  const ANALYTICS_COLS = "SPEND_IN_DOLLAR,IMPRESSION_1,CLICKTHROUGH_1,SAVE_1,ENGAGEMENT_1,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_ADD_TO_CART,TOTAL_PAGE_VISIT";
+
+  // summary_status → display label mapping
+  // Pinterest returns: RUNNING, NOT_STARTED, PAUSED, COMPLETED, ADVERTISER_DISABLED, ARCHIVED, DRAFT
+  function mapStatus(summaryStatus: string, rawStatus: string): string {
+    const s = (summaryStatus || rawStatus || "").toUpperCase();
+    if (s === "RUNNING") return "active";
+    if (s === "PAUSED") return "paused";
+    if (s === "COMPLETED") return "completed";
+    if (s === "NOT_STARTED") return "draft";
+    if (s === "ARCHIVED") return "archived";
+    if (s === "ADVERTISER_DISABLED") return "paused";
+    return (rawStatus || "unknown").toLowerCase();
+  }
+
   // 2. Fetch campaigns + account analytics in parallel
   const [campaignsData, analyticsData] = await Promise.all([
-    pinterestGet(`/ad_accounts/${adAccountId}/campaigns?page_size=25`, accessToken),
+    pinterestGet(`/ad_accounts/${adAccountId}/campaigns?page_size=100`, accessToken),
     pinterestGet(
-      `/ad_accounts/${adAccountId}/analytics?start_date=${startDate}&end_date=${endDate}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_CLICKTHROUGH,TOTAL_ENGAGEMENT,TOTAL_SAVE,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_ADD_TO_CART,TOTAL_PAGE_VISIT&granularity=TOTAL`,
+      `/ad_accounts/${adAccountId}/analytics?start_date=${startDate}&end_date=${endDate}&columns=${ANALYTICS_COLS}&granularity=TOTAL`,
       accessToken
     ),
   ]);
@@ -69,7 +85,7 @@ export async function GET(req: Request) {
   const campaigns = (campaignsData?.items ?? []).map((c: Record<string, unknown>) => ({
     id: c.id,
     name: c.name,
-    status: (c.status as string)?.toLowerCase() ?? "unknown",
+    status: mapStatus(c.summary_status as string, c.status as string),
     objective: c.objective_type,
     dailyBudget: c.daily_spend_cap ? Number(c.daily_spend_cap) / 1_000_000 : null,
     lifetimeBudget: c.lifetime_spend_cap ? Number(c.lifetime_spend_cap) / 1_000_000 : null,
@@ -87,10 +103,10 @@ export async function GET(req: Request) {
 
     const [camAnalytics, adGroupsData] = await Promise.all([
       pinterestGet(
-        `/ad_accounts/${adAccountId}/campaigns/analytics?start_date=${startDate}&end_date=${endDate}&campaign_ids=${ids}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_SAVE,TOTAL_ENGAGEMENT,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_ADD_TO_CART,TOTAL_PAGE_VISIT&granularity=TOTAL`,
+        `/ad_accounts/${adAccountId}/campaigns/analytics?start_date=${startDate}&end_date=${endDate}&campaign_ids=${ids}&columns=${ANALYTICS_COLS}&granularity=TOTAL`,
         accessToken
       ),
-      pinterestGet(`/ad_accounts/${adAccountId}/ad_groups?page_size=50`, accessToken),
+      pinterestGet(`/ad_accounts/${adAccountId}/ad_groups?page_size=100`, accessToken),
     ]);
 
     // Attach analytics to each campaign
@@ -102,10 +118,10 @@ export async function GET(req: Request) {
       for (const c of campaigns) {
         const row = byId[String(c.id)] ?? {};
         const rawSpend = Number(row.SPEND_IN_DOLLAR) || 0;
-        const rawImps  = Number(row.IMPRESSION_1)   || 0;
-        const rawClicks = Number(row.CLICK_1)        || 0;
-        const rawSaves  = Number(row.TOTAL_SAVE)     || 0;
-        const rawEngage = Number(row.TOTAL_ENGAGEMENT) || 0;
+        const rawImps  = Number(row.IMPRESSION_1)    || 0;
+        const rawClicks = Number(row.CLICKTHROUGH_1)  || 0;
+        const rawSaves  = Number(row.SAVE_1)          || 0;
+        const rawEngage = Number(row.ENGAGEMENT_1)    || 0;
         const imps  = rawImps  || 1; // avoid division by zero
         (c as Record<string, unknown>).spend       = rawSpend;
         (c as Record<string, unknown>).impressions = rawImps;
@@ -161,9 +177,9 @@ export async function GET(req: Request) {
     totals: {
       spend:       Number(totals.SPEND_IN_DOLLAR)   || 0,
       impressions: Number(totals.IMPRESSION_1)       || 0,
-      clicks:      Number(totals.CLICK_1)            || 0,
-      saves:       Number(totals.TOTAL_SAVE)         || 0,
-      engagements: Number(totals.TOTAL_ENGAGEMENT)   || 0,
+      clicks:      Number(totals.CLICKTHROUGH_1)     || 0,
+      saves:       Number(totals.SAVE_1)             || 0,
+      engagements: Number(totals.ENGAGEMENT_1)       || 0,
       checkouts:   Number(totals.TOTAL_CHECKOUT)     || 0,
       addToCart:   Number(totals.TOTAL_ADD_TO_CART)  || 0,
       pageVisits:  Number(totals.TOTAL_PAGE_VISIT)   || 0,

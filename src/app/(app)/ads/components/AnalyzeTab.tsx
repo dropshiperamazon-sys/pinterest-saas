@@ -184,10 +184,12 @@ function campaignHealthScore(c: RealCampaign): number {
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, string> = {
-  active: "bg-green-100 text-green-700",
-  paused: "bg-yellow-100 text-yellow-700",
-  ended:  "bg-gray-100 text-gray-600",
-  draft:  "bg-blue-100 text-blue-700",
+  active:    "bg-green-100 text-green-700",
+  paused:    "bg-yellow-100 text-yellow-700",
+  completed: "bg-gray-100 text-gray-600",
+  ended:     "bg-gray-100 text-gray-600",
+  archived:  "bg-gray-100 text-gray-500",
+  draft:     "bg-blue-100 text-blue-700",
 };
 
 const FORMAT_ICON: Record<string, React.ElementType> = {
