@@ -45,7 +45,10 @@ export async function GET() {
     }
   }
 
-  if (accounts.length === 0) return NextResponse.json({ connected: false, accounts: [] });
+  if (accounts.length === 0) {
+    const planLimitsEmpty = await getUserLimits(email);
+    return NextResponse.json({ connected: false, accounts: [], plan: planLimitsEmpty.plan });
+  }
 
   const active = accounts.find((a) => a.username === activeUsername) ?? accounts[0];
   const planLimits = await getUserLimits(email);
@@ -60,5 +63,6 @@ export async function GET() {
     hasAds: active.grantedScopes?.includes("ads:read"),
     hasCatalog: active.grantedScopes?.includes("catalogs:read"),
     canAddMore: accounts.length < planLimits.maxPinterestAccounts,
+    plan: planLimits.plan,
   });
 }

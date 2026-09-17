@@ -61,6 +61,7 @@ export default function Sidebar() {
   const [activeUsername, setActiveUsername] = useState<string | null>(null);
   const [canAddMore, setCanAddMore] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [userPlan, setUserPlan] = useState<"free" | "pro" | "enterprise">("free");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,6 +73,7 @@ export default function Sidebar() {
     fetch("/api/pinterest-connection")
       .then((r) => r.json())
       .then((d) => {
+        if (d.plan) setUserPlan(d.plan);
         if (d.connected) {
           setAccounts(d.accounts ?? []);
           setActiveUsername(d.activeUsername ?? null);
@@ -249,18 +251,33 @@ export default function Sidebar() {
       </div>
 
       {/* Upgrade Banner */}
-      <div className="p-4">
-        <div className="bg-gradient-to-br from-[#e60023] to-[#ad081b] rounded-xl p-4 text-white">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap className="w-4 h-4" />
-            <span className="text-sm font-semibold">Upgrade to Pro</span>
-          </div>
-          <p className="text-xs opacity-80 mb-3">Unlock unlimited keywords, advanced competitor insights & more.</p>
-          <Link href="/pricing" className="block w-full bg-white text-[#e60023] text-xs font-semibold py-2 rounded-lg hover:bg-red-50 transition-colors text-center">
-            Get Pro Access
-          </Link>
+      {userPlan !== "enterprise" && (
+        <div className="p-4">
+          {userPlan === "free" ? (
+            <div className="bg-gradient-to-br from-[#e60023] to-[#ad081b] rounded-xl p-4 text-white">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="w-4 h-4" />
+                <span className="text-sm font-semibold">Upgrade to Pro</span>
+              </div>
+              <p className="text-xs opacity-80 mb-3">Unlock unlimited keywords, advanced competitor insights & more.</p>
+              <Link href="/pricing" className="block w-full bg-white text-[#e60023] text-xs font-semibold py-2 rounded-lg hover:bg-red-50 transition-colors text-center">
+                Get Pro Access
+              </Link>
+            </div>
+          ) : (
+            <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl p-4 text-white">
+              <div className="flex items-center gap-2 mb-2">
+                <Zap className="w-4 h-4" />
+                <span className="text-sm font-semibold">Upgrade to Enterprise</span>
+              </div>
+              <p className="text-xs opacity-80 mb-3">Unlock Pinterest Ads, Catalog, unlimited accounts & priority support.</p>
+              <Link href="/pricing" className="block w-full bg-white text-amber-600 text-xs font-semibold py-2 rounded-lg hover:bg-amber-50 transition-colors text-center">
+                Get Enterprise Access
+              </Link>
+            </div>
+          )}
         </div>
-      </div>
+      )}
     </aside>
   );
 }
