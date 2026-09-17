@@ -21,19 +21,12 @@ async function pinterestGet(path: string, token: string) {
   const res = await fetch(`${BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   });
-  const text = await res.text();
   if (!res.ok) {
+    const text = await res.text();
     console.error(`Pinterest API ${path} → ${res.status}:`, text);
     return null;
   }
-  try {
-    const json = JSON.parse(text);
-    console.log(`Pinterest API ${path} → OK, sample:`, JSON.stringify(json).slice(0, 400));
-    return json;
-  } catch {
-    console.error(`Pinterest API ${path} → parse error:`, text.slice(0, 200));
-    return null;
-  }
+  return res.json();
 }
 
 export async function GET(req: Request) {
@@ -64,8 +57,8 @@ export async function GET(req: Request) {
   const startDate = dateStr(days);
   const endDate = dateStr(1);
 
-  // Pinterest v5 column names for analytics endpoints
-  const ANALYTICS_COLS = "SPEND_IN_DOLLAR,IMPRESSION_1,CLICKTHROUGH_1,SAVE_1,ENGAGEMENT_1,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_ADD_TO_CART,TOTAL_PAGE_VISIT";
+  // Pinterest v5 valid column names (verified from API error response)
+  const ANALYTICS_COLS = "SPEND_IN_DOLLAR,IMPRESSION_1,CLICKTHROUGH_1,REPIN_1,ENGAGEMENT_1,CTR,CPM_IN_DOLLAR,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_CLICK_ADD_TO_CART,TOTAL_PAGE_VISIT";
 
   // summary_status → display label mapping
   // Pinterest returns: RUNNING, NOT_STARTED, PAUSED, COMPLETED, ADVERTISER_DISABLED, ARCHIVED, DRAFT
@@ -124,24 +117,27 @@ export async function GET(req: Request) {
       }
       for (const c of campaigns) {
         const row = byId[String(c.id)] ?? {};
-        const rawSpend = Number(row.SPEND_IN_DOLLAR) || 0;
-        const rawImps  = Number(row.IMPRESSION_1)    || 0;
-        const rawClicks = Number(row.CLICKTHROUGH_1)  || 0;
-        const rawSaves  = Number(row.SAVE_1)          || 0;
-        const rawEngage = Number(row.ENGAGEMENT_1)    || 0;
-        const imps  = rawImps  || 1; // avoid division by zero
+        const rawSpend  = Number(row.SPEND_IN_DOLLAR)   || 0;
+        const rawImps   = Number(row.IMPRESSION_1)      || 0;
+        const rawClicks = Number(row.CLICKTHROUGH_1)    || 0;
+        const rawSaves  = Number(row.REPIN_1)           || 0;
+        const rawEngage = Number(row.ENGAGEMENT_1)      || 0;
+        const apiCtr    = Number(row.CTR)               || 0;
+        const apiCpm    = Number(row.CPM_IN_DOLLAR)     || 0;
+        const imps      = rawImps || 1;
         (c as Record<string, unknown>).spend       = rawSpend;
         (c as Record<string, unknown>).impressions = rawImps;
         (c as Record<string, unknown>).clicks      = rawClicks;
         (c as Record<string, unknown>).saves       = rawSaves;
         (c as Record<string, unknown>).engagements = rawEngage;
         const rawCheckouts = Number(row.TOTAL_CHECKOUT) || 0;
-        const rawAddToCart = Number(row.TOTAL_ADD_TO_CART) || 0;
+        const rawAddToCart = Number(row.TOTAL_CLICK_ADD_TO_CART) || 0;
         const rawPageVisit = Number(row.TOTAL_PAGE_VISIT) || 0;
         const rawRevenue   = Number(row.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000 || 0;
-        (c as Record<string, unknown>).ctr        = Math.round((rawClicks / imps) * 10000) / 100;
+        // Use API-provided CTR/CPM if available, fall back to calculated
+        (c as Record<string, unknown>).ctr        = apiCtr || Math.round((rawClicks / imps) * 10000) / 100;
         (c as Record<string, unknown>).cpc        = rawClicks > 0 ? Math.round((rawSpend / rawClicks) * 100) / 100 : 0;
-        (c as Record<string, unknown>).cpm        = Math.round((rawSpend / imps) * 1000 * 100) / 100;
+        (c as Record<string, unknown>).cpm        = apiCpm || Math.round((rawSpend / imps) * 1000 * 100) / 100;
         (c as Record<string, unknown>).saveRate   = rawClicks > 0 ? Math.round(rawSaves / rawClicks * 10000) / 100 : 0;
         (c as Record<string, unknown>).checkouts  = rawCheckouts;
         (c as Record<string, unknown>).addToCart  = rawAddToCart;
@@ -182,14 +178,14 @@ export async function GET(req: Request) {
     adAccountName,
     period: { startDate, endDate },
     totals: {
-      spend:       Number(totals.SPEND_IN_DOLLAR)   || 0,
-      impressions: Number(totals.IMPRESSION_1)       || 0,
-      clicks:      Number(totals.CLICKTHROUGH_1)     || 0,
-      saves:       Number(totals.SAVE_1)             || 0,
-      engagements: Number(totals.ENGAGEMENT_1)       || 0,
-      checkouts:   Number(totals.TOTAL_CHECKOUT)     || 0,
-      addToCart:   Number(totals.TOTAL_ADD_TO_CART)  || 0,
-      pageVisits:  Number(totals.TOTAL_PAGE_VISIT)   || 0,
+      spend:       Number(totals.SPEND_IN_DOLLAR)        || 0,
+      impressions: Number(totals.IMPRESSION_1)            || 0,
+      clicks:      Number(totals.CLICKTHROUGH_1)          || 0,
+      saves:       Number(totals.REPIN_1)                 || 0,
+      engagements: Number(totals.ENGAGEMENT_1)            || 0,
+      checkouts:   Number(totals.TOTAL_CHECKOUT)          || 0,
+      addToCart:   Number(totals.TOTAL_CLICK_ADD_TO_CART) || 0,
+      pageVisits:  Number(totals.TOTAL_PAGE_VISIT)        || 0,
       revenue:     Number(totals.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000 || 0,
       aov:         Number(totals.TOTAL_CHECKOUT) > 0
         ? (Number(totals.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000) / Number(totals.TOTAL_CHECKOUT)
