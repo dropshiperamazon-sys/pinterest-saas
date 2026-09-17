@@ -1995,7 +1995,7 @@ function generateBoardDescription(keywords: string): string {
 type BoardSection = { id: string; name: string };
 type ManagedBoard = { id: string; name: string; description: string; privacy: string; sections: BoardSection[] };
 
-function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onClose: () => void }) {
+function ManageBoardsModal({ onClose }: { onClose: () => void }) {
   const [boards, setBoards] = useState<ManagedBoard[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -2024,10 +2024,7 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
   const [aiKeywords, setAiKeywords] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
 
-  const authHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-  };
+  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
 
   useEffect(() => {
     fetch("/api/manage-boards", { headers: authHeaders })
@@ -2454,32 +2451,24 @@ export default function SchedulerPage() {
   const { data: session } = useSession();
 
   useEffect(() => {
-    // Load real Pinterest connection + boards + scheduled pins
+    // Load Pinterest connection status and real boards via session auth
     fetch("/api/pinterest-connection")
       .then((r) => r.json())
       .then((data) => {
         setConnected(data.connected);
         setPinterestName(data.pinterestName || data.pinterestUsername || "");
-        if (data.connected && data.accessToken) {
-          (window as Window & { __pinterestToken?: string }).__pinterestToken = data.accessToken;
-          return fetch("/api/pinterest-boards", {
-            headers: { Authorization: `Bearer ${data.accessToken}` },
-          }).then((r) => r.json());
-        }
         return fetch("/api/pinterest-boards").then((r) => r.json());
       })
       .then((data) => {
         if (!data) return;
         const list: { id: string; name: string }[] = Array.isArray(data.boards) && data.boards.length
           ? data.boards
-          : FALLBACK_BOARDS.map((name) => ({ id: name, name }));
+          : [];
         setBoards(list);
         setDrafts((d) => d.map((dr) => (!dr.board && !dr.boards?.length) ? { ...dr, board: list[0]?.name ?? "" } : dr));
       })
       .catch(() => {
-        const list = FALLBACK_BOARDS.map((name) => ({ id: name, name }));
-        setBoards(list);
-        setDrafts((d) => d.map((dr) => (!dr.board && !dr.boards?.length) ? { ...dr, board: list[0]?.name ?? "" } : dr));
+        setBoards([]);
       })
       .finally(() => setBoardsLoading(false));
 
@@ -2866,7 +2855,6 @@ export default function SchedulerPage() {
       {/* ── Manage Boards Modal ── */}
       {boardsModalOpen && (
         <ManageBoardsModal
-          accessToken={typeof window !== "undefined" ? ((window as Window & { __pinterestToken?: string }).__pinterestToken ?? "") : ""}
           onClose={() => {
             setBoardsModalOpen(false);
             // Refresh boards list after edits
