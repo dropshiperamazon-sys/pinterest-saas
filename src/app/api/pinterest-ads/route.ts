@@ -21,12 +21,19 @@ async function pinterestGet(path: string, token: string) {
   const res = await fetch(`${BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   });
+  const text = await res.text();
   if (!res.ok) {
-    const text = await res.text();
     console.error(`Pinterest API ${path} → ${res.status}:`, text);
     return null;
   }
-  return res.json();
+  try {
+    const json = JSON.parse(text);
+    console.log(`Pinterest API ${path} → OK, sample:`, JSON.stringify(json).slice(0, 400));
+    return json;
+  } catch {
+    console.error(`Pinterest API ${path} → parse error:`, text.slice(0, 200));
+    return null;
+  }
 }
 
 export async function GET(req: Request) {
