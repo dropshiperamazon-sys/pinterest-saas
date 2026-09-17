@@ -33,6 +33,9 @@ export default function Dashboard() {
   const [pinterestConnected, setPinterestConnected] = useState(false);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [adSpend, setAdSpend] = useState<number | null>(null);
+  const [adSpendLoading, setAdSpendLoading] = useState(false);
+  const [noAdAccount, setNoAdAccount] = useState(false);
 
   useEffect(() => {
     fetch("/api/pinterest-connection")
@@ -46,6 +49,18 @@ export default function Dashboard() {
             .then(data => { if (!data.error) setAnalytics(data); })
             .catch(() => {})
             .finally(() => setAnalyticsLoading(false));
+
+          setAdSpendLoading(true);
+          fetch("/api/pinterest-ad-spend")
+            .then(r => r.json())
+            .then(data => {
+              if (!data.error) {
+                setAdSpend(data.adSpend ?? null);
+                setNoAdAccount(data.noAdAccount ?? false);
+              }
+            })
+            .catch(() => {})
+            .finally(() => setAdSpendLoading(false));
         }
       })
       .catch(() => {});
@@ -76,12 +91,13 @@ export default function Dashboard() {
     },
     {
       label: "Ad Spend",
-      value: null as number | null,
+      value: adSpend,
       change: null as number | null,
       icon: DollarSign,
       color: "bg-orange-50 text-orange-600",
       isCurrency: true,
-      placeholder: "Connect Ads",
+      loading: adSpendLoading,
+      placeholder: noAdAccount ? "No ad account" : "Connect Pinterest",
     },
   ];
 
@@ -91,7 +107,7 @@ export default function Dashboard() {
       <div className="p-6 space-y-6">
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map(({ label, value, change, icon: Icon, color, isCurrency, placeholder }) => (
+          {stats.map(({ label, value, change, icon: Icon, color, isCurrency, loading: tileLoading, placeholder }) => (
             <div key={label} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-gray-500 font-medium">{label}</span>
@@ -99,7 +115,7 @@ export default function Dashboard() {
                   <Icon className="w-4 h-4" />
                 </div>
               </div>
-              {analyticsLoading && value === null ? (
+              {(analyticsLoading || tileLoading) && value === null ? (
                 <div className="flex items-center gap-2 text-gray-400 mt-1">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">Loading…</span>
