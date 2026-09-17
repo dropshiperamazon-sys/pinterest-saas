@@ -204,7 +204,7 @@ export default function AccountPage() {
             className="flex items-center gap-2 text-red-600 font-medium text-sm hover:text-red-800"
           >
             <LogOut className="w-4 h-4" />
-            Sign out of My Pin Pro
+            Sign out of Rambforce
           </button>
         </div>
       </div>

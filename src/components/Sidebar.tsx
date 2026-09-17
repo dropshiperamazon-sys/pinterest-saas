@@ -128,11 +128,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="p-6 border-b border-gray-100">
         <Link href="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-[#e60023] rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">P</span>
-          </div>
-          <span className="font-bold text-gray-900 text-lg">My Pin Pro</span>
-          <span className="text-xs bg-[#e60023] text-white px-1.5 py-0.5 rounded font-medium">PRO</span>
+          <img src="/rambforce-logo.png" alt="Rambforce" className="h-7 w-auto object-contain" />
         </Link>
       </div>
 

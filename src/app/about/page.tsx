@@ -33,9 +33,9 @@ export default function AboutPage() {
 
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-8 sm:pb-12 text-center">
-        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">About My Pin Pro</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">About Rambforce</h1>
         <p className="text-base sm:text-lg text-gray-500 max-w-2xl mx-auto">
-          My Pin Pro was built by Pinterest marketers, for Pinterest marketers. We got tired of juggling
+          Rambforce was built by Pinterest marketers, for Pinterest marketers. We got tired of juggling
           spreadsheets, manual scheduling, and guessing which keywords would rank — so we built the tool we always wanted.
         </p>
       </section>
@@ -48,12 +48,12 @@ export default function AboutPage() {
             flying blind — posting without strategy, missing peak times, and targeting the wrong keywords.
           </p>
           <p>
-            My Pin Pro changes that. We give you the keyword research tools to find what people are actually searching for,
+            Rambforce changes that. We give you the keyword research tools to find what people are actually searching for,
             the scheduler to post at the right time every time, and the analytics to understand what's actually driving traffic.
           </p>
           <p>
             Whether you're a blogger trying to grow your audience, an e-commerce store driving product sales, or a social
-            media manager handling multiple clients — My Pin Pro is the Pinterest marketing suite you've been looking for.
+            media manager handling multiple clients — Rambforce is the Pinterest marketing suite you've been looking for.
           </p>
         </div>
       </section>

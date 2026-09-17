@@ -48,11 +48,8 @@ export default function SignupPage() {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 mb-6">
-            <div className="w-10 h-10 bg-[#e60023] rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold">P</span>
-            </div>
-            <span className="font-bold text-gray-900 text-xl">My Pin Pro</span>
+          <Link href="/" className="inline-flex items-center mb-6">
+            <img src="/rambforce-logo.png" alt="Rambforce" className="h-10 w-auto object-contain" />
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">Create your account</h1>
           <p className="text-gray-500 mt-1">Start growing your Pinterest for free</p>

@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email service not configured (RESEND_API_KEY missing)" }, { status: 500 });
   }
 
-  const fromEmail = process.env.EMAIL_FROM ?? "noreply@mypinpro.com";
+  const fromEmail = process.env.EMAIL_FROM ?? "noreply@rambforce.com";
   const results: { email: string; success: boolean; error?: string }[] = [];
 
   for (const recipient of recipients) {

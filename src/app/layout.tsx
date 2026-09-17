@@ -3,7 +3,7 @@ import "./globals.css";
 import SessionProvider from "@/components/SessionProvider";
 
 export const metadata: Metadata = {
-  title: "My Pin Pro - Pinterest Marketing Suite",
+  title: "Rambforce - Pinterest Marketing Suite",
   description: "Keyword research, pin scheduler, and ads manager for Pinterest marketers",
 };
 

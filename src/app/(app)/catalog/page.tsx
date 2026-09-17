@@ -674,7 +674,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
                 <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
                   <th className="px-5 py-3 text-left font-medium">Catalog</th>
                   <th className="px-4 py-3 text-left font-medium">Opportunity
-                    <span className="ml-1 font-normal normal-case text-gray-400">(My Pin Pro)</span>
+                    <span className="ml-1 font-normal normal-case text-gray-400">(Rambforce)</span>
                   </th>
                   {source !== "ORGANIC" && <>
                     <th className="px-4 py-3 text-right font-medium">Checkouts</th>
@@ -1004,7 +1004,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
           <div className="px-5 py-4 border-b border-gray-100">
             <h3 className="font-semibold text-gray-900">Shopping Ads Opportunities</h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              My Pin Pro analysis based on your authorized account data.
+              Rambforce analysis based on your authorized account data.
               These are recommendations only — no ads are created automatically.
             </p>
           </div>
@@ -1283,7 +1283,7 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange, a
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
               <p className={cn("text-3xl font-bold", scoreColor(avgScore))}>{avgScore}</p>
-              <p className="text-xs text-gray-500 mt-1">My Pin Pro SEO Score</p>
+              <p className="text-xs text-gray-500 mt-1">Rambforce SEO Score</p>
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
               <p className="text-3xl font-bold text-green-600">{goodCount}</p>
@@ -1579,7 +1579,7 @@ function GroupProductDetailView({ product, onBack }: { product: GroupProduct; on
           </div>
           <div className="text-right flex-shrink-0">
             <p className={cn("text-2xl font-bold", scoreColor(product.seoScore))}>{product.seoScore}</p>
-            <p className="text-xs text-gray-400 mt-0.5">My Pin Pro SEO Score</p>
+            <p className="text-xs text-gray-400 mt-0.5">Rambforce SEO Score</p>
           </div>
         </div>
 

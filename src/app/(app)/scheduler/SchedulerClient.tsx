@@ -148,7 +148,7 @@ function newDraft(): PinDraft {
   };
 }
 
-const DRAFTS_STORAGE_KEY = "mypinpro_drafts";
+const DRAFTS_STORAGE_KEY = "rambforce_drafts";
 
 // ── AI Modal ───────────────────────────────────────────────────────────────────
 
@@ -2943,7 +2943,7 @@ export default function SchedulerPage() {
                     const blob = new Blob([csv], { type: "text/csv" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
-                    a.href = url; a.download = "mypinpro_template.csv"; a.click();
+                    a.href = url; a.download = "rambforce_template.csv"; a.click();
                     URL.revokeObjectURL(url);
                   }}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-green-600 text-green-700 font-semibold text-sm hover:bg-green-50 transition-colors"
@@ -3012,7 +3012,7 @@ export default function SchedulerPage() {
                   Connect your Pinterest account
                   <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">Required</span>
                 </div>
-                <div className="text-sm text-gray-500">Authorize My Pin Pro to publish and schedule pins on your behalf.</div>
+                <div className="text-sm text-gray-500">Authorize Rambforce to publish and schedule pins on your behalf.</div>
               </div>
             </div>
             <a

@@ -386,7 +386,7 @@ export default function AdminPage() {
                 type="text"
                 value={emailSubject}
                 onChange={(e) => setEmailSubject(e.target.value)}
-                placeholder="e.g. Exciting new features in My Pin Pro!"
+                placeholder="e.g. Exciting new features in Rambforce!"
                 className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/30"
               />
             </div>

@@ -10,7 +10,7 @@ const redis = new Redis({
 
 const BASE = "https://api.pinterest.com/v5";
 
-// ─── My Pin Pro Scoring Configuration ────────────────────────────────────────
+// ─── Rambforce Scoring Configuration ────────────────────────────────────────
 // These thresholds drive only MY PIN PRO's internal "Catalog Opportunity" score.
 // They are NOT Pinterest scores. NOT presented as Pinterest recommendations.
 // All values are per the selected date period.
@@ -84,7 +84,7 @@ function extractOrganic(data: Record<string, unknown> | null, metric: string): n
   return null;
 }
 
-// ─── Opportunity scorer (My Pin Pro — not a Pinterest score) ─────────────────
+// ─── Opportunity scorer (Rambforce — not a Pinterest score) ─────────────────
 type OpportunityScore = "STRONG" | "GOOD" | "NEEDS_REVIEW" | "INSUFFICIENT_DATA";
 
 function scoreCatalog(paid: {
@@ -427,8 +427,8 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => ((b.checkouts ?? 0) - (a.checkouts ?? 0)) || ((b.impressions ?? 0) - (a.impressions ?? 0)))
     .slice(0, 25);
 
-  // ── Step 7: Shopping Ads Opportunities (My Pin Pro recommendations) ────────
-  // Based solely on available data; clearly labeled as My Pin Pro analysis.
+  // ── Step 7: Shopping Ads Opportunities (Rambforce recommendations) ────────
+  // Based solely on available data; clearly labeled as Rambforce analysis.
   const opportunities: Array<{
     type: "ORGANIC_PIN" | "PAID_CATALOG";
     id: string; name: string; imageUrl: string;

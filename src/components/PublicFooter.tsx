@@ -6,11 +6,8 @@ export default function PublicFooter() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-8 mb-8">
           <div className="col-span-2 sm:col-span-1">
-            <Link href="/" className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 bg-[#e60023] rounded-lg flex items-center justify-center flex-shrink-0">
-                <span className="text-white font-bold text-xs">P</span>
-              </div>
-              <span className="font-bold text-gray-900">My Pin Pro</span>
+            <Link href="/" className="inline-flex mb-3">
+              <img src="/rambforce-logo.png" alt="Rambforce" className="h-7 w-auto object-contain" />
             </Link>
             <p className="text-sm text-gray-500">The all-in-one Pinterest marketing suite for creators and businesses.</p>
           </div>
@@ -40,8 +37,8 @@ export default function PublicFooter() {
           </div>
         </div>
         <div className="border-t border-gray-100 pt-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-sm text-gray-400">
-          <span>© {new Date().getFullYear()} My Pin Pro. All rights reserved.</span>
-          <span>contact@mypinpro.com</span>
+          <span>© {new Date().getFullYear()} Rambforce. All rights reserved.</span>
+          <span>contact@rambforce.com</span>
         </div>
       </div>
     </footer>

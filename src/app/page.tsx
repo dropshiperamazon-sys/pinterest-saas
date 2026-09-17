@@ -78,7 +78,7 @@ const TESTIMONIALS = [
   {
     name: "Sarah M.",
     role: "Home Decor Blogger",
-    text: "My Pin Pro doubled my Pinterest traffic in 3 months. The keyword research tool alone is worth every cent.",
+    text: "Rambforce doubled my Pinterest traffic in 3 months. The keyword research tool alone is worth every cent.",
     stars: 5,
     avatar: "SM",
   },
@@ -174,7 +174,7 @@ export default function LandingPage() {
               </div>
               <div className="flex-1 flex justify-center">
                 <div className="bg-gray-700 rounded-md px-4 py-1 text-xs text-gray-400 font-mono">
-                  mypinpro.app/dashboard
+                  rambforce.app/dashboard
                 </div>
               </div>
             </div>
@@ -284,7 +284,7 @@ export default function LandingPage() {
               {
                 num: "01",
                 title: "Connect Pinterest",
-                desc: "Link your Pinterest account with one click. We support up to 3 accounts per My Pin Pro account.",
+                desc: "Link your Pinterest account with one click. We support up to 3 accounts per Rambforce account.",
                 color: "text-[#e60023]",
               },
               {
@@ -433,7 +433,7 @@ export default function LandingPage() {
             Ready to grow your Pinterest?
           </h2>
           <p className="text-gray-500 mb-8 text-base sm:text-lg">
-            Join thousands of creators and brands using My Pin Pro to drive real traffic from Pinterest.
+            Join thousands of creators and brands using Rambforce to drive real traffic from Pinterest.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link
