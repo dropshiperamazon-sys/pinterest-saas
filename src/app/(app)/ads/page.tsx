@@ -19,11 +19,10 @@ const TABS: { key: Tab; label: string; icon: React.ElementType; description: str
 ];
 
 export default function AdsPage() {
-  const { limits, loading: planLoading } = usePlan();
-  if (planLoading) return null;
-  if (!limits.canAds) return <UpgradeGate requiredPlan="enterprise" feature="Pinterest Ads" />;
-
   const [activeTab, setActiveTab] = useState<Tab>("analyze");
+  const { limits, loading: planLoading } = usePlan();
+
+  if (!planLoading && !limits.canAds) return <UpgradeGate requiredPlan="enterprise" feature="Pinterest Ads" />;
 
   return (
     <div>

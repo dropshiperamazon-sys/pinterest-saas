@@ -2144,10 +2144,6 @@ function EmptyState({ label }: { label: string }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CatalogPage() {
-  const { limits, loading: planLoading } = usePlan();
-  if (planLoading) return null;
-  if (!limits.canCatalog) return <UpgradeGate requiredPlan="enterprise" feature="Pinterest Catalog" />;
-
   const [activeTab, setActiveTab] = useState<Tab>("seo");
   const [overviewData, setOverviewData] = useState<OverviewData | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
@@ -2211,6 +2207,9 @@ export default function CatalogPage() {
         .finally(() => { setGroupsLoading(false); setGroupsFetched(true); });
     }
   }, [activeTab, groupsFetched]);
+
+  const { limits, loading: planLoading } = usePlan();
+  if (!planLoading && !limits.canCatalog) return <UpgradeGate requiredPlan="enterprise" feature="Pinterest Catalog" />;
 
   function handleFeedChange(feedId: string) {
     setSelectedFeedId(feedId);

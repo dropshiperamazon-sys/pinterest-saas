@@ -458,10 +458,6 @@ function BoardDetail({
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function AccountAuditPage() {
-  const { limits, loading: planLoading } = usePlan();
-  if (planLoading) return null;
-  if (!limits.canAccountAudit) return <UpgradeGate requiredPlan="pro" feature="Account Audit" />;
-
   const { data: session } = useSession();
   const [activeTab, setActiveTab] = useState<"own" | "external">("own");
 
@@ -491,6 +487,9 @@ export default function AccountAuditPage() {
     if (activeTab === "own" && connected && !ownData && !ownLoading) loadOwn();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, connected]);
+
+  const { limits, loading: planLoading } = usePlan();
+  if (!planLoading && !limits.canAccountAudit) return <UpgradeGate requiredPlan="pro" feature="Account Audit" />;
 
   async function loadOwn() {
     setOwnLoading(true);

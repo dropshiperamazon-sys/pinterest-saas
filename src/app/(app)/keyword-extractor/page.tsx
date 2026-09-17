@@ -51,10 +51,6 @@ const PAGE_SIZE = 25;
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function KeywordExtractorPage() {
-  const { limits, loading: planLoading } = usePlan();
-  if (planLoading) return null;
-  if (!limits.canKeywordExtractor) return <UpgradeGate requiredPlan="pro" feature="Keyword Extractor" />;
-
   const [domain, setDomain] = useState("");
   const [domainError, setDomainError] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
@@ -943,6 +939,9 @@ function PinterestKeywordsTab({
     }
     return Array.from(map.entries());
   }, [pageRows]);
+
+  const { limits, loading: planLoading } = usePlan();
+  if (!planLoading && !limits.canKeywordExtractor) return <UpgradeGate requiredPlan="pro" feature="Keyword Extractor" />;
 
   if (!pinterestData && !loading && !error) {
     return (

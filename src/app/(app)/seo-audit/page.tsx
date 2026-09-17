@@ -67,11 +67,8 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
 }
 
 export default function SEOAuditPage() {
-  const { limits, loading: planLoading } = usePlan();
-  if (planLoading) return null;
-  if (!limits.canSeoAudit) return <UpgradeGate requiredPlan="pro" feature="Pinterest SEO Audit" />;
-
   const router = useRouter();
+  const { limits, loading: planLoading } = usePlan();
   const [data, setData] = useState<AccountData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +90,8 @@ export default function SEOAuditPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  if (!planLoading && !limits.canSeoAudit) return <UpgradeGate requiredPlan="pro" feature="Pinterest SEO Audit" />;
 
   return (
     <div className="p-6 max-w-6xl mx-auto">

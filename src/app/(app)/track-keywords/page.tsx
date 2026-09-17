@@ -36,10 +36,6 @@ function timeAgo(ms: number): string {
 }
 
 export default function TrackKeywordsPage() {
-  const { limits, loading: planLoading } = usePlan();
-  if (planLoading) return null;
-  if (!limits.canTrackKeywords) return <UpgradeGate requiredPlan="pro" feature="Track Keywords" />;
-
   const [folders, setFolders] = useState<FolderWithStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +67,9 @@ export default function TrackKeywordsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const { limits, loading: planLoading } = usePlan();
+  if (!planLoading && !limits.canTrackKeywords) return <UpgradeGate requiredPlan="pro" feature="Track Keywords" />;
 
   const filteredFolders = folders.filter(f =>
     !search || f.name.toLowerCase().includes(search.toLowerCase())

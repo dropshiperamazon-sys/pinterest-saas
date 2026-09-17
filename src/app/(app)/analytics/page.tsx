@@ -160,10 +160,6 @@ const PIN_SORT_OPTIONS: { key: PinSortKey; label: string }[] = [
 ];
 
 export default function AnalyticsPage() {
-  const { limits, loading: planLoading } = usePlan();
-  if (planLoading) return null;
-  if (!limits.canAnalytics) return <UpgradeGate requiredPlan="pro" feature="Analytics Dashboard" />;
-
   const [data, setData] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
@@ -232,6 +228,9 @@ export default function AnalyticsPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data?.topPins]);
+
+  const { limits, loading: planLoading } = usePlan();
+  if (!planLoading && !limits.canAnalytics) return <UpgradeGate requiredPlan="pro" feature="Analytics Dashboard" />;
 
   function applyPreset(days: number) {
     setPreset(days);
