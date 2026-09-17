@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { formatNumber, cn } from "@/lib/utils";
 import { MOCK_CAMPAIGNS, MOCK_CREATIVES, FUNNEL_DATA } from "@/lib/ads-data";
 import {
@@ -23,6 +23,8 @@ interface RealCampaign {
   spend: number; impressions: number; clicks: number;
   saves: number; engagements: number; ctr: number;
   cpc: number; cpm: number; saveRate: number;
+  checkouts?: number; addToCart?: number; pageVisits?: number;
+  revenue?: number; aov?: number;
   adGroups?: AdGroup[];
 }
 
@@ -361,9 +363,150 @@ function ChangeBadge({ pct, inverse = false }: { pct: number; inverse?: boolean 
   );
 }
 
+// ─── Column selector ─────────────────────────────────────────────────────────
+
+interface ColDef {
+  key: string;
+  label: string;
+  group: string;
+  defaultOn: boolean;
+  render: (rc: RealCampaign) => React.ReactNode;
+  renderMock?: (mc: typeof import("@/lib/ads-data").MOCK_CAMPAIGNS[0]) => React.ReactNode;
+  align?: "right";
+}
+
+const ALL_COLUMNS: ColDef[] = [
+  // Spend
+  { key: "spend",       group: "Spend",      label: "Spend",         defaultOn: true,  align: "right",
+    render: rc => `$${formatNumber(Math.round(rc.spend * 100) / 100)}`,
+    renderMock: mc => `$${formatNumber(mc.totalSpend)}` },
+  // Delivery
+  { key: "impressions", group: "Delivery",   label: "Impressions",   defaultOn: true,  align: "right",
+    render: rc => formatNumber(rc.impressions),
+    renderMock: mc => formatNumber(mc.impressions) },
+  { key: "cpm",         group: "Delivery",   label: "CPM",           defaultOn: false, align: "right",
+    render: rc => `$${rc.cpm.toFixed(2)}` },
+  // Clicks
+  { key: "clicks",      group: "Clicks",     label: "Pin Clicks",    defaultOn: true,  align: "right",
+    render: rc => formatNumber(rc.clicks),
+    renderMock: mc => formatNumber(mc.clicks) },
+  { key: "ctr",         group: "Clicks",     label: "CTR",           defaultOn: true,  align: "right",
+    render: rc => `${rc.ctr.toFixed(2)}%`,
+    renderMock: mc => `${mc.ctr.toFixed(2)}%` },
+  { key: "cpc",         group: "Clicks",     label: "CPC",           defaultOn: true,  align: "right",
+    render: rc => `$${rc.cpc.toFixed(2)}` },
+  // Engagement
+  { key: "engagements", group: "Engagement", label: "Engagements",   defaultOn: false, align: "right",
+    render: rc => formatNumber(rc.engagements) },
+  { key: "eng_rate",    group: "Engagement", label: "Eng. Rate",     defaultOn: false, align: "right",
+    render: rc => rc.impressions > 0 ? `${((rc.engagements / rc.impressions) * 100).toFixed(2)}%` : "—" },
+  { key: "saves",       group: "Engagement", label: "Saves",         defaultOn: true,  align: "right",
+    render: rc => formatNumber(rc.saves),
+    renderMock: mc => formatNumber(mc.conversions) },
+  { key: "save_rate",   group: "Engagement", label: "Save Rate",     defaultOn: false, align: "right",
+    render: rc => `${rc.saveRate.toFixed(2)}%` },
+  // Conversions
+  { key: "checkouts",   group: "Conversions",label: "Checkouts",     defaultOn: false, align: "right",
+    render: rc => formatNumber(rc.checkouts ?? 0) },
+  { key: "add_to_cart", group: "Conversions",label: "Add to Cart",   defaultOn: false, align: "right",
+    render: rc => formatNumber(rc.addToCart ?? 0) },
+  { key: "page_visits", group: "Conversions",label: "Page Visits",   defaultOn: false, align: "right",
+    render: rc => formatNumber(rc.pageVisits ?? 0) },
+  { key: "revenue",     group: "Conversions",label: "Revenue",       defaultOn: false, align: "right",
+    render: rc => rc.revenue ? `$${formatNumber(Math.round((rc.revenue ?? 0) * 100) / 100)}` : "—" },
+  { key: "aov",         group: "Conversions",label: "AOV",           defaultOn: false, align: "right",
+    render: rc => rc.aov ? `$${(rc.aov ?? 0).toFixed(2)}` : "—" },
+];
+
+const DEFAULT_COLS = ALL_COLUMNS.filter(c => c.defaultOn).map(c => c.key);
+
+function useColumnPref(): [string[], (keys: string[]) => void] {
+  const [selected, setSelected] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("mpp_campaign_cols");
+      if (stored) return JSON.parse(stored) as string[];
+    } catch { /* unavailable */ }
+    return DEFAULT_COLS;
+  });
+  const update = (keys: string[]) => {
+    setSelected(keys);
+    try { localStorage.setItem("mpp_campaign_cols", JSON.stringify(keys)); } catch { /* unavailable */ }
+  };
+  return [selected, update];
+}
+
+function ColumnSelectorDropdown({ selected, onChange }: { selected: string[]; onChange: (k: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const groups = Array.from(new Set(ALL_COLUMNS.map(c => c.group)));
+  const toggle = (key: string) => {
+    const next = selected.includes(key) ? selected.filter(k => k !== key) : [...selected, key];
+    onChange(next.length === 0 ? DEFAULT_COLS : next);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className={cn(
+          "flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all",
+          open ? "bg-[#e60023] text-white border-[#e60023]" : "bg-white text-gray-600 border-gray-200 hover:border-[#e60023]/50"
+        )}
+      >
+        <Settings2 className="w-3.5 h-3.5" />
+        Columns
+        <ChevronDown className={cn("w-3 h-3 transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-4 w-72">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Configure Columns</span>
+            <button onClick={() => onChange(DEFAULT_COLS)} className="text-xs text-[#e60023] hover:underline">Reset</button>
+          </div>
+          <div className="space-y-3 max-h-80 overflow-y-auto">
+            {groups.map(group => (
+              <div key={group}>
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1.5">{group}</div>
+                <div className="space-y-1">
+                  {ALL_COLUMNS.filter(c => c.group === group).map(col => (
+                    <label key={col.key} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(col.key)}
+                        onChange={() => toggle(col.key)}
+                        className="w-3.5 h-3.5 accent-[#e60023] cursor-pointer"
+                      />
+                      <span className="text-sm text-gray-700">{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-400">
+            {selected.length} of {ALL_COLUMNS.length} columns shown
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Performance ─────────────────────────────────────────────────────────────
 
 function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApiData | null }) {
+  const [selectedCols, setSelectedCols] = useColumnPref();
+  const activeCols = ALL_COLUMNS.filter(c => selectedCols.includes(c.key));
   const mockTotals = MOCK_CAMPAIGNS.reduce((acc, c) => ({
     spend: acc.spend + c.totalSpend, impressions: acc.impressions + c.impressions,
     clicks: acc.clicks + c.clicks, saves: acc.saves + c.saves,
@@ -430,14 +573,19 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-semibold text-gray-900">Campaign Performance</h3>
-          <span className="text-xs text-gray-400">{DATE_PRESETS.find(p => p.key === ctx.datePreset)?.label}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400">{DATE_PRESETS.find(p => p.key === ctx.datePreset)?.label}</span>
+            <ColumnSelectorDropdown selected={selectedCols} onChange={setSelectedCols} />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr className="text-left">
-                {["Campaign", "Status", "Spend", "Impressions", "Clicks", "CTR", isReal ? "Saves" : "Conv.", isReal ? "CPC" : "ROAS"].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Campaign</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                {activeCols.map(col => (
+                  <th key={col.key} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap text-right">{col.label}</th>
                 ))}
               </tr>
             </thead>
@@ -454,16 +602,13 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
                     <td className="px-3 py-3">
                       <span className={cn("text-xs px-2 py-0.5 rounded-full font-semibold capitalize", STATUS_STYLE[c.status] ?? "bg-gray-100 text-gray-600")}>{c.status}</span>
                     </td>
-                    <td className="px-3 py-3 text-sm font-semibold text-gray-800">${formatNumber(isReal ? Math.round(rc.spend * 100) / 100 : mc.totalSpend)}</td>
-                    <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.impressions : mc.impressions)}</td>
-                    <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.clicks : mc.clicks)}</td>
-                    <td className="px-3 py-3 text-sm font-semibold text-gray-800">{(isReal ? rc.ctr : mc.ctr).toFixed(2)}%</td>
-                    <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.saves : mc.conversions)}</td>
-                    <td className="px-3 py-3 text-sm font-semibold">
-                      {isReal
-                        ? <span className="text-gray-800">${rc.cpc.toFixed(2)}</span>
-                        : <span className={mc.roas >= 5 ? "text-green-600" : mc.roas >= 3 ? "text-yellow-600" : "text-red-500"}>{mc.roas}×</span>}
-                    </td>
+                    {activeCols.map(col => (
+                      <td key={col.key} className="px-3 py-3 text-sm text-gray-800 text-right font-medium tabular-nums">
+                        {isReal
+                          ? col.render(rc)
+                          : (col.renderMock ? col.renderMock(mc) : "—")}
+                      </td>
+                    ))}
                   </tr>
                 );
               })}
