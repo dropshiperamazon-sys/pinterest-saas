@@ -137,7 +137,7 @@ export default function SignupPage() {
 
               <div className="flex gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-3 mb-5">
                 <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-green-700">Free plan includes 5 scheduled pins/month, keyword research, and basic analytics.</p>
+                <p className="text-sm text-green-700">Free plan includes 10 scheduled pins/month, keyword research, and basic analytics.</p>
               </div>
 
               <form onSubmit={handleStep1} className="space-y-4">
