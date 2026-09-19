@@ -849,7 +849,7 @@ export default function OptimizeTab() {
                         </button>
                       </td>
                       <td className="px-4 py-3">
-                        <button onClick={() => deleteRule(rule.id)} className="text-gray-300 hover:text-red-500 transition-colors"><X className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => deleteRule(rule.id)} className="px-2 py-1 text-xs text-red-500 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">Delete</button>
                       </td>
                     </tr>
                   ))}
