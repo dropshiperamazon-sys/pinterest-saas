@@ -127,10 +127,33 @@ const STATUS_COLOR:   Record<string, string> = { good: "text-green-600", fair: "
 const STATUS_LABEL:   Record<string, string> = { good: "Good", fair: "Fair", needs_work: "Needs Work" };
 const COPILOT_SUGGESTIONS = ["Why is my CTR low?","Which campaigns should I scale?","How do I reduce wasted spend?","What audiences should I add?"];
 
+interface QueuedSuggestion {
+  id: string; severity: string; category: string;
+  title: string; detail: string; action: string;
+  campaignName?: string; metric?: string;
+}
+
+function useOptimizeQueue(): [QueuedSuggestion[], (id: string) => void] {
+  const [queue, setQueue] = useState<QueuedSuggestion[]>([]);
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("mpp_optimize_queue");
+      if (stored) setQueue(JSON.parse(stored));
+    } catch { /* unavailable */ }
+  }, []);
+  const dismiss = (id: string) => {
+    const next = queue.filter(s => s.id !== id);
+    setQueue(next);
+    try { localStorage.setItem("mpp_optimize_queue", JSON.stringify(next)); } catch { /* unavailable */ }
+  };
+  return [queue, dismiss];
+}
+
 export default function OptimizeTab() {
   const { data, loading, error } = useAdsData();
   const [activeSection, setActiveSection] = useState("Opportunity Score");
   const [appliedRecs, setAppliedRecs] = useState<Set<string>>(new Set());
+  const [queue, dismissFromQueue] = useOptimizeQueue();
   const [ruleStatuses, setRuleStatuses] = useState<Record<string, string>>(
     Object.fromEntries(AUTOMATED_RULES.map((r) => [r.id, r.status]))
   );
@@ -186,9 +209,15 @@ export default function OptimizeTab() {
         <nav className="space-y-1 sticky top-4">
           {SECTIONS.map(s => (
             <button key={s} onClick={() => setActiveSection(s)}
-              className={cn("w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+              className={cn("w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-between",
                 activeSection === s ? "bg-[#e60023] text-white" : "text-gray-600 hover:bg-gray-100")}>
-              {s}
+              <span>{s}</span>
+              {s === "Recommendations" && queue.length > 0 && (
+                <span className={cn("text-xs font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center",
+                  activeSection === s ? "bg-white/30 text-white" : "bg-purple-100 text-purple-700")}>
+                  {queue.length}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -269,13 +298,58 @@ export default function OptimizeTab() {
               </div>
               {isReal && <span className="text-sm text-gray-500">{appliedRecs.size}/{recs.length} applied</span>}
             </div>
+
+            {/* Items sent from Analyze tab */}
+            {queue.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-purple-700 uppercase tracking-wide">Sent from Analyze</span>
+                  <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-semibold">{queue.length}</span>
+                </div>
+                {queue.map(s => {
+                  const severityColor = s.severity === "critical" ? "border-red-200 bg-red-50" : s.severity === "warning" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50";
+                  const severityText  = s.severity === "critical" ? "text-red-700" : s.severity === "warning" ? "text-amber-700" : "text-emerald-700";
+                  return (
+                    <div key={s.id} className={cn("rounded-xl border p-4", severityColor)}>
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className={cn("text-xs font-bold capitalize", severityText)}>{s.severity}</span>
+                            <span className="text-xs bg-white/70 text-gray-600 px-2 py-0.5 rounded-full">{s.category}</span>
+                            {s.metric && <span className="text-xs text-gray-500 bg-white/50 px-2 py-0.5 rounded-full">{s.metric}</span>}
+                          </div>
+                          <p className="text-sm font-semibold text-gray-900">{s.title}</p>
+                          {s.campaignName && <p className="text-xs text-gray-500 mt-0.5">Campaign: <span className="font-medium text-gray-700">{s.campaignName}</span></p>}
+                          <p className="text-sm text-gray-700 mt-2">{s.detail}</p>
+                          <div className="mt-2 bg-white/80 rounded-lg px-3 py-2 border border-white/60">
+                            <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-0.5">Recommended Action</div>
+                            <p className="text-sm font-medium text-gray-900">{s.action}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => dismissFromQueue(s.id)}
+                          className="flex-shrink-0 text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded-lg hover:bg-white/60 transition-colors"
+                          title="Dismiss"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {recs.length > 0 && <div className="border-t border-gray-200 pt-2"><span className="text-xs font-bold text-gray-400 uppercase tracking-wide">Auto-generated</span></div>}
+              </div>
+            )}
+
             {loading ? (
               <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />)}</div>
             ) : !isReal || recs.length === 0 ? (
+              queue.length === 0 && (
               <div className="bg-white rounded-xl border border-gray-200 p-10 text-center">
                 <TrendingUp className="w-10 h-10 text-gray-300 mx-auto mb-3" />
                 <p className="font-semibold text-gray-600">{isReal ? "No issues — campaigns look healthy!" : "Connect your Pinterest account to get live recommendations"}</p>
               </div>
+              )
             ) : recs.map(rec => {
               const applied = appliedRecs.has(rec.id);
               return (
