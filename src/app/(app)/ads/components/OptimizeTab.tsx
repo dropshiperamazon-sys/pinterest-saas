@@ -160,7 +160,12 @@ export default function OptimizeTab() {
   const { data, loading, error } = useAdsData();
   const [activeSection, setActiveSection] = useState("Opportunity Score");
   const [openedRecs, setOpenedRecs] = useState<Set<string>>(new Set());
-  const [appliedRecs, setAppliedRecs] = useState<Set<string>>(new Set());
+  const [appliedRecs, setAppliedRecs] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem("mpp_applied_recs");
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch { return new Set(); }
+  });
   const [queue, dismissFromQueue] = useOptimizeQueue();
   const [ruleStatuses, setRuleStatuses] = useState<Record<string, string>>(
     Object.fromEntries(AUTOMATED_RULES.map((r) => [r.id, r.status]))
@@ -392,7 +397,11 @@ export default function OptimizeTab() {
                           <span className="px-3 py-2 rounded-lg text-sm font-medium bg-green-100 text-green-700">✓ Done</span>
                         ) : (
                           <button
-                            onClick={() => setAppliedRecs(prev => { const n = new Set(prev); n.add(rec.id); return n; })}
+                            onClick={() => setAppliedRecs(prev => {
+                              const n = new Set(prev); n.add(rec.id);
+                              try { localStorage.setItem("mpp_applied_recs", JSON.stringify([...n])); } catch {}
+                              return n;
+                            })}
                             className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
                           >
                             Mark Done
