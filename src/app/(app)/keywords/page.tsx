@@ -723,9 +723,29 @@ function AIIntelligenceSection({
   );
 }
 
+// ── Pinterest connect gate ───────────────────────────────────────────────────
+function ConnectGate() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+      <div className="w-16 h-16 bg-[#e60023]/10 rounded-2xl flex items-center justify-center mb-4">
+        <Search className="w-8 h-8 text-[#e60023]" />
+      </div>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">Connect Pinterest to search keywords</h2>
+      <p className="text-sm text-gray-500 mb-6 max-w-xs">
+        Keyword research pulls live data from the Pinterest API. Connect your account to start discovering keywords.
+      </p>
+      <a href="/connect"
+        className="inline-flex items-center gap-2 bg-[#e60023] text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors">
+        Connect Pinterest →
+      </a>
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function KeywordsPage() {
   const { limits } = usePlan();
+  const [pinterestConnected, setPinterestConnected] = useState<boolean | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<KeywordResult[]>([]);
   const [relatedResults, setRelatedResults] = useState<KeywordResult[]>([]);
@@ -774,8 +794,12 @@ export default function KeywordsPage() {
   const [moreIdeasShown, setMoreIdeasShown] = useState(false);
   const [moreIdeasError, setMoreIdeasError] = useState<string | null>(null);
 
-  // Fetch remaining searches on mount
+  // Fetch Pinterest connection + remaining searches on mount
   useEffect(() => {
+    fetch("/api/pinterest-connection")
+      .then(r => r.json())
+      .then(d => setPinterestConnected(!!d.connected))
+      .catch(() => setPinterestConnected(false));
     fetch("/api/search-limit").then(r => r.json()).then(d => {
       if (d.unlimited) { setSearchRemaining(null); setSearchLimit(null); }
       else if (d.remaining != null) { setSearchRemaining(d.remaining); setSearchLimit(d.limit); }
@@ -1101,14 +1125,18 @@ export default function KeywordsPage() {
 
         {/* Main Content */}
         <div className="flex-1 overflow-auto">
+          {/* Pinterest not connected — show gate */}
+          {pinterestConnected === false && <ConnectGate />}
+
           {/* Trending Panel — above search bar */}
-          {trendingOpen && (
+          {pinterestConnected !== false && trendingOpen && (
             <div className="px-6 pt-6">
               <TrendingPanel onSearch={(q) => { handleSearch(q); setTrendingOpen(false); }} onClose={() => setTrendingOpen(false)} />
             </div>
           )}
 
-          {/* Search Bar */}
+          {/* Search + Results (only when Pinterest connected) */}
+          {pinterestConnected !== false && (<>
           <div className="p-6 pb-4 space-y-3">
             <div className="flex gap-3">
               <div className="flex-1 relative">
@@ -1477,6 +1505,7 @@ export default function KeywordsPage() {
               </div>
             )}
           </div>
+          </>)} {/* end pinterestConnected gate */}
         </div>
       </div>
 
