@@ -444,7 +444,7 @@ export default function OptimizeTab() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {(isReal ? campaigns : []).map(c => {
+                    {(isReal ? campaigns.filter(c => c.status !== "completed") : []).map(c => {
                       const budget = c.dailyBudget ?? 0;
                       const perfGood = c.ctr > 0.8;
                       const perfBad  = c.ctr < 0.3;
@@ -461,7 +461,7 @@ export default function OptimizeTab() {
                           <td className="py-3 pr-4 text-gray-600">{budget ? `${formatCurrency(budget)}/day` : "—"}</td>
                           <td className="py-3 pr-4 font-semibold"
                             style={{ color: perfGood ? "#16a34a" : perfBad ? "#ef4444" : "#ca8a04" }}>
-                            {c.ctr}%
+                            {c.ctr.toFixed(2)}%
                           </td>
                           <td className="py-3 pr-4 text-gray-600">${c.cpc.toFixed(2)}</td>
                           <td className="py-3 pr-4 text-gray-600">{suggested ? `${formatCurrency(suggested)}/day` : "—"}</td>
@@ -482,7 +482,7 @@ export default function OptimizeTab() {
               </div>
               {isReal && <p className="text-xs text-gray-400 mt-3">+30% for CTR &gt;0.8% · −30% for CTR &lt;0.3% · Apply changes in Pinterest Ads Manager.</p>}
             </div>
-            <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
+            {!isReal && <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
               <h3 className="text-sm font-semibold text-gray-800 mb-4">Bid Strategy Recommendations</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[
@@ -499,7 +499,7 @@ export default function OptimizeTab() {
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
           </div>
         )}
 
