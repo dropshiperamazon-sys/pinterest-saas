@@ -81,8 +81,8 @@ export default function AboutPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-3 gap-3 sm:gap-6 text-center">
             {[
-              { value: "10,000+", label: "Pins scheduled" },
-              { value: "500+", label: "Active users" },
+              { value: "4.8M+", label: "Pins scheduled" },
+              { value: "12K+", label: "Active users" },
               { value: "4.8★", label: "Average rating" },
             ].map(({ value, label }) => (
               <div key={label} className="bg-gray-50 rounded-2xl p-4 sm:p-8">
