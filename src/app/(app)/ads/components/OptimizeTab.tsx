@@ -160,12 +160,13 @@ export default function OptimizeTab() {
   const { data, loading, error } = useAdsData();
   const [activeSection, setActiveSection] = useState("Opportunity Score");
   const [openedRecs, setOpenedRecs] = useState<Set<string>>(new Set());
-  const [appliedRecs, setAppliedRecs] = useState<Set<string>>(() => {
+  const [appliedRecs, setAppliedRecs] = useState<Set<string>>(new Set());
+  useEffect(() => {
     try {
       const stored = localStorage.getItem("mpp_applied_recs");
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch { return new Set(); }
-  });
+      if (stored) setAppliedRecs(new Set(JSON.parse(stored)));
+    } catch {}
+  }, []);
   const [queue, dismissFromQueue] = useOptimizeQueue();
   const [ruleStatuses, setRuleStatuses] = useState<Record<string, string>>(
     Object.fromEntries(AUTOMATED_RULES.map((r) => [r.id, r.status]))
