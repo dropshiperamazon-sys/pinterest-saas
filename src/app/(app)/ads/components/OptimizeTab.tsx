@@ -376,11 +376,7 @@ export default function OptimizeTab() {
                       <span className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-green-100 text-green-700">✓ Applied</span>
                     ) : (
                       <a
-                        href={
-                          data?.adAccountId
-                            ? `https://ads.pinterest.com/advertiser/${data.adAccountId}/campaigns/`
-                            : "https://ads.pinterest.com/"
-                        }
+                        href="https://ads.pinterest.com/"
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={() => setAppliedRecs(prev => { const n = new Set(prev); n.add(rec.id); return n; })}
