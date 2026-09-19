@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Header from "@/components/Header";
@@ -21,6 +23,13 @@ interface PinKeyword {
   type: "short" | "long";
 }
 
+interface PinAnalytics {
+  impressions: number;
+  engagements: number;
+  saves: number;
+  outboundClicks: number;
+}
+
 interface BoardPin {
   id: string;
   title: string;
@@ -30,6 +39,7 @@ interface BoardPin {
   altText: string;
   keywords: PinKeyword[];
   createdAt: string;
+  analytics: PinAnalytics | null;
 }
 
 interface OwnAudit {
@@ -159,9 +169,10 @@ function BoardDetail({
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [showDupsOnly, setShowDupsOnly] = useState(false);
+  const [sortBy, setSortBy] = useState<"default" | "impressions" | "engagements" | "saves" | "outboundClicks">("default");
 
   useEffect(() => {
-    fetch(`/api/account-audit/board?boardId=${board.id}`)
+    fetch(`/api/account-audit/board?boardId=${board.id}&analytics=true`)
       .then((r) => r.json())
       .then((d) => {
         if (d.error) throw new Error(d.error);
@@ -172,13 +183,18 @@ function BoardDetail({
   }, [board.id]);
 
   const dupMap = buildDuplicateMap(pins);
-  const dupPinCount = dupMap.size; // total pins that have at least one duplicate
+  const dupPinCount = dupMap.size;
 
-  const filtered = pins.filter((p) => {
-    const matchSearch = !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase());
-    const matchDup = !showDupsOnly || dupMap.has(p.id);
-    return matchSearch && matchDup;
-  });
+  const filtered = pins
+    .filter((p) => {
+      const matchSearch = !search || p.title.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase());
+      const matchDup = !showDupsOnly || dupMap.has(p.id);
+      return matchSearch && matchDup;
+    })
+    .sort((a, b) => {
+      if (sortBy === "default") return 0;
+      return (b.analytics?.[sortBy] ?? 0) - (a.analytics?.[sortBy] ?? 0);
+    });
 
   return (
     <div className="space-y-4">
@@ -261,15 +277,28 @@ function BoardDetail({
         </span>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search pins by title or description…"
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-        />
+      {/* Search + Sort */}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search pins by title or description…"
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
+          />
+        </div>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+          className="border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023] bg-white"
+        >
+          <option value="default">Sort: Default</option>
+          <option value="impressions">Sort: Impressions</option>
+          <option value="engagements">Sort: Engagements</option>
+          <option value="saves">Sort: Saves</option>
+          <option value="outboundClicks">Sort: Outbound Clicks</option>
+        </select>
       </div>
 
       {loading ? (
@@ -292,7 +321,7 @@ function BoardDetail({
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-52">Title</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-64">Description</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-36">Link</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keywords</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Analytics (30d)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -381,16 +410,26 @@ function BoardDetail({
                       )}
                     </td>
 
-                    {/* Keywords */}
+                    {/* Analytics */}
                     <td className="px-4 py-3">
-                      {pin.keywords.length === 0 ? (
-                        <span className="text-xs text-gray-300 italic">—</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1 max-w-xs">
-                          {pin.keywords.map((kw) => (
-                            <PinKwChip key={kw.keyword} kw={kw} />
+                      {loading ? (
+                        <span className="text-xs text-gray-300 italic">Loading…</span>
+                      ) : pin.analytics ? (
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 min-w-[160px]">
+                          {[
+                            { label: "Impressions", value: pin.analytics.impressions },
+                            { label: "Engagements", value: pin.analytics.engagements },
+                            { label: "Saves", value: pin.analytics.saves },
+                            { label: "Outbound", value: pin.analytics.outboundClicks },
+                          ].map(({ label, value }) => (
+                            <div key={label}>
+                              <p className="text-[10px] text-gray-400 leading-none">{label}</p>
+                              <p className="text-xs font-semibold text-gray-800">{value.toLocaleString()}</p>
+                            </div>
                           ))}
                         </div>
+                      ) : (
+                        <span className="text-xs text-gray-300 italic">—</span>
                       )}
                     </td>
                   </tr>
@@ -449,6 +488,9 @@ export default function AccountAuditPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, connected]);
 
+  const { limits, loading: planLoading } = usePlan();
+  if (!planLoading && !limits.canAccountAudit) return <UpgradeGate requiredPlan="pro" feature="Account Audit" />;
+
   async function loadOwn() {
     setOwnLoading(true);
     setOwnError("");
@@ -485,12 +527,11 @@ export default function AccountAuditPage() {
     <div>
       <Header title="Account Audit" subtitle="Analyze keyword strategy for your account or any public Pinterest profile" />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-6">
         {/* Tab Switch */}
         <div className="flex bg-gray-100 rounded-2xl p-1 w-fit gap-1">
           {([
             { key: "own", label: "Your Account", icon: User },
-            { key: "external", label: "Other Account", icon: Globe },
           ] as const).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -549,7 +590,7 @@ export default function AccountAuditPage() {
                       <div className="text-sm text-gray-500">@{ownData.profile.username}</div>
                       {ownData.profile.about && <p className="text-xs text-gray-400 mt-1 truncate">{ownData.profile.about}</p>}
                     </div>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-center flex-shrink-0">
+                    <div className="hidden sm:grid grid-cols-2 gap-x-6 gap-y-1 text-center flex-shrink-0">
                       {[
                         { label: "Followers", val: ownData.profile.followerCount },
                         { label: "Following", val: ownData.profile.followingCount },
@@ -566,7 +607,7 @@ export default function AccountAuditPage() {
                   </div>
 
                   {/* Stats Row */}
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {[
                       { icon: LayoutGrid, label: "Boards", val: ownData.boards.length, color: "text-blue-600 bg-blue-50" },
                       { icon: Tag, label: "Keywords Detected", val: ownData.keywords.length, color: "text-[#e60023] bg-[#e60023]/10" },
@@ -592,7 +633,7 @@ export default function AccountAuditPage() {
                         <span className="font-semibold text-gray-800 text-sm">Your Boards ({ownData.boards.length})</span>
                         <span className="ml-auto text-xs text-gray-400">Click a board to audit its pins</span>
                       </div>
-                      <div className="grid grid-cols-3 divide-x divide-y divide-gray-50">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y divide-gray-50">
                         {ownData.boards.map((board) => (
                           <button
                             key={board.id}
@@ -653,221 +694,6 @@ export default function AccountAuditPage() {
           </div>
         )}
 
-        {/* ── Other Account Tab ── */}
-        {activeTab === "external" && (
-          <div className="space-y-5">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-4">
-              <div>
-                <label className="text-sm font-semibold text-gray-800 block mb-1">Pinterest Profile URL</label>
-                <p className="text-xs text-gray-400 mb-3">Paste any public Pinterest profile link to extract their keyword strategy.</p>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <ExternalLink className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input
-                      value={extUrl}
-                      onChange={(e) => setExtUrl(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && analyzeExternal()}
-                      placeholder="https://pinterest.com/username or pinterest.com/username"
-                      className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]"
-                    />
-                  </div>
-                  <button
-                    onClick={analyzeExternal}
-                    disabled={extLoading || !extUrl.trim()}
-                    className="flex items-center gap-2 bg-[#e60023] text-white px-5 py-3 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    {extLoading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analyzing…</> : <><Search className="w-4 h-4" /> Analyze</>}
-                  </button>
-                </div>
-              </div>
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-blue-700">Only public Pinterest profiles can be analyzed. Keywords are extracted from the profile&apos;s visible boards, pin titles, and descriptions.</p>
-              </div>
-            </div>
-
-            {extError && (
-              <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
-                <p className="text-sm text-red-600">{extError}</p>
-              </div>
-            )}
-
-            {extData && (
-              <div className="space-y-4">
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-full bg-[#e60023] flex items-center justify-center text-white text-lg font-bold flex-shrink-0">
-                    {(extData.displayName || extData.username || "P")[0].toUpperCase()}
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-bold text-gray-900">{extData.displayName || extData.username}</div>
-                    <div className="text-sm text-gray-500">@{extData.username}</div>
-                    {extData.about && <p className="text-xs text-gray-400 mt-1 line-clamp-2">{extData.about}</p>}
-                    {extData.followerInfo && <p className="text-xs text-gray-400 mt-0.5">{extData.followerInfo}</p>}
-                  </div>
-                  <a href={`https://pinterest.com/${extData.username}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-[#e60023] font-medium hover:underline flex-shrink-0">
-                    View Profile <ChevronRight className="w-3 h-3" />
-                  </a>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#e60023]/10 flex items-center justify-center">
-                      <Hash className="w-5 h-5 text-[#e60023]" />
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-gray-900">{extData.keywords.length}</div>
-                      <div className="text-xs text-gray-500">Keywords Detected</div>
-                    </div>
-                  </div>
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                      <TrendingUp className="w-5 h-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <div className="text-xl font-bold text-gray-900">{extData.textsAnalyzed}</div>
-                      <div className="text-xs text-gray-500">Texts Scanned</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="p-4 border-b border-gray-100 flex items-center gap-2">
-                    <Hash className="w-4 h-4 text-[#e60023]" />
-                    <span className="font-semibold text-gray-800 text-sm">
-                      Detected Keywords — <span className="text-gray-400 font-normal">@{extData.username}</span>
-                    </span>
-                  </div>
-                  <div className="p-4">
-                    {extData.keywords.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-6">No keywords could be extracted from this profile.</p>
-                    ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {extData.keywords.map((kw, i) => <KeywordBadge key={kw.keyword} kw={kw} index={i} />)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="px-4 pb-3">
-                    <p className="text-xs text-gray-400 flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" /> Click any keyword to copy. Use these insights to improve your own content strategy.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Pin list table */}
-                {(
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Tag className="w-4 h-4 text-[#e60023]" />
-                        <span className="font-semibold text-gray-800 text-sm">
-                          Pins Detected <span className="text-gray-400 font-normal">({extData.pins.length})</span>
-                        </span>
-                      </div>
-                      {/* Legend */}
-                      <div className="flex items-center gap-3 text-xs text-gray-500">
-                        {[
-                          { dot: "bg-green-500", label: "Title & desc" },
-                          { dot: "bg-blue-500", label: "Title only" },
-                          { dot: "bg-purple-500", label: "Desc only" },
-                          { dot: "bg-gray-300", label: "Not found" },
-                        ].map(({ dot, label }) => (
-                          <span key={label} className="flex items-center gap-1">
-                            <span className={cn("w-2 h-2 rounded-full", dot)} />
-                            {label}
-                          </span>
-                        ))}
-                        <span className="text-gray-300 font-mono">L·</span>
-                        <span>= long-tail</span>
-                      </div>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-gray-50 border-b border-gray-100">
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">Pin</th>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-52">Title</th>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide w-64">Description</th>
-                            <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Keywords</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-50">
-                          {extData.pins.map((pin) => (
-                            <tr key={pin.id} className="hover:bg-gray-50/60 transition-colors align-top">
-                              {/* Thumbnail */}
-                              <td className="px-4 py-3">
-                                <a href={pin.pinUrl} target="_blank" rel="noopener noreferrer" title="Open on Pinterest" className="block relative group w-12 h-12">
-                                  {pin.thumbnail ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={pin.thumbnail} alt={pin.title} className="w-12 h-12 object-cover rounded-lg border border-gray-100 group-hover:opacity-80 transition-opacity" />
-                                  ) : (
-                                    <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center text-gray-300 group-hover:bg-gray-200">
-                                      <Tag className="w-5 h-5" />
-                                    </div>
-                                  )}
-                                  <div className="absolute inset-0 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 transition-opacity">
-                                    <ExternalLink className="w-3.5 h-3.5 text-white" />
-                                  </div>
-                                </a>
-                              </td>
-                              {/* Title */}
-                              <td className="px-4 py-3">
-                                <div className="flex items-start gap-2">
-                                  {pin.title ? (
-                                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                                  ) : (
-                                    <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                                  )}
-                                  <span className="text-xs text-gray-700 leading-relaxed line-clamp-3">
-                                    {pin.title || <span className="text-gray-300 italic">No title</span>}
-                                  </span>
-                                </div>
-                              </td>
-                              {/* Description */}
-                              <td className="px-4 py-3">
-                                <div className="flex items-start gap-2">
-                                  {pin.description ? (
-                                    <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                                  ) : (
-                                    <XCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                                  )}
-                                  <span className="text-xs text-gray-600 leading-relaxed line-clamp-3">
-                                    {pin.description || <span className="text-gray-300 italic">No description</span>}
-                                  </span>
-                                </div>
-                              </td>
-                              {/* Keywords */}
-                              <td className="px-4 py-3">
-                                {pin.keywords.length === 0 ? (
-                                  <span className="text-xs text-gray-300 italic">—</span>
-                                ) : (
-                                  <div className="flex flex-wrap gap-1 max-w-xs">
-                                    {pin.keywords.map((kw) => <PinKwChip key={kw.keyword} kw={kw} />)}
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {extData.pins.length === 0 && (
-                      <div className="py-10 text-center text-sm text-gray-400">
-                        <Tag className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                        <p>No pins could be extracted from this profile.</p>
-                        <p className="text-xs mt-1 text-gray-300">Pinterest renders pins via JavaScript — only data embedded in the initial HTML is available.</p>
-                      </div>
-                    )}
-                    <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-400 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
-                      Pin data is extracted from the public profile page — count may be limited to what Pinterest embeds on load.
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

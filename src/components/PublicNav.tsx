@@ -18,11 +18,8 @@ export default function PublicNav() {
   return (
     <nav className="border-b border-gray-100 bg-white sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-[#e60023] rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">P</span>
-          </div>
-          <span className="font-bold text-gray-900 text-lg">My Pin Pro</span>
+        <Link href="/" className="flex items-center">
+          <img src="/rambforce-logo.png" alt="Rambforce" className="h-12 w-auto object-contain" />
         </Link>
 
         {/* Desktop nav */}

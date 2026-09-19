@@ -38,7 +38,7 @@ export async function GET() {
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("redirect_uri", redirectUri);
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", "boards:read,boards:write,pins:read,pins:write,user_accounts:read,ads:read");
+  url.searchParams.set("scope", "boards:read,boards:write,pins:read,pins:write,user_accounts:read,ads:read,catalogs:read");
   url.searchParams.set("state", state);
 
   return NextResponse.redirect(url.toString());

@@ -148,7 +148,7 @@ function newDraft(): PinDraft {
   };
 }
 
-const DRAFTS_STORAGE_KEY = "mypinpro_drafts";
+const DRAFTS_STORAGE_KEY = "rambforce_drafts";
 
 // ── AI Modal ───────────────────────────────────────────────────────────────────
 
@@ -887,6 +887,14 @@ function PinSEOModal({ draft, onChange, onClose }: {
   const [selectedKws, setSelectedKws] = useState<string[]>([]);
   const [optimizing, setOptimizing] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState<{ title: string; description: string } | null>(null);
+  const [kwCopied, setKwCopied] = useState(false);
+  const [kwSaving, setKwSaving] = useState(false);
+  const [kwSaveStep, setKwSaveStep] = useState<"idle" | "pick-folder" | "done">("idle");
+  const [kwFolders, setKwFolders] = useState<{ id: string; name: string }[]>([]);
+  const [kwFoldersLoading, setKwFoldersLoading] = useState(false);
+  const [kwSelectedFolder, setKwSelectedFolder] = useState("");
+  const [kwNewFolderName, setKwNewFolderName] = useState("");
+  const [kwSaveError, setKwSaveError] = useState("");
   const [recheckResult, setRecheckResult] = useState<ReturnType<typeof calcSeoScore> | null>(null);
 
   const suggestFocusKw = async () => {
@@ -1158,14 +1166,135 @@ function PinSEOModal({ draft, onChange, onClose }: {
                     })}
                   </div>
                   {selectedKws.length > 0 && (
-                    <div className="flex flex-wrap gap-1 pt-1">
-                      {selectedKws.map(k => (
-                        <span key={k} className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
-                          {k}
-                          <button onClick={() => setSelectedKws(selectedKws.filter(x => x !== k))}><X className="w-2.5 h-2.5" /></button>
-                        </span>
-                      ))}
-                    </div>
+                    <>
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {selectedKws.map(k => (
+                          <span key={k} className="text-xs bg-blue-100 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            {k}
+                            <button onClick={() => setSelectedKws(selectedKws.filter(x => x !== k))}><X className="w-2.5 h-2.5" /></button>
+                          </span>
+                        ))}
+                      </div>
+                      {/* Copy + Save to Track Keywords */}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(selectedKws.join(", "));
+                            setKwCopied(true);
+                            setTimeout(() => setKwCopied(false), 2000);
+                          }}
+                          className="flex items-center gap-1.5 text-xs border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-colors"
+                        >
+                          <Copy className="w-3 h-3" />
+                          {kwCopied ? "Copied!" : "Copy"}
+                        </button>
+                        <button
+                          onClick={async () => {
+                            setKwSaveError("");
+                            setKwFoldersLoading(true);
+                            setKwSaveStep("pick-folder");
+                            try {
+                              const res = await fetch("/api/track-keywords/folders");
+                              const data = await res.json() as { folders?: { id: string; name: string }[] };
+                              setKwFolders(data.folders ?? []);
+                              if (data.folders?.[0]) setKwSelectedFolder(data.folders[0].id);
+                            } catch { setKwSaveError("Failed to load folders"); }
+                            finally { setKwFoldersLoading(false); }
+                          }}
+                          className="flex items-center gap-1.5 text-xs border border-[#e60023]/30 bg-[#e60023]/5 rounded-lg px-3 py-1.5 text-[#e60023] hover:bg-[#e60023]/10 transition-colors"
+                        >
+                          <Tag className="w-3 h-3" />
+                          Save to Track Keywords
+                        </button>
+                      </div>
+                      {/* Folder picker inline */}
+                      {kwSaveStep === "pick-folder" && (
+                        <div className="border border-gray-200 rounded-xl p-3 space-y-2 bg-gray-50">
+                          {kwFoldersLoading ? (
+                            <p className="text-xs text-gray-400 text-center py-2">Loading folders…</p>
+                          ) : (
+                            <>
+                              {kwFolders.length > 0 ? (
+                                <select
+                                  value={kwSelectedFolder}
+                                  onChange={e => setKwSelectedFolder(e.target.value)}
+                                  className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#e60023]"
+                                >
+                                  {kwFolders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                  <option value="__new__">+ Create new folder…</option>
+                                </select>
+                              ) : (
+                                <p className="text-xs text-gray-500">No folders yet — create one:</p>
+                              )}
+                              {(kwSelectedFolder === "__new__" || kwFolders.length === 0) && (
+                                <input
+                                  autoFocus
+                                  value={kwNewFolderName}
+                                  onChange={e => setKwNewFolderName(e.target.value)}
+                                  placeholder="Folder name…"
+                                  className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-[#e60023]"
+                                />
+                              )}
+                              {kwSaveError && <p className="text-xs text-red-500">{kwSaveError}</p>}
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => { setKwSaveStep("idle"); setKwSaveError(""); setKwNewFolderName(""); }}
+                                  className="flex-1 text-xs border border-gray-200 rounded-lg py-1.5 text-gray-500 hover:bg-gray-100 transition-colors"
+                                >Cancel</button>
+                                <button
+                                  disabled={kwSaving}
+                                  onClick={async () => {
+                                    setKwSaveError("");
+                                    setKwSaving(true);
+                                    try {
+                                      let folderId = kwSelectedFolder;
+                                      // Create folder if needed
+                                      if (folderId === "__new__" || kwFolders.length === 0) {
+                                        const name = kwNewFolderName.trim() || "Pin Keywords";
+                                        const fr = await fetch("/api/track-keywords/folders", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ name }),
+                                        });
+                                        const fd = await fr.json() as { folder?: { id: string } };
+                                        if (!fd.folder?.id) throw new Error("Failed to create folder");
+                                        folderId = fd.folder.id;
+                                      }
+                                      // Save each selected keyword
+                                      await Promise.all(selectedKws.map(kw => {
+                                        const rec = kwRecs.find(r => r.keyword === kw);
+                                        return fetch("/api/track-keywords/keywords", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({
+                                            folderId,
+                                            keyword: kw,
+                                            monthlySearches: rec?.monthlySearches ?? null,
+                                            competition: rec?.competition ?? null,
+                                            isTracked: true,
+                                          }),
+                                        });
+                                      }));
+                                      setKwSaveStep("done");
+                                    } catch (e) {
+                                      setKwSaveError(e instanceof Error ? e.message : "Failed to save");
+                                    } finally { setKwSaving(false); }
+                                  }}
+                                  className="flex-1 text-xs bg-[#e60023] text-white rounded-lg py-1.5 font-medium hover:bg-[#ad081b] disabled:opacity-50 transition-colors"
+                                >
+                                  {kwSaving ? "Saving…" : `Save ${selectedKws.length} keyword${selectedKws.length !== 1 ? "s" : ""}`}
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                      {kwSaveStep === "done" && (
+                        <p className="text-xs text-green-600 font-medium flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" /> {selectedKws.length} keyword{selectedKws.length !== 1 ? "s" : ""} saved to Track Keywords
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1173,14 +1302,10 @@ function PinSEOModal({ draft, onChange, onClose }: {
               {/* Actions */}
               <div className="space-y-2 pt-1">
                 <button
-                  onClick={runOptimize}
-                  disabled={optimizing}
-                  className="w-full bg-gradient-to-r from-violet-600 to-purple-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:from-violet-700 hover:to-purple-700 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  onClick={onClose}
+                  className="w-full bg-[#e60023] text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-all flex items-center justify-center gap-2"
                 >
-                  {optimizing ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Optimizing…</> : <><Sparkles className="w-4 h-4" />✨ Optimize Pin with AI</>}
-                </button>
-                <button onClick={onClose} className="w-full py-2 text-xs text-gray-400 hover:text-gray-600">
-                  Skip — keep original
+                  Finish
                 </button>
               </div>
             </div>
@@ -1303,6 +1428,12 @@ function DraftCard({
   const [productLinkInput, setProductLinkInput] = useState("");
   const [linkPreview, setLinkPreview] = useState<{ image: string | null; title: string } | null>(null);
   const [linkPreviewLoading, setLinkPreviewLoading] = useState(false);
+  // Catalog product picker
+  const [catalogProducts, setCatalogProducts] = useState<{ id: string; title: string; imageLink: string; link: string }[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const catalogRef = useRef<HTMLDivElement>(null);
   const [seoOpen, setSeoOpen] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
   const set = (field: keyof PinDraft, value: string) =>
@@ -1321,6 +1452,31 @@ function DraftCard({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (catalogRef.current && !catalogRef.current.contains(e.target as Node)) setCatalogOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  async function loadCatalogProducts() {
+    if (catalogProducts.length > 0) { setCatalogOpen(true); return; }
+    setCatalogLoading(true);
+    setCatalogOpen(true);
+    try {
+      const overviewRes = await fetch("/api/pinterest-catalog");
+      const overview = await overviewRes.json() as { feeds?: { id: string }[] };
+      const feedId = overview.feeds?.[0]?.id;
+      if (!feedId) { setCatalogLoading(false); return; }
+      const res = await fetch(`/api/pinterest-catalog/products?feedId=${encodeURIComponent(feedId)}&pageSize=100`);
+      const data = await res.json() as { products?: { id: unknown; title: string; imageLink: string; link: string }[] };
+      setCatalogProducts((data.products ?? []).map(p => ({ id: String(p.id), title: p.title, imageLink: p.imageLink, link: p.link })));
+    } catch { /* ignore */ } finally {
+      setCatalogLoading(false);
+    }
+  }
 
   const timeToInput = (label: string) => {
     const match = label.match(/(\d+):(\d+)\s*(AM|PM)/i);
@@ -1653,7 +1809,7 @@ function DraftCard({
             )}
           </div>
 
-          {/* Tag Products — Pinterest product search */}
+          {/* Tag Products — from catalog */}
           <div>
             <label className="text-xs font-medium text-gray-500 block mb-1.5">Tag Products</label>
             {/* Tagged products chips */}
@@ -1677,64 +1833,76 @@ function DraftCard({
                 ))}
               </div>
             )}
-            <div className="space-y-2">
-                <div className="flex items-center border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-[#e60023]/20 focus-within:border-[#e60023]">
-                  <input
-                    value={productLinkInput}
-                    onChange={async (e) => {
-                      const val = e.target.value;
-                      setProductLinkInput(val);
-                      setLinkPreview(null);
-                      const trimmed = val.trim();
-                      if (trimmed.startsWith("http")) {
-                        setLinkPreviewLoading(true);
-                        try {
-                          const res = await fetch(`/api/fetch-link-preview?url=${encodeURIComponent(trimmed)}`);
-                          const data = await res.json();
-                          if (data.image || data.title) setLinkPreview({ image: data.image, title: data.title });
-                        } catch { /* ignore */ } finally {
-                          setLinkPreviewLoading(false);
-                        }
-                      }
-                    }}
-                    placeholder="Paste product URL…"
-                    className="flex-1 px-3 py-2 text-xs bg-transparent focus:outline-none"
-                  />
-                  <button
-                    onClick={() => {
-                      const url = productLinkInput.trim();
-                      if (url && !draft.taggedProducts.find((x) => x.url === url)) {
-                        onChange({ ...draft, taggedProducts: [...draft.taggedProducts, { url, image: linkPreview?.image ?? undefined, title: linkPreview?.title || undefined }] });
-                      }
-                      setProductLinkInput("");
-                      setLinkPreview(null);
-                    }}
-                    disabled={!productLinkInput.trim()}
-                    className="px-3 py-2 bg-[#e60023] text-white hover:bg-[#ad081b] disabled:opacity-40 transition-colors flex items-center flex-shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                {linkPreviewLoading && (
-                  <div className="flex items-center gap-2 text-xs text-gray-400 px-1">
-                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                    </svg>
-                    Fetching product…
-                  </div>
+            {/* Catalog product picker */}
+            <div ref={catalogRef} className="relative">
+              <button
+                type="button"
+                onClick={loadCatalogProducts}
+                className="w-full flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-500 hover:border-[#e60023] hover:text-[#e60023] transition-colors focus:outline-none focus:ring-2 focus:ring-[#e60023]/20"
+              >
+                <ShoppingCart className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="flex-1 text-left">Pick from catalog…</span>
+                {catalogLoading && (
+                  <svg className="w-3 h-3 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
                 )}
-                {linkPreview && !linkPreviewLoading && (
-                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2">
-                    {linkPreview.image && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={linkPreview.image} alt="product" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-gray-200" />
+              </button>
+              {catalogOpen && !catalogLoading && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                  <div className="p-2 border-b border-gray-100">
+                    <input
+                      autoFocus
+                      value={catalogQuery}
+                      onChange={(e) => setCatalogQuery(e.target.value)}
+                      placeholder="Search products…"
+                      className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:border-[#e60023]"
+                    />
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    {catalogProducts.length === 0 ? (
+                      <p className="text-xs text-gray-400 text-center py-4">No catalog products found</p>
+                    ) : (
+                      catalogProducts
+                        .filter(p => !catalogQuery || p.title.toLowerCase().includes(catalogQuery.toLowerCase()))
+                        .map(p => {
+                          const already = draft.taggedProducts.some(t => t.url === p.link);
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              disabled={already}
+                              onClick={() => {
+                                if (!already && p.link) {
+                                  onChange({ ...draft, taggedProducts: [...draft.taggedProducts, { url: p.link, image: p.imageLink || undefined, title: p.title || undefined }] });
+                                }
+                                setCatalogOpen(false);
+                                setCatalogQuery("");
+                              }}
+                              className={cn(
+                                "w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 transition-colors",
+                                already && "opacity-40 cursor-not-allowed"
+                              )}
+                            >
+                              {p.imageLink ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={p.imageLink} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0 border border-gray-100" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                  <ShoppingCart className="w-3.5 h-3.5 text-gray-400" />
+                                </div>
+                              )}
+                              <span className="text-xs text-gray-700 truncate flex-1">{p.title || p.link}</span>
+                              {already && <span className="text-xs text-gray-400 flex-shrink-0">Added</span>}
+                            </button>
+                          );
+                        })
                     )}
-                    <span className="text-xs text-gray-700 line-clamp-2 flex-1">{linkPreview.title}</span>
                   </div>
-                )}
-                <p className="text-xs text-gray-400 px-1">You can add multiple product links — paste each URL and click Add.</p>
-              </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Alt Text */}
@@ -1827,7 +1995,7 @@ function generateBoardDescription(keywords: string): string {
 type BoardSection = { id: string; name: string };
 type ManagedBoard = { id: string; name: string; description: string; privacy: string; sections: BoardSection[] };
 
-function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onClose: () => void }) {
+function ManageBoardsModal({ onClose }: { onClose: () => void }) {
   const [boards, setBoards] = useState<ManagedBoard[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1856,10 +2024,7 @@ function ManageBoardsModal({ accessToken, onClose }: { accessToken: string; onCl
   const [aiKeywords, setAiKeywords] = useState("");
   const [aiGenerating, setAiGenerating] = useState(false);
 
-  const authHeaders: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-  };
+  const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
 
   useEffect(() => {
     fetch("/api/manage-boards", { headers: authHeaders })
@@ -2286,32 +2451,24 @@ export default function SchedulerPage() {
   const { data: session } = useSession();
 
   useEffect(() => {
-    // Load real Pinterest connection + boards + scheduled pins
+    // Load Pinterest connection status and real boards via session auth
     fetch("/api/pinterest-connection")
       .then((r) => r.json())
       .then((data) => {
         setConnected(data.connected);
         setPinterestName(data.pinterestName || data.pinterestUsername || "");
-        if (data.connected && data.accessToken) {
-          (window as Window & { __pinterestToken?: string }).__pinterestToken = data.accessToken;
-          return fetch("/api/pinterest-boards", {
-            headers: { Authorization: `Bearer ${data.accessToken}` },
-          }).then((r) => r.json());
-        }
         return fetch("/api/pinterest-boards").then((r) => r.json());
       })
       .then((data) => {
         if (!data) return;
         const list: { id: string; name: string }[] = Array.isArray(data.boards) && data.boards.length
           ? data.boards
-          : FALLBACK_BOARDS.map((name) => ({ id: name, name }));
+          : [];
         setBoards(list);
         setDrafts((d) => d.map((dr) => (!dr.board && !dr.boards?.length) ? { ...dr, board: list[0]?.name ?? "" } : dr));
       })
       .catch(() => {
-        const list = FALLBACK_BOARDS.map((name) => ({ id: name, name }));
-        setBoards(list);
-        setDrafts((d) => d.map((dr) => (!dr.board && !dr.boards?.length) ? { ...dr, board: list[0]?.name ?? "" } : dr));
+        setBoards([]);
       })
       .finally(() => setBoardsLoading(false));
 
@@ -2698,7 +2855,6 @@ export default function SchedulerPage() {
       {/* ── Manage Boards Modal ── */}
       {boardsModalOpen && (
         <ManageBoardsModal
-          accessToken={typeof window !== "undefined" ? ((window as Window & { __pinterestToken?: string }).__pinterestToken ?? "") : ""}
           onClose={() => {
             setBoardsModalOpen(false);
             // Refresh boards list after edits
@@ -2775,7 +2931,7 @@ export default function SchedulerPage() {
                     const blob = new Blob([csv], { type: "text/csv" });
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement("a");
-                    a.href = url; a.download = "mypinpro_template.csv"; a.click();
+                    a.href = url; a.download = "rambforce_template.csv"; a.click();
                     URL.revokeObjectURL(url);
                   }}
                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border-2 border-green-600 text-green-700 font-semibold text-sm hover:bg-green-50 transition-colors"
@@ -2833,10 +2989,10 @@ export default function SchedulerPage() {
 
       <Header title="Pin Scheduler" subtitle="Create and schedule multiple pins at once with AI-powered content generation" />
 
-      <div className="p-6 space-y-5">
+      <div className="p-4 sm:p-6 space-y-5">
         {/* Connect Banner */}
         {!connected ? (
-          <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex items-center justify-between">
+          <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-[#e60023] rounded-xl flex items-center justify-center text-white text-xl font-bold">P</div>
               <div>
@@ -2844,7 +3000,7 @@ export default function SchedulerPage() {
                   Connect your Pinterest account
                   <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full">Required</span>
                 </div>
-                <div className="text-sm text-gray-500">Authorize My Pin Pro to publish and schedule pins on your behalf.</div>
+                <div className="text-sm text-gray-500">Authorize Rambforce to publish and schedule pins on your behalf.</div>
               </div>
             </div>
             <a
@@ -2931,10 +3087,10 @@ export default function SchedulerPage() {
         </div>
 
         {/* ── Main layout: queue left, sidebar right ── */}
-        <div className="flex gap-5 items-start">
+        <div className="flex flex-col lg:flex-row gap-5 items-start">
 
           {/* ── Left: Pin Composer ── */}
-          <div className="flex-1 min-w-0 space-y-4">
+          <div className="flex-1 min-w-0 space-y-4 w-full">
             {/* Toolbar */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -2968,7 +3124,7 @@ export default function SchedulerPage() {
             </div>
 
             {/* Draft Cards — 3 columns */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {drafts.map((draft, i) => (
                 <DraftCard
                   key={draft.id}
@@ -3005,7 +3161,7 @@ export default function SchedulerPage() {
           </div>
 
           {/* ── Right: Sidebar ── */}
-          <div className="w-72 flex-shrink-0">
+          <div className="w-full lg:w-72 flex-shrink-0">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-20">
               {/* Scheduling Tools */}
               <div className="px-3 pt-2.5 pb-2 border-b border-gray-100 flex items-center gap-2">

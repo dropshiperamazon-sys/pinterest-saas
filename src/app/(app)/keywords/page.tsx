@@ -1,6 +1,7 @@
 "use client";
 import { useState, useCallback, useEffect } from "react";
 import Header from "@/components/Header";
+import { usePlan } from "@/hooks/usePlan";
 import { formatNumber } from "@/lib/utils";
 import { PINTEREST_CATEGORIES, generateKeywords, type KeywordResult } from "@/lib/pinterest-data";
 import type { KeywordIntelligenceResult, KeywordEntry } from "@/lib/openai-keyword-analyzer";
@@ -8,7 +9,7 @@ import {
   Search, TrendingUp, TrendingDown, ChevronDown, ChevronRight,
   Download, Bookmark, Filter, BarChart2, X, Flame,
   Users, ChevronUp, Globe, Sparkles, RefreshCw,
-  Tag, AlertCircle,
+  Tag, AlertCircle, Plus, CheckCircle, Loader2, BookmarkCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -722,8 +723,29 @@ function AIIntelligenceSection({
   );
 }
 
+// ── Pinterest connect gate ───────────────────────────────────────────────────
+function ConnectGate() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+      <div className="w-16 h-16 bg-[#e60023]/10 rounded-2xl flex items-center justify-center mb-4">
+        <Search className="w-8 h-8 text-[#e60023]" />
+      </div>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">Connect Pinterest to search keywords</h2>
+      <p className="text-sm text-gray-500 mb-6 max-w-xs">
+        Keyword research pulls live data from the Pinterest API. Connect your account to start discovering keywords.
+      </p>
+      <a href="/connect"
+        className="inline-flex items-center gap-2 bg-[#e60023] text-white px-6 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors">
+        Connect Pinterest →
+      </a>
+    </div>
+  );
+}
+
 // ── Main page ────────────────────────────────────────────────────────────────
 export default function KeywordsPage() {
+  const { limits } = usePlan();
+  const [pinterestConnected, setPinterestConnected] = useState<boolean | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<KeywordResult[]>([]);
   const [relatedResults, setRelatedResults] = useState<KeywordResult[]>([]);
@@ -736,12 +758,25 @@ export default function KeywordsPage() {
   const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("volume");
   const [searchRemaining, setSearchRemaining] = useState<number | null>(null);
-  const [searchLimit, setSearchLimit] = useState(10);
+  const [searchLimit, setSearchLimit] = useState<number | null>(10);
   const [showLimitGate, setShowLimitGate] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [sortAsc, setSortAsc] = useState(false);
   const [saved, setSaved] = useState<Set<string>>(new Set());
+
+  // Save to folder modal
+  const [saveModal, setSaveModal] = useState<{ keyword: string; volume: number; competition: string; cpc: number; trend: number } | null>(null);
+  const [folders, setFolders] = useState<{ id: string; name: string }[]>([]);
+  const [foldersLoading, setFoldersLoading] = useState(false);
+  const [selectedFolderId, setSelectedFolderId] = useState("");
+  const [saveTracked, setSaveTracked] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [trendingOpen, setTrendingOpen] = useState(false);
   const [searchRegion, setSearchRegion] = useState("US");
@@ -759,10 +794,15 @@ export default function KeywordsPage() {
   const [moreIdeasShown, setMoreIdeasShown] = useState(false);
   const [moreIdeasError, setMoreIdeasError] = useState<string | null>(null);
 
-  // Fetch remaining searches on mount
+  // Fetch Pinterest connection + remaining searches on mount
   useEffect(() => {
+    fetch("/api/pinterest-connection")
+      .then(r => r.json())
+      .then(d => setPinterestConnected(!!d.connected))
+      .catch(() => setPinterestConnected(false));
     fetch("/api/search-limit").then(r => r.json()).then(d => {
-      if (d.remaining != null) { setSearchRemaining(d.remaining); setSearchLimit(d.limit); }
+      if (d.unlimited) { setSearchRemaining(null); setSearchLimit(null); }
+      else if (d.remaining != null) { setSearchRemaining(d.remaining); setSearchLimit(d.limit); }
     }).catch(() => {});
   }, []);
 
@@ -931,14 +971,97 @@ export default function KeywordsPage() {
     return sortAsc ? diff : -diff;
   });
 
+  // Apply plan keyword result limit (free = 15 max)
+  const maxResults = limits.maxKeywordResults === -1 ? Infinity : limits.maxKeywordResults;
+  const limitedSorted = sorted.slice(0, maxResults);
+  const resultsLimited = sorted.length > limitedSorted.length;
+
   const RELATED_PER_PAGE = 50;
-  const relatedTotalPages = Math.ceil(sorted.length / RELATED_PER_PAGE);
+  const relatedTotalPages = Math.ceil(limitedSorted.length / RELATED_PER_PAGE);
   const pagedSorted = dataTab === "related" && relatedResults.length > 0
-    ? sorted.slice((relatedPage - 1) * RELATED_PER_PAGE, relatedPage * RELATED_PER_PAGE)
-    : sorted;
+    ? limitedSorted.slice((relatedPage - 1) * RELATED_PER_PAGE, relatedPage * RELATED_PER_PAGE)
+    : limitedSorted;
 
   const toggleSort = (key: SortKey) => { if (sortKey === key) setSortAsc(p => !p); else { setSortKey(key); setSortAsc(false); } };
-  const toggleSave = (kw: string) => setSaved(prev => { const n = new Set(prev); n.has(kw) ? n.delete(kw) : n.add(kw); return n; });
+
+  async function openSaveModal(kw: { keyword: string; volume: number; competition: string; cpc: number; trend: number }) {
+    setSaveModal(kw);
+    setSaveError(null);
+    setSaveSuccess(null);
+    setSelectedFolderId("");
+    setSaveTracked(false);
+    setShowNewFolder(false);
+    setNewFolderName("");
+    setFoldersLoading(true);
+    try {
+      const res = await fetch("/api/track-keywords/folders");
+      const json = await res.json() as { folders?: { id: string; name: string }[] };
+      setFolders(json.folders ?? []);
+      if (json.folders?.length) setSelectedFolderId(json.folders[0].id);
+    } catch { /* ignore */ } finally { setFoldersLoading(false); }
+  }
+
+  async function handleCreateFolder() {
+    if (!newFolderName.trim()) return;
+    setCreatingFolder(true);
+    try {
+      const res = await fetch("/api/track-keywords/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newFolderName.trim() }),
+      });
+      const json = await res.json() as { folder?: { id: string; name: string } };
+      if (res.ok && json.folder) {
+        setFolders(prev => [json.folder!, ...prev]);
+        setSelectedFolderId(json.folder.id);
+        setShowNewFolder(false);
+        setNewFolderName("");
+      }
+    } catch { /* ignore */ } finally { setCreatingFolder(false); }
+  }
+
+  async function handleSaveKeyword() {
+    if (!saveModal || !selectedFolderId) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch("/api/track-keywords/keywords", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          folderId: selectedFolderId,
+          keyword: saveModal.keyword,
+          monthlySearches: saveModal.volume,
+          competition: saveModal.competition as "low" | "medium" | "high",
+          avgCpc: saveModal.cpc,
+          trend: saveModal.trend,
+          isTracked: saveTracked,
+        }),
+      });
+      const json = await res.json() as { error?: string };
+      if (!res.ok) { setSaveError(json.error ?? "Failed to save"); return; }
+      setSaved(prev => new Set(prev).add(saveModal.keyword));
+      setSaveSuccess(saveTracked ? "Keyword saved and tracking started!" : "Keyword saved to folder.");
+      if (saveTracked) {
+        // trigger sync in background
+        const kwRes = await fetch("/api/track-keywords/keywords", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            folderId: selectedFolderId,
+            keyword: saveModal.keyword,
+            monthlySearches: saveModal.volume,
+            competition: saveModal.competition as "low" | "medium" | "high",
+            avgCpc: saveModal.cpc,
+            trend: saveModal.trend,
+            isTracked: true,
+          }),
+        });
+        // ignore double-save errors; sync is best-effort
+      }
+      setTimeout(() => setSaveModal(null), 1500);
+    } catch { setSaveError("Network error"); } finally { setSaving(false); }
+  }
 
   const handleExport = () => {
     const header = "Keyword,Monthly Volume,Trend %,Competition,Avg CPC\n";
@@ -955,14 +1078,14 @@ export default function KeywordsPage() {
       {showLimitGate && (
         <SearchLimitGate
           remaining={searchRemaining ?? 0}
-          limit={searchLimit}
+          limit={searchLimit ?? 0}
           onClose={() => setShowLimitGate(false)}
         />
       )}
       <Header title="Keyword Research" subtitle="Discover 100+ closely relevant Pinterest keywords" />
       <div className="flex h-[calc(100vh-73px)]">
-        {/* Sidebar */}
-        <aside className="w-72 bg-white border-r border-gray-100 overflow-y-auto flex-shrink-0 flex flex-col">
+        {/* Sidebar — hidden on mobile */}
+        <aside className="hidden md:flex w-72 bg-white border-r border-gray-100 overflow-y-auto flex-shrink-0 flex-col">
           {/* Trending trigger — above browse categories */}
           <TrendingTrigger open={trendingOpen} isLive={false} onToggle={() => setTrendingOpen(p => !p)} />
 
@@ -1002,14 +1125,18 @@ export default function KeywordsPage() {
 
         {/* Main Content */}
         <div className="flex-1 overflow-auto">
+          {/* Pinterest not connected — show gate */}
+          {pinterestConnected === false && <ConnectGate />}
+
           {/* Trending Panel — above search bar */}
-          {trendingOpen && (
+          {pinterestConnected !== false && trendingOpen && (
             <div className="px-6 pt-6">
               <TrendingPanel onSearch={(q) => { handleSearch(q); setTrendingOpen(false); }} onClose={() => setTrendingOpen(false)} />
             </div>
           )}
 
-          {/* Search Bar */}
+          {/* Search + Results (only when Pinterest connected) */}
+          {pinterestConnected !== false && (<>
           <div className="p-6 pb-4 space-y-3">
             <div className="flex gap-3">
               <div className="flex-1 relative">
@@ -1131,11 +1258,19 @@ export default function KeywordsPage() {
                     </button>
                   </div>
                 )}
+                {resultsLimited && (
+                  <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-amber-50 border-b border-amber-100">
+                    <span className="text-xs text-amber-700">
+                      Showing {maxResults} of {sorted.length} results. Upgrade to Pro to unlock all results.
+                    </span>
+                    <a href="/pricing" className="text-xs font-semibold text-[#e60023] hover:underline whitespace-nowrap">Upgrade →</a>
+                  </div>
+                )}
                 <div className="flex items-center justify-between p-4 border-b border-gray-100">
                   <div className="flex items-center gap-2">
                     <BarChart2 className="w-4 h-4 text-gray-400" />
                     <span className="text-sm font-semibold text-gray-700">
-                      {sorted.length} keyword{sorted.length !== 1 ? "s" : ""}
+                      {limitedSorted.length} keyword{limitedSorted.length !== 1 ? "s" : ""}
                     </span>
                     <span
                       title={isLive ? "Data pulled live from Pinterest API" : "Estimated figures based on Pinterest category benchmarks. Trend direction and match types are accurate; volume & CPC are approximate."}
@@ -1185,9 +1320,11 @@ export default function KeywordsPage() {
                           </td>
                           <td className="px-4 py-3"><span className="text-sm text-gray-700">${kw.cpc.toFixed(2)}</span></td>
                           <td className="px-4 py-3">
-                            <button onClick={() => toggleSave(kw.keyword)}
+                            <button
+                              onClick={() => { if (!saved.has(kw.keyword)) openSaveModal({ keyword: kw.keyword, volume: kw.volume, competition: kw.competition, cpc: kw.cpc, trend: kw.trend }); }}
+                              title={saved.has(kw.keyword) ? "Saved" : "Save to folder"}
                               className={cn("p-1.5 rounded-lg transition-colors",
-                                saved.has(kw.keyword) ? "text-[#e60023] bg-[#e60023]/10" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                                saved.has(kw.keyword) ? "text-[#e60023] bg-[#e60023]/10 cursor-default" : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
                               )}>
                               <Bookmark className="w-3.5 h-3.5" fill={saved.has(kw.keyword) ? "currentColor" : "none"} />
                             </button>
@@ -1368,8 +1505,117 @@ export default function KeywordsPage() {
               </div>
             )}
           </div>
+          </>)} {/* end pinterestConnected gate */}
         </div>
       </div>
+
+      {/* Save to Folder Modal */}
+      {saveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-gray-900">Save Keyword</h2>
+              <button onClick={() => setSaveModal(null)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+
+            <p className="text-sm text-gray-600">
+              Save <span className="font-semibold">"{saveModal.keyword}"</span> to a folder.
+            </p>
+
+            {saveSuccess ? (
+              <div className="flex items-center gap-2 text-green-600 text-sm font-medium py-2">
+                <CheckCircle className="w-4 h-4" /> {saveSuccess}
+              </div>
+            ) : (
+              <>
+                {foldersLoading ? (
+                  <div className="flex items-center gap-2 text-gray-400 text-sm py-2">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Loading folders…
+                  </div>
+                ) : folders.length === 0 && !showNewFolder ? (
+                  <div className="text-sm text-gray-500">
+                    No folders yet.{" "}
+                    <button onClick={() => setShowNewFolder(true)} className="text-[#e60023] underline">Create one</button>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-600">Folder</label>
+                    <select
+                      value={selectedFolderId}
+                      onChange={e => setSelectedFolderId(e.target.value)}
+                      className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 bg-white"
+                    >
+                      {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {showNewFolder ? (
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-gray-600">New Folder Name</label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newFolderName}
+                        onChange={e => setNewFolderName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleCreateFolder(); }}
+                        placeholder="e.g. Home Decor"
+                        maxLength={80}
+                        autoFocus
+                        className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#e60023]/20"
+                      />
+                      <button
+                        onClick={handleCreateFolder}
+                        disabled={creatingFolder || !newFolderName.trim()}
+                        className="px-3 py-2 bg-[#e60023] text-white text-sm rounded-xl hover:bg-[#c0001d] disabled:opacity-50 flex items-center gap-1"
+                      >
+                        {creatingFolder ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                    <button onClick={() => setShowNewFolder(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowNewFolder(true)}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Create new folder
+                  </button>
+                )}
+
+                <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={saveTracked}
+                    onChange={e => setSaveTracked(e.target.checked)}
+                    className="w-4 h-4 rounded accent-[#e60023]"
+                  />
+                  <span className="text-sm text-gray-700">Start tracking this keyword</span>
+                </label>
+
+                {saveError && <p className="text-xs text-red-500">{saveError}</p>}
+
+                <div className="flex gap-3 pt-1">
+                  <button
+                    onClick={() => setSaveModal(null)}
+                    className="flex-1 py-2.5 border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveKeyword}
+                    disabled={saving || !selectedFolderId || foldersLoading}
+                    className="flex-1 py-2.5 bg-[#e60023] text-white text-sm font-semibold rounded-xl hover:bg-[#c0001d] disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BookmarkCheck className="w-3.5 h-3.5" />}
+                    {saveTracked ? "Save & Track" : "Save"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

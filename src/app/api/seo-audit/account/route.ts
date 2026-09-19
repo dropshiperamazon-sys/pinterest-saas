@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 import { Redis } from "@upstash/redis";
 import { scorePinSEO, gradeFromScore, type AccountSEOSummary, type BoardSEOSummary } from "@/lib/seo-audit-engine";
+import { guardFeature, guardSeoCheck, incrementSeoCheck } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -11,15 +13,25 @@ const redis = new Redis({
 const CACHE_TTL = 60 * 30; // 30 minutes
 
 async function getAccessToken(email: string): Promise<string> {
-  const raw = await redis.get<string>(`pinterest_connection:${email}`);
-  const conn = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken?: string } : null;
-  return conn?.accessToken ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
+  const accessToken = await getActivePinterestToken(email);
+  return accessToken ?? "";
 }
 
 export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+
+  // Plan guard
+  const featureGuard = await guardFeature(email, "canSeoAudit");
+  if (!featureGuard.allowed) {
+    return NextResponse.json({ error: featureGuard.error, upgradeRequired: featureGuard.upgradeRequired }, { status: 403 });
+  }
+  const checkGuard = await guardSeoCheck(email);
+  if (!checkGuard.allowed) {
+    return NextResponse.json({ error: checkGuard.error, upgradeRequired: checkGuard.upgradeRequired, count: checkGuard.count, limit: checkGuard.limit }, { status: 403 });
+  }
+  await incrementSeoCheck(email);
 
   const cacheKey = `seo-audit-account:${email}`;
   const cached = await redis.get(cacheKey);

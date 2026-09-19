@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -66,6 +68,7 @@ function ScoreRing({ score, size = 80 }: { score: number; size?: number }) {
 
 export default function SEOAuditPage() {
   const router = useRouter();
+  const { limits, loading: planLoading } = usePlan();
   const [data, setData] = useState<AccountData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,8 +91,10 @@ export default function SEOAuditPage() {
 
   useEffect(() => { load(); }, []);
 
+  if (!planLoading && !limits.canSeoAudit) return <UpgradeGate requiredPlan="pro" feature="Pinterest SEO Audit" />;
+
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">

@@ -399,7 +399,7 @@ export default function PinAnalysisPage() {
         title="Pin Analysis"
         subtitle="Analyze any pin's performance metrics and keywords, or discover top-performing pins by keyword"
       />
-      <div className="p-6 space-y-5">
+      <div className="p-4 sm:p-6 space-y-5">
         {/* Search Bar */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
           <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit mb-4">
@@ -504,8 +504,8 @@ export default function PinAnalysisPage() {
 
         {/* Live Pins from Pinterest API */}
         {!loading && livePins.length > 0 && mode === "keyword" && (
-          <div className="grid grid-cols-5 gap-5">
-            <div className="col-span-2 space-y-3">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+            <div className="lg:col-span-2 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-gray-900 text-sm">
                   {livePins.length} Pins Found
@@ -546,9 +546,9 @@ export default function PinAnalysisPage() {
 
         {/* Keyword Mode — List + Detail (mock fallback) */}
         {!loading && keywordResults.length > 0 && mode === "keyword" && livePins.length === 0 && (
-          <div className="grid grid-cols-5 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
             {/* Left: Pin List */}
-            <div className="col-span-2 space-y-3">
+            <div className="lg:col-span-2 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold text-gray-900 text-sm">
                   Top {keywordResults.length} Performing Pins

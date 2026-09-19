@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestAccount } from "@/lib/pinterest-token";
+import { guardFeature } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -27,10 +29,27 @@ export async function GET() {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const raw = await redis.get(`pinterest_connection:${email}`);
-  if (!raw) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
+  const featureGuard = await guardFeature(email, "canCatalog");
+  if (!featureGuard.allowed) {
+    return NextResponse.json({ error: featureGuard.error, upgradeRequired: featureGuard.upgradeRequired }, { status: 403 });
+  }
 
-  const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
+  const connection = await getActivePinterestAccount(email);
+  if (!connection) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
+
+  const { accessToken } = connection;
+  const grantedScopes: string[] = connection.grantedScopes ?? [];
+
+  // If we have scope info and catalogs:read is absent, tell the user immediately
+  if (grantedScopes.length > 0 && !grantedScopes.includes("catalogs:read")) {
+    console.log("Pinterest Catalog: missing catalogs:read — granted:", grantedScopes);
+    return NextResponse.json({
+      scopeError: true,
+      reason: "missing_scope",
+      grantedScopes,
+      message: "Catalog access requires reconnecting Pinterest with catalog permissions.",
+    });
+  }
 
   // Fetch catalogs + feeds in parallel
   const [catalogsData, feedsData] = await Promise.all([
@@ -38,35 +57,64 @@ export async function GET() {
     pGet("/catalogs/feeds?page_size=25", accessToken),
   ]);
 
-  const scopeError =
-    (catalogsData?._error === 403 || catalogsData?._error === 401) ||
-    (feedsData?._error === 403 || feedsData?._error === 401);
-
-  if (scopeError) {
+  if (catalogsData?._error === 401 || feedsData?._error === 401) {
     return NextResponse.json({
       scopeError: true,
-      message: "Catalog access requires reconnecting Pinterest with catalog permissions.",
+      reason: "token_expired",
+      message: "Pinterest token expired. Please reconnect your Pinterest account.",
+    });
+  }
+
+  if (catalogsData?._error === 403 || feedsData?._error === 403) {
+    // Distinguish missing scope from missing business access
+    const reason = grantedScopes.includes("catalogs:read") ? "business_access" : "missing_scope";
+    const debugInfo = { endpoint: "/catalogs", status: 403, grantedScopes };
+    console.log("Pinterest Catalog 403:", debugInfo);
+    return NextResponse.json({
+      scopeError: true,
+      reason,
+      grantedScopes,
+      message: reason === "business_access"
+        ? "Your Pinterest account has catalogs:read permission but does not have business access to this catalog."
+        : "Catalog access requires reconnecting Pinterest with catalog permissions.",
+    });
+  }
+
+  if (catalogsData?._error) {
+    return NextResponse.json({
+      scopeError: true,
+      reason: "api_error",
+      status: catalogsData._error,
+      message: "Pinterest Catalog API returned an error. Please try again.",
     });
   }
 
   const catalogs: Record<string, unknown>[] = catalogsData?.items ?? [];
   const feeds: Record<string, unknown>[] = feedsData?.items ?? [];
 
-  // Count totals from feed metadata
-  const totalProducts = feeds.reduce((sum: number, f: Record<string, unknown>) => {
-    const counts = f.counts as Record<string, number> | undefined;
-    return sum + (counts?.TOTAL ?? 0);
-  }, 0);
+  // Only aggregate counts when Pinterest actually returns them (may be absent on first run)
+  const hasAnyCounts = feeds.some((f) => (f.counts as object | undefined) != null);
 
-  const totalIngested = feeds.reduce((sum: number, f: Record<string, unknown>) => {
-    const counts = f.counts as Record<string, number> | undefined;
-    return sum + (counts?.INGESTED ?? 0);
-  }, 0);
+  const totalProducts = hasAnyCounts
+    ? feeds.reduce((sum: number, f: Record<string, unknown>) => {
+        const counts = f.counts as Record<string, number> | undefined;
+        return sum + (counts?.TOTAL ?? 0);
+      }, 0)
+    : null;
 
-  const totalErrors = feeds.reduce((sum: number, f: Record<string, unknown>) => {
-    const counts = f.counts as Record<string, number> | undefined;
-    return sum + (counts?.FAILED ?? 0);
-  }, 0);
+  const totalIngested = hasAnyCounts
+    ? feeds.reduce((sum: number, f: Record<string, unknown>) => {
+        const counts = f.counts as Record<string, number> | undefined;
+        return sum + (counts?.INGESTED ?? 0);
+      }, 0)
+    : null;
+
+  const totalErrors = hasAnyCounts
+    ? feeds.reduce((sum: number, f: Record<string, unknown>) => {
+        const counts = f.counts as Record<string, number> | undefined;
+        return sum + (counts?.FAILED ?? 0);
+      }, 0)
+    : null;
 
   return NextResponse.json({
     scopeError: false,

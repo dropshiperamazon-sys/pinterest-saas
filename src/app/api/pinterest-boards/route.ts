@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 
-export async function GET(req: Request) {
-  // Try bearer token from Authorization header first (passed by client)
-  const authHeader = req.headers.get("authorization");
-  const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+export async function GET() {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  // Fall back to env access token
-  const accessToken = headerToken || process.env.PINTEREST_ACCESS_TOKEN;
-
-  if (!accessToken) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
+  const accessToken = await getActivePinterestToken(email);
+  if (!accessToken) return NextResponse.json({ error: "No Pinterest account connected" }, { status: 401 });
 
   try {
-    const res = await fetch("https://api.pinterest.com/v5/boards?page_size=50", {
+    const res = await fetch("https://api.pinterest.com/v5/boards?page_size=100", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
 

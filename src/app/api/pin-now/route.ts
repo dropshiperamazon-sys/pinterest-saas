@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -24,11 +25,7 @@ export async function POST(req: NextRequest) {
   // Resolve access token: stored on pin → user connection → env fallback
   let accessToken: string = (pin.accessToken as string) || "";
   if (!accessToken) {
-    const connRaw = await redis.get(`pinterest_connection:${email}`);
-    const conn = connRaw
-      ? (typeof connRaw === "string" ? JSON.parse(connRaw) : connRaw) as { accessToken?: string }
-      : null;
-    accessToken = conn?.accessToken ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
+    accessToken = await getActivePinterestToken(email) ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
   }
   if (!accessToken) return NextResponse.json({ error: "No Pinterest access token available" }, { status: 401 });
 

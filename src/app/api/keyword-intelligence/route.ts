@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 import type { PinterestKeywordData, KeywordIntelligenceResult, KeywordEntry, KeywordCluster, ContentIdea, SEORecommendations } from "@/lib/openai-keyword-analyzer";
 import { searchKeywords } from "@/lib/keyword-db";
 
@@ -283,9 +284,8 @@ function analyzeWithPinterestData(data: PinterestKeywordData): KeywordIntelligen
 // ── Fetch helpers ──────────────────────────────────────────────────────────────
 
 async function getAccessToken(email: string): Promise<string> {
-  const raw = await redis.get<string>(`pinterest_connection:${email}`);
-  const conn = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken?: string } : null;
-  return conn?.accessToken ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
+  const accessToken = await getActivePinterestToken(email);
+  return accessToken ?? "";
 }
 
 async function fetchPinterestRelated(keyword: string, accessToken: string) {

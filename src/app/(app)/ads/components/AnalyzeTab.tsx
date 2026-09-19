@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { formatNumber, cn } from "@/lib/utils";
 import { MOCK_CAMPAIGNS, MOCK_CREATIVES, FUNNEL_DATA } from "@/lib/ads-data";
 import {
@@ -23,13 +23,15 @@ interface RealCampaign {
   spend: number; impressions: number; clicks: number;
   saves: number; engagements: number; ctr: number;
   cpc: number; cpm: number; saveRate: number;
+  checkouts?: number; addToCart?: number; pageVisits?: number;
+  revenue?: number; aov?: number;
   adGroups?: AdGroup[];
 }
 
 interface AdsApiData {
   adAccountName: string;
   period: { startDate: string; endDate: string };
-  totals: { spend: number; impressions: number; clicks: number; saves: number; engagements: number };
+  totals: { spend: number; impressions: number; clicks: number; saves: number; engagements: number; checkouts: number; addToCart: number; pageVisits: number; revenue: number; aov: number };
   campaigns: RealCampaign[];
 }
 
@@ -166,7 +168,12 @@ function generateSuggestions(campaigns: RealCampaign[]): Suggestion[] {
   return suggestions.sort((a, b) => order[a.severity] - order[b.severity]);
 }
 
-function campaignHealthScore(c: RealCampaign): number {
+// Returns null when the campaign has no data in the selected period (can't score it)
+function campaignHealthScore(c: RealCampaign): number | null {
+  const inactive = c.status === "completed" || c.status === "archived" || c.status === "ended";
+  // No activity in this date range — can't score
+  if (inactive && c.spend === 0 && c.impressions === 0) return null;
+
   let score = 100;
   if (c.status === "active" && c.spend === 0) return 20;
   if (c.ctr < 0.1) score -= 35;
@@ -175,7 +182,7 @@ function campaignHealthScore(c: RealCampaign): number {
   else if (c.ctr > 1.0) score += 10;
   if (c.cpc > 3) score -= 15; else if (c.cpc > 2) score -= 8;
   if (c.saveRate < 1 && c.clicks > 30) score -= 20;
-  else if (c.saveRate < 3) score -= 8;
+  else if (c.saveRate < 3 && c.clicks > 0) score -= 8;
   else if (c.saveRate > 10) score += 10;
   if (c.status === "paused") score -= 15;
   return Math.max(10, Math.min(100, score));
@@ -184,10 +191,12 @@ function campaignHealthScore(c: RealCampaign): number {
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
 const STATUS_STYLE: Record<string, string> = {
-  active: "bg-green-100 text-green-700",
-  paused: "bg-yellow-100 text-yellow-700",
-  ended:  "bg-gray-100 text-gray-600",
-  draft:  "bg-blue-100 text-blue-700",
+  active:    "bg-green-100 text-green-700",
+  paused:    "bg-yellow-100 text-yellow-700",
+  completed: "bg-gray-100 text-gray-600",
+  ended:     "bg-gray-100 text-gray-600",
+  archived:  "bg-gray-100 text-gray-500",
+  draft:     "bg-blue-100 text-blue-700",
 };
 
 const FORMAT_ICON: Record<string, React.ElementType> = {
@@ -325,7 +334,7 @@ function CampaignHeader({
         <div className="bg-gray-50 border border-gray-100 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-gray-400 animate-pulse">
           <span className="w-2 h-2 rounded-full bg-gray-300" /> Loading Pinterest campaign data…
         </div>
-      ) : real ? (
+      ) : real && campaigns.length > 0 ? (
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-green-700">
           <span className="w-2 h-2 rounded-full bg-green-500" />
           Live data from <strong className="mx-1">{real.adAccountName}</strong>
@@ -335,7 +344,9 @@ function CampaignHeader({
       ) : (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2 text-sm text-amber-700">
           <AlertCircle className="w-4 h-4 flex-shrink-0" />
-          {error === "Pinterest not connected"
+          {real
+            ? `No active campaigns found in ${real.adAccountName} — showing sample data.`
+            : error === "Pinterest not connected"
             ? "Connect your Pinterest account to analyze real campaign data."
             : `Using sample data${error ? ` (${error})` : ""}. Connect Pinterest for live analysis.`}
         </div>
@@ -357,9 +368,150 @@ function ChangeBadge({ pct, inverse = false }: { pct: number; inverse?: boolean 
   );
 }
 
+// ─── Column selector ─────────────────────────────────────────────────────────
+
+interface ColDef {
+  key: string;
+  label: string;
+  group: string;
+  defaultOn: boolean;
+  render: (rc: RealCampaign) => React.ReactNode;
+  renderMock?: (mc: typeof import("@/lib/ads-data").MOCK_CAMPAIGNS[0]) => React.ReactNode;
+  align?: "right";
+}
+
+const ALL_COLUMNS: ColDef[] = [
+  // Spend
+  { key: "spend",       group: "Spend",      label: "Spend",         defaultOn: true,  align: "right",
+    render: rc => `$${formatNumber(Math.round(rc.spend * 100) / 100)}`,
+    renderMock: mc => `$${formatNumber(mc.totalSpend)}` },
+  // Delivery
+  { key: "impressions", group: "Delivery",   label: "Impressions",   defaultOn: true,  align: "right",
+    render: rc => formatNumber(rc.impressions),
+    renderMock: mc => formatNumber(mc.impressions) },
+  { key: "cpm",         group: "Delivery",   label: "CPM",           defaultOn: false, align: "right",
+    render: rc => `$${rc.cpm.toFixed(2)}` },
+  // Clicks
+  { key: "clicks",      group: "Clicks",     label: "Pin Clicks",    defaultOn: true,  align: "right",
+    render: rc => formatNumber(rc.clicks),
+    renderMock: mc => formatNumber(mc.clicks) },
+  { key: "ctr",         group: "Clicks",     label: "CTR",           defaultOn: true,  align: "right",
+    render: rc => `${rc.ctr.toFixed(2)}%`,
+    renderMock: mc => `${mc.ctr.toFixed(2)}%` },
+  { key: "cpc",         group: "Clicks",     label: "CPC",           defaultOn: true,  align: "right",
+    render: rc => `$${rc.cpc.toFixed(2)}` },
+  // Engagement
+  { key: "engagements", group: "Engagement", label: "Engagements",   defaultOn: false, align: "right",
+    render: rc => formatNumber(rc.engagements) },
+  { key: "eng_rate",    group: "Engagement", label: "Eng. Rate",     defaultOn: false, align: "right",
+    render: rc => rc.impressions > 0 ? `${((rc.engagements / rc.impressions) * 100).toFixed(2)}%` : "—" },
+  { key: "saves",       group: "Engagement", label: "Saves",         defaultOn: true,  align: "right",
+    render: rc => formatNumber(rc.saves),
+    renderMock: mc => formatNumber(mc.conversions) },
+  { key: "save_rate",   group: "Engagement", label: "Save Rate",     defaultOn: false, align: "right",
+    render: rc => `${rc.saveRate.toFixed(2)}%` },
+  // Conversions
+  { key: "checkouts",   group: "Conversions",label: "Checkouts",     defaultOn: false, align: "right",
+    render: rc => formatNumber(rc.checkouts ?? 0) },
+  { key: "add_to_cart", group: "Conversions",label: "Add to Cart",   defaultOn: false, align: "right",
+    render: rc => formatNumber(rc.addToCart ?? 0) },
+  { key: "page_visits", group: "Conversions",label: "Page Visits",   defaultOn: false, align: "right",
+    render: rc => formatNumber(rc.pageVisits ?? 0) },
+  { key: "revenue",     group: "Conversions",label: "Revenue",       defaultOn: false, align: "right",
+    render: rc => rc.revenue ? `$${formatNumber(Math.round((rc.revenue ?? 0) * 100) / 100)}` : "—" },
+  { key: "aov",         group: "Conversions",label: "AOV",           defaultOn: false, align: "right",
+    render: rc => rc.aov ? `$${(rc.aov ?? 0).toFixed(2)}` : "—" },
+];
+
+const DEFAULT_COLS = ALL_COLUMNS.filter(c => c.defaultOn).map(c => c.key);
+
+function useColumnPref(): [string[], (keys: string[]) => void] {
+  const [selected, setSelected] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("mpp_campaign_cols");
+      if (stored) return JSON.parse(stored) as string[];
+    } catch { /* unavailable */ }
+    return DEFAULT_COLS;
+  });
+  const update = (keys: string[]) => {
+    setSelected(keys);
+    try { localStorage.setItem("mpp_campaign_cols", JSON.stringify(keys)); } catch { /* unavailable */ }
+  };
+  return [selected, update];
+}
+
+function ColumnSelectorDropdown({ selected, onChange }: { selected: string[]; onChange: (k: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const groups = Array.from(new Set(ALL_COLUMNS.map(c => c.group)));
+  const toggle = (key: string) => {
+    const next = selected.includes(key) ? selected.filter(k => k !== key) : [...selected, key];
+    onChange(next.length === 0 ? DEFAULT_COLS : next);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className={cn(
+          "flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-all",
+          open ? "bg-[#e60023] text-white border-[#e60023]" : "bg-white text-gray-600 border-gray-200 hover:border-[#e60023]/50"
+        )}
+      >
+        <Settings2 className="w-3.5 h-3.5" />
+        Columns
+        <ChevronDown className={cn("w-3 h-3 transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-4 w-72">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Configure Columns</span>
+            <button onClick={() => onChange(DEFAULT_COLS)} className="text-xs text-[#e60023] hover:underline">Reset</button>
+          </div>
+          <div className="space-y-3 max-h-80 overflow-y-auto">
+            {groups.map(group => (
+              <div key={group}>
+                <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1.5">{group}</div>
+                <div className="space-y-1">
+                  {ALL_COLUMNS.filter(c => c.group === group).map(col => (
+                    <label key={col.key} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(col.key)}
+                        onChange={() => toggle(col.key)}
+                        className="w-3.5 h-3.5 accent-[#e60023] cursor-pointer"
+                      />
+                      <span className="text-sm text-gray-700">{col.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-400">
+            {selected.length} of {ALL_COLUMNS.length} columns shown
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Performance ─────────────────────────────────────────────────────────────
 
 function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApiData | null }) {
+  const [selectedCols, setSelectedCols] = useColumnPref();
+  const activeCols = ALL_COLUMNS.filter(c => selectedCols.includes(c.key));
   const mockTotals = MOCK_CAMPAIGNS.reduce((acc, c) => ({
     spend: acc.spend + c.totalSpend, impressions: acc.impressions + c.impressions,
     clicks: acc.clicks + c.clicks, saves: acc.saves + c.saves,
@@ -377,7 +529,7 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
   }), { spend: 0, impressions: 0, clicks: 0, saves: 0, engagements: 0 }) : null;
 
   const totals = liveTotals ?? { ...mockTotals, engagements: 0 };
-  const isReal = !!real;
+  const isReal = !!(real && campaigns.length > 0);
 
   const ctr = totals.impressions ? ((totals.clicks / totals.impressions) * 100).toFixed(2) : "0.00";
   const cpc = totals.clicks ? (totals.spend / totals.clicks).toFixed(2) : "0.00";
@@ -389,7 +541,7 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
     : { spend: 12.4, impressions: 8.1, clicks: -5.3, saves: 18.6, ctr: -13.2, cpc: 7.4 };
 
   const stats = [
-    { label: "Total Spend",   value: `$${formatNumber(totals.spend)}`,       key: "spend",       icon: DollarSign,       color: "bg-[#e60023]/10 text-[#e60023]",  inverse: true },
+    { label: "Total Spend",   value: `$${formatNumber(Math.round(totals.spend * 100) / 100)}`,       key: "spend",       icon: DollarSign,       color: "bg-[#e60023]/10 text-[#e60023]",  inverse: true },
     { label: "Impressions",   value: formatNumber(totals.impressions),        key: "impressions", icon: Eye,              color: "bg-blue-50 text-blue-600",        inverse: false },
     { label: "Clicks",        value: formatNumber(totals.clicks),             key: "clicks",      icon: MousePointerClick,color: "bg-purple-50 text-purple-600",    inverse: false },
     { label: "Saves",         value: formatNumber(totals.saves),              key: "saves",       icon: Bookmark,         color: "bg-pink-50 text-pink-600",        inverse: false },
@@ -426,14 +578,19 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-semibold text-gray-900">Campaign Performance</h3>
-          <span className="text-xs text-gray-400">{DATE_PRESETS.find(p => p.key === ctx.datePreset)?.label}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-400">{DATE_PRESETS.find(p => p.key === ctx.datePreset)?.label}</span>
+            <ColumnSelectorDropdown selected={selectedCols} onChange={setSelectedCols} />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr className="text-left">
-                {["Campaign", "Status", "Spend", "Impressions", "Clicks", "CTR", isReal ? "Saves" : "Conv.", isReal ? "CPC" : "ROAS"].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Campaign</th>
+                <th className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                {activeCols.map(col => (
+                  <th key={col.key} className="px-3 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap text-right">{col.label}</th>
                 ))}
               </tr>
             </thead>
@@ -450,16 +607,13 @@ function PerformanceDashboard({ ctx, real }: { ctx: AnalyzeContext; real: AdsApi
                     <td className="px-3 py-3">
                       <span className={cn("text-xs px-2 py-0.5 rounded-full font-semibold capitalize", STATUS_STYLE[c.status] ?? "bg-gray-100 text-gray-600")}>{c.status}</span>
                     </td>
-                    <td className="px-3 py-3 text-sm font-semibold text-gray-800">${formatNumber(isReal ? rc.spend : mc.totalSpend)}</td>
-                    <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.impressions : mc.impressions)}</td>
-                    <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.clicks : mc.clicks)}</td>
-                    <td className="px-3 py-3 text-sm font-semibold text-gray-800">{(isReal ? rc.ctr : mc.ctr).toFixed(2)}%</td>
-                    <td className="px-3 py-3 text-sm text-gray-700">{formatNumber(isReal ? rc.saves : mc.conversions)}</td>
-                    <td className="px-3 py-3 text-sm font-semibold">
-                      {isReal
-                        ? <span className="text-gray-800">${rc.cpc.toFixed(2)}</span>
-                        : <span className={mc.roas >= 5 ? "text-green-600" : mc.roas >= 3 ? "text-yellow-600" : "text-red-500"}>{mc.roas}×</span>}
-                    </td>
+                    {activeCols.map(col => (
+                      <td key={col.key} className="px-3 py-3 text-sm text-gray-800 text-right font-medium tabular-nums">
+                        {isReal
+                          ? col.render(rc)
+                          : (col.renderMock ? col.renderMock(mc) : "—")}
+                      </td>
+                    ))}
                   </tr>
                 );
               })}
@@ -627,7 +781,11 @@ function AIDiagnosis({ ctx, real }: { ctx: AnalyzeContext; real: AdsApiData | nu
                   </div>
                   <span className="text-xs text-gray-400">${c.spend?.toFixed(0) ?? 0} spend · {c.ctr ?? 0}% CTR</span>
                 </div>
-                <HealthBar score={score} />
+                {score === null ? (
+                  <div className="text-xs text-gray-400 italic py-1">No activity in this date range — health score not applicable</div>
+                ) : (
+                  <HealthBar score={score} />
+                )}
                 {(working > 0 || problems > 0) && (
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {working > 0 && (
@@ -716,55 +874,142 @@ function AIDiagnosis({ ctx, real }: { ctx: AnalyzeContext; real: AdsApiData | nu
 // ─── Funnel Analysis ──────────────────────────────────────────────────────────
 
 function FunnelAnalysis({ real }: { real: AdsApiData | null }) {
+  const t = real?.totals;
+
+  // Build stages from real data when available
+  const stages = t ? (() => {
+    const imp = t.impressions || 1; // baseline for width %
+    const rows = [
+      { stage: "Impressions",        value: t.impressions,  color: "bg-blue-500",    icon: "👁️",  hasData: true },
+      { stage: "Clicks",             value: t.clicks,       color: "bg-purple-500",  icon: "🖱️",  hasData: true },
+      { stage: "Landing Page Views", value: t.pageVisits,   color: "bg-orange-500",  icon: "📄",  hasData: t.pageVisits > 0 },
+      { stage: "Add to Cart",        value: t.addToCart,    color: "bg-yellow-500",  icon: "🛒",  hasData: t.addToCart > 0 },
+      { stage: "Checkouts",          value: t.checkouts,    color: "bg-green-500",   icon: "✅",  hasData: t.checkouts > 0 },
+      { stage: "Revenue",            value: t.revenue,      color: "bg-emerald-600", icon: "💰",  hasData: t.revenue > 0, isCurrency: true },
+    ];
+    return rows.map(r => ({ ...r, widthPct: Math.max((r.value / imp) * 100, 0.5) }));
+  })() : FUNNEL_DATA.map(s => ({ stage: s.stage, value: s.value, color: s.color, icon: s.icon, hasData: true, isCurrency: s.stage === "Revenue", widthPct: Math.max(s.pct ?? 5, 5) }));
+
+  const isReal = !!t;
+
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-900 mb-2">Conversion Funnel</h3>
-        {!real && <p className="text-xs text-amber-600 mb-4 bg-amber-50 rounded-lg px-3 py-2">Using sample data. Connect Pinterest and set up conversion tracking for live funnel analysis.</p>}
-        <div className="space-y-3">
-          {FUNNEL_DATA.map((stage, i) => {
-            const next = FUNNEL_DATA[i + 1];
-            const dropOff = next ? (100 - next.pct).toFixed(1) : null;
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">Conversion Funnel</h3>
+          {isReal
+            ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Live data</span>
+            : <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Sample data</span>}
+        </div>
+        {!isReal && (
+          <p className="text-xs text-amber-600 mb-4 bg-amber-50 rounded-lg px-3 py-2">
+            Connect Pinterest and set up conversion tracking for live funnel analysis.
+          </p>
+        )}
+        <div className="space-y-2">
+          {stages.map((stage, i) => {
+            const next = stages[i + 1];
+            const dropPct = next && stage.value > 0
+              ? ((stage.value - next.value) / stage.value * 100).toFixed(1)
+              : null;
+            const displayVal = stage.isCurrency
+              ? `$${formatNumber(Math.round((stage.value as number) * 100) / 100)}`
+              : formatNumber(stage.value as number);
+            const convPct = i === 0 || !t
+              ? null
+              : stages[0].value > 0
+              ? ((stage.value as number) / (stages[0].value as number) * 100).toFixed(2)
+              : null;
+            const unavailable = isReal && !stage.hasData;
+
             return (
               <div key={stage.stage}>
-                <div className="flex items-center gap-4">
-                  <div className="w-32 text-right">
-                    <div className="text-sm font-semibold text-gray-800">{stage.stage}</div>
-                    <div className="text-xs text-gray-500">
-                      {stage.stage === "Revenue" ? `$${formatNumber(stage.value)}` : formatNumber(stage.value)}
+                <div className="flex items-center gap-3">
+                  {/* Label */}
+                  <div className="w-36 flex-shrink-0 text-right">
+                    <div className={cn("text-sm font-semibold", unavailable ? "text-gray-300" : "text-gray-800")}>{stage.stage}</div>
+                    <div className={cn("text-xs font-mono tabular-nums", unavailable ? "text-gray-300" : "text-gray-500")}>
+                      {unavailable ? "no data" : displayVal}
                     </div>
                   </div>
-                  <div className="flex-1">
-                    <div className={cn("h-10 rounded-xl flex items-center px-3 text-white text-xs font-semibold", stage.color)}
-                      style={{ width: `${Math.max(stage.pct ?? 5, 5)}%`, minWidth: "60px" }}>
-                      {stage.icon} {stage.pct !== null ? `${stage.pct.toFixed(1)}%` : ""}
-                    </div>
+                  {/* Bar */}
+                  <div className="flex-1 min-w-0">
+                    {unavailable ? (
+                      <div className="h-9 rounded-xl border-2 border-dashed border-gray-200 flex items-center px-3 text-xs text-gray-300">
+                        Not tracked
+                      </div>
+                    ) : (
+                      <div
+                        className={cn("h-9 rounded-xl flex items-center px-3 text-white text-xs font-semibold gap-1.5 transition-all", stage.color)}
+                        style={{ width: `${Math.max(stage.widthPct, 3)}%`, minWidth: "56px" }}
+                      >
+                        <span>{stage.icon}</span>
+                        {convPct !== null && <span>{convPct}%</span>}
+                      </div>
+                    )}
                   </div>
-                  {dropOff && <div className="w-24 text-xs text-red-500 font-medium">−{dropOff}% drop</div>}
+                  {/* Drop */}
+                  <div className="w-28 flex-shrink-0 text-right">
+                    {dropPct && !unavailable && next && !next.hasData && isReal ? (
+                      <span className="text-xs text-gray-300">next: no data</span>
+                    ) : dropPct && !unavailable ? (
+                      <span className="text-xs text-red-500 font-semibold">−{dropPct}% drop</span>
+                    ) : null}
+                  </div>
                 </div>
-                {next && <div className="mt-1 mb-1 h-4 w-px bg-gray-200 ml-[146px]" />}
+                {next && <div className="h-3 w-px bg-gray-200 ml-[150px]" />}
               </div>
             );
           })}
         </div>
+
+        {isReal && (
+          <div className="mt-5 pt-4 border-t border-gray-100 grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-xs text-gray-400 mb-0.5">Click-Through Rate</div>
+              <div className="text-lg font-bold text-gray-900">
+                {t.impressions > 0 ? ((t.clicks / t.impressions) * 100).toFixed(2) : "0"}%
+              </div>
+            </div>
+            {t.pageVisits > 0 && (
+              <div>
+                <div className="text-xs text-gray-400 mb-0.5">Click → Page Visit</div>
+                <div className="text-lg font-bold text-gray-900">
+                  {t.clicks > 0 ? ((t.pageVisits / t.clicks) * 100).toFixed(1) : "0"}%
+                </div>
+              </div>
+            )}
+            {t.checkouts > 0 && t.pageVisits > 0 && (
+              <div>
+                <div className="text-xs text-gray-400 mb-0.5">Visit → Checkout</div>
+                <div className="text-lg font-bold text-gray-900">
+                  {((t.checkouts / t.pageVisits) * 100).toFixed(2)}%
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Missing stages placeholder */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-900 mb-3">Extended Funnel Stages</h3>
-        <div className="space-y-2">
-          {[
-            { stage: "Landing Page Visits", status: "unavailable", note: "Connect Pinterest Tag to your website" },
-            { stage: "Add to Cart",         status: "unavailable", note: "Requires conversion event tracking" },
-            { stage: "Purchase",            status: "unavailable", note: "Requires conversion event tracking" },
-          ].map(({ stage, note }) => (
-            <div key={stage} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-dashed border-gray-200">
-              <div className="text-sm font-medium text-gray-400">{stage}</div>
-              <div className="ml-auto text-xs text-gray-400">Data unavailable · {note}</div>
-            </div>
-          ))}
+      {/* Tracking setup guide when conversion data is missing */}
+      {isReal && !t.pageVisits && (
+        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5">
+          <h3 className="font-semibold text-blue-900 mb-2">Unlock the full funnel</h3>
+          <p className="text-sm text-blue-700 mb-3">Page visits, add-to-cart and purchase data require the Pinterest Tag on your website.</p>
+          <div className="space-y-2">
+            {[
+              "Install the Pinterest Tag on your website",
+              "Set up conversion events (PageVisit, AddToCart, Checkout)",
+              "Enable conversion tracking in your ad campaigns",
+            ].map((step, i) => (
+              <div key={i} className="flex items-start gap-2 text-sm text-blue-800">
+                <span className="font-bold flex-shrink-0">{i + 1}.</span>
+                {step}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -872,16 +1117,18 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
     : allCampaigns.filter(c => c.id === ctx.selectedCampaign);
 
   // Build creative rows from real ad groups or fall back to mock
-  const creativeRows = real && campaigns.length > 0
+  // Only show campaigns that had spend in this period (hasData = true)
+  const allRows = real && campaigns.length > 0
     ? campaigns.flatMap(c => (c.adGroups ?? []).map(ag => ({
         id: ag.id,
         name: ag.name,
         campaignName: c.name,
-        spend: c.spend * 0.3, // estimate per-ad-group
+        spend: c.spend,          // campaign-level spend (ad-group breakdown not in API)
         ctr: c.ctr,
         cpc: c.cpc,
         conversions: null as number | null,
         cpa: null as number | null,
+        hasData: c.spend > 0 || c.impressions > 0,
         isReal: true,
       })))
     : MOCK_CREATIVES.map(ad => ({
@@ -893,10 +1140,14 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
         cpc: 0,
         conversions: ad.conversions as number,
         cpa: null as number | null,
+        hasData: true,
         isReal: false,
       }));
 
-  // Find best/worst by CPA or CTR
+  const creativeRows = allRows.filter(r => r.hasData);
+  const inactiveRows = allRows.filter(r => !r.hasData);
+
+  // Find best/worst by CTR among rows with actual data
   const sorted = [...creativeRows].sort((a, b) => b.ctr - a.ctr);
   const best = sorted[0];
   const worst = sorted[sorted.length - 1];
@@ -956,12 +1207,12 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
                 id: ad.id, name: ad.title, campaignName: (ad as { campaign?: string }).campaign ?? "",
                 spend: Math.round(ad.impressions * ad.ctr / 100 * 1.1),
                 ctr: ad.ctr, cpc: 1.1, conversions: ad.conversions as number, cpa: null as number | null,
-                format: ad.format, isReal: false,
+                format: ad.format, hasData: true, isReal: false,
               }))).map((row) => {
                 const mc = row as unknown as typeof MOCK_CREATIVES[0] & { spend: number; ctr: number; cpc: number; conversions: number };
                 const Icon = !real && FORMAT_ICON[mc.format ?? "standard"];
                 const rating = row.ctr > 2 ? { label: "Strong", color: "bg-green-100 text-green-700" }
-                  : row.ctr > 1 ? { label: "Average", color: "bg-amber-100 text-amber-700" }
+                  : row.ctr > 0.5 ? { label: "Average", color: "bg-amber-100 text-amber-700" }
                   : { label: "Weak", color: "bg-red-100 text-red-700" };
                 return (
                   <tr key={row.id} className="hover:bg-gray-50/50">
@@ -985,6 +1236,30 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
                   </tr>
                 );
               })}
+              {real && inactiveRows.length > 0 && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-2 bg-gray-50/60">
+                    <details className="group">
+                      <summary className="text-xs text-gray-400 cursor-pointer select-none flex items-center gap-1.5 py-0.5">
+                        <ChevronDown className="w-3.5 h-3.5 group-open:hidden" />
+                        <ChevronUp className="w-3.5 h-3.5 hidden group-open:block" />
+                        {inactiveRows.length} ad group{inactiveRows.length !== 1 ? "s" : ""} with no activity in this date range
+                      </summary>
+                      <table className="w-full mt-1">
+                        <tbody>
+                          {inactiveRows.map(row => (
+                            <tr key={row.id} className="opacity-50">
+                              <td className="px-3 py-2 text-sm text-gray-500 w-1/3">{row.name}</td>
+                              <td className="px-3 py-2 text-xs text-gray-400">{row.campaignName}</td>
+                              <td className="px-3 py-2 text-xs text-gray-400" colSpan={6}>No data in selected period</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -1,5 +1,8 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
+import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import {
   ShoppingBag,
@@ -15,6 +18,9 @@ import {
   ArrowUpRight,
   Info,
   Filter,
+  Sparkles,
+  Loader2,
+  Tag,
 } from "lucide-react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -47,15 +53,16 @@ interface Catalog {
 
 interface OverviewData {
   scopeError?: boolean;
+  reason?: string;
   message?: string;
   catalogs?: Catalog[];
   feeds?: Feed[];
   summary?: {
     totalCatalogs: number;
     totalFeeds: number;
-    totalProducts: number;
-    totalIngested: number;
-    totalErrors: number;
+    totalProducts: number | null;
+    totalIngested: number | null;
+    totalErrors: number | null;
   };
 }
 
@@ -78,6 +85,7 @@ interface Product {
 interface ProductGroup {
   id: unknown;
   name: string;
+  description?: string;
   status: string;
   feedId: string;
   filterV2: unknown;
@@ -85,11 +93,39 @@ interface ProductGroup {
   updatedAt?: string;
 }
 
-type Tab = "overview" | "audit" | "seo" | "products" | "groups" | "diagnostics";
+interface GroupProduct {
+  id: unknown;
+  itemId: string;
+  itemGroupId: string;
+  title: string;
+  description: string;
+  imageLink: string;
+  link: string;
+  price: string;
+  salePrice: string;
+  currency: string;
+  availability: string;
+  brand: string;
+  condition: string;
+  googleProductCategory: string;
+  productType: string;
+  status: string;
+  seoScore: number;
+  issues: string[];
+}
+
+interface GroupProductsDebug {
+  groupEndpoint?: string;
+  groupStatus?: number;
+  productsEndpoint: string;
+  productsStatus: number;
+  productsApiError?: { status: number; body: string } | null;
+  note?: string | null;
+}
+
+type Tab = "seo" | "products" | "groups" | "diagnostics";
 
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: "overview", label: "Overview", icon: BarChart2 },
-  { id: "audit", label: "Product Feed Audit", icon: AlertTriangle },
   { id: "seo", label: "Product SEO", icon: Search },
   { id: "products", label: "Products", icon: ShoppingBag },
   { id: "groups", label: "Product Groups", icon: Layers },
@@ -120,9 +156,10 @@ function feedStatusColor(status: string) {
   return "bg-gray-100 text-gray-600";
 }
 
-function healthScore(feed: Feed): number {
+function healthScore(feed: Feed): number | null {
+  if (feed.counts == null) return null;
   const total = feed.counts?.TOTAL ?? 0;
-  if (total === 0) return 0;
+  if (total === 0) return null;
   const ingested = feed.counts?.INGESTED ?? 0;
   const failed = feed.counts?.FAILED ?? 0;
   const warnings = feed.counts?.WARNINGS ?? 0;
@@ -132,45 +169,402 @@ function healthScore(feed: Feed): number {
 
 // ─── Scope Error Banner ───────────────────────────────────────────────────────
 
-function ScopeErrorBanner() {
+function ScopeErrorBanner({ reason, message }: { reason?: string; message?: string }) {
+  const isBusinessAccess = reason === "business_access";
+  const isTokenExpired = reason === "token_expired";
+
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center px-6">
       <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mb-4">
         <AlertTriangle className="w-8 h-8 text-amber-500" />
       </div>
-      <h2 className="text-xl font-bold text-gray-900 mb-2">Catalog Permissions Required</h2>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">
+        {isBusinessAccess ? "Catalog Business Access Required" : isTokenExpired ? "Pinterest Session Expired" : "Catalog Permissions Required"}
+      </h2>
       <p className="text-gray-500 max-w-md mb-6">
-        Accessing your Pinterest Catalog requires reconnecting your Pinterest account with
-        catalog permissions (<code className="bg-gray-100 px-1 rounded text-xs">catalogs:read</code>).
+        {message ?? (
+          <>
+            Accessing your Pinterest Catalog requires reconnecting your Pinterest account with
+            catalog permissions (<code className="bg-gray-100 px-1 rounded text-xs">catalogs:read</code>).
+          </>
+        )}
       </p>
-      <a
-        href="/api/pinterest-oauth/start"
-        className="inline-flex items-center gap-2 bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors"
-      >
-        Reconnect Pinterest
-        <ArrowUpRight className="w-4 h-4" />
-      </a>
+      {!isBusinessAccess && (
+        <a
+          href="/api/pinterest-oauth/start"
+          className="inline-flex items-center gap-2 bg-[#e60023] text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors"
+        >
+          Reconnect Pinterest
+          <ArrowUpRight className="w-4 h-4" />
+        </a>
+      )}
     </div>
   );
 }
 
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
+// ─── Pin Analytics Drawer ─────────────────────────────────────────────────────
 
-function OverviewTab({ data }: { data: OverviewData }) {
-  if (data.scopeError) return <ScopeErrorBanner />;
+interface PinDailyRow {
+  date: string;
+  impression: number;
+  save: number;
+  pinClick: number;
+  outboundClick: number;
+  engagement: number;
+}
 
-  const { summary, feeds = [], catalogs = [] } = data;
+interface PinAnalyticsResult {
+  pinId: string;
+  pin: { title: string; description: string; link: string; imageUrl: string } | null;
+  period: { startDate: string; endDate: string; days: number };
+  daily: PinDailyRow[];
+  totals: { impression: number; save: number; pinClick: number; outboundClick: number; engagement: number };
+}
 
-  const statCards = [
-    { label: "Catalogs", value: summary?.totalCatalogs ?? 0, icon: ShoppingBag, color: "bg-purple-100 text-purple-600" },
-    { label: "Feeds", value: summary?.totalFeeds ?? 0, icon: Layers, color: "bg-blue-100 text-blue-600" },
-    { label: "Total Products", value: (summary?.totalProducts ?? 0).toLocaleString(), icon: BarChart2, color: "bg-green-100 text-green-600" },
-    { label: "Products with Errors", value: (summary?.totalErrors ?? 0).toLocaleString(), icon: XCircle, color: "bg-red-100 text-red-600" },
-  ];
+const PIN_CHART_METRICS = [
+  { key: "impression" as const, label: "Impressions", color: "#6366f1" },
+  { key: "save" as const, label: "Saves", color: "#10b981" },
+  { key: "pinClick" as const, label: "Pin Clicks", color: "#f59e0b" },
+  { key: "outboundClick" as const, label: "Outbound Clicks", color: "#e60023" },
+  { key: "engagement" as const, label: "Engagement", color: "#8b5cf6" },
+];
+
+function MiniBarChart({ data, metricKey, color }: { data: PinDailyRow[]; metricKey: keyof PinDailyRow; color: string }) {
+  const values = data.map((d) => Number(d[metricKey]));
+  const max = Math.max(...values, 1);
+  return (
+    <div className="flex items-end gap-0.5 h-16">
+      {values.map((v, i) => (
+        <div key={i} className="flex-1 rounded-sm transition-all" style={{ height: `${(v / max) * 100}%`, backgroundColor: color, opacity: 0.85 }} title={`${data[i]?.date}: ${v.toLocaleString()}`} />
+      ))}
+    </div>
+  );
+}
+
+function PinAnalyticsDrawer({ pinId, pinTitle, pinImage, onClose }: { pinId: string; pinTitle: string; pinImage: string; onClose: () => void }) {
+  const [result, setResult] = useState<PinAnalyticsResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeMetric, setActiveMetric] = useState<keyof PinDailyRow>("impression");
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    fetch(`/api/pinterest-catalog/pin-analytics?pinId=${encodeURIComponent(pinId)}&days=30`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) setError(d.error);
+        else setResult(d);
+      })
+      .catch(() => setError("Failed to load pin analytics"))
+      .finally(() => setLoading(false));
+  }, [pinId]);
+
+  const activeConfig = PIN_CHART_METRICS.find((m) => m.key === activeMetric) ?? PIN_CHART_METRICS[0];
 
   return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center gap-3 rounded-t-3xl sm:rounded-t-2xl z-10">
+          {pinImage ? (
+            <img src={pinImage} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+          ) : (
+            <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+              <ShoppingBag className="w-5 h-5 text-gray-300" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-gray-900 truncate">{pinTitle || `Pin ${pinId}`}</p>
+            <p className="text-xs text-gray-400">Last 30 days · pin-level analytics</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {loading ? (
+            <div className="py-16 flex items-center justify-center gap-2 text-gray-400 text-sm">
+              <RefreshCw className="w-4 h-4 animate-spin" /> Loading pin analytics…
+            </div>
+          ) : error ? (
+            <div className="py-10 text-center text-sm text-red-500">{error}</div>
+          ) : result ? (
+            <>
+              {/* Totals row */}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {PIN_CHART_METRICS.map((m) => {
+                  const val = result.totals[m.key as keyof typeof result.totals] ?? 0;
+                  const isActive = activeMetric === m.key;
+                  return (
+                    <button
+                      key={m.key}
+                      onClick={() => setActiveMetric(m.key as keyof PinDailyRow)}
+                      className={cn("rounded-xl p-3 text-left border transition-all", isActive ? "border-2 shadow-sm" : "border-gray-100 hover:border-gray-200")}
+                      style={isActive ? { borderColor: m.color, background: `${m.color}10` } : {}}
+                    >
+                      <p className="text-lg font-bold text-gray-900">{fmt(val)}</p>
+                      <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">{m.label}</p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Chart */}
+              {result.daily.length > 0 ? (
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-500 mb-3">{activeConfig.label} — daily trend</p>
+                  <MiniBarChart data={result.daily} metricKey={activeMetric} color={activeConfig.color} />
+                  <div className="flex justify-between mt-2 text-[10px] text-gray-400">
+                    <span>{result.daily[0]?.date}</span>
+                    <span>{result.daily[result.daily.length - 1]?.date}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-xl p-6 text-center text-sm text-gray-400">No daily data available for this period</div>
+              )}
+
+              {/* Daily table */}
+              {result.daily.length > 0 && (
+                <div className="overflow-x-auto rounded-xl border border-gray-100">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-gray-100 text-gray-500 uppercase tracking-wide">
+                        <th className="px-4 py-2.5 text-left font-medium">Date</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Impressions</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Saves</th>
+                        <th className="px-3 py-2.5 text-right font-medium">Pin Clicks</th>
+                        <th className="px-3 py-2.5 text-right font-medium pr-4">Outbound</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {[...result.daily].reverse().map((row) => (
+                        <tr key={row.date} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-mono text-gray-600">{row.date}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{row.impression.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{row.save.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-gray-700">{row.pinClick.toLocaleString()}</td>
+                          <td className="px-3 py-2 text-right text-gray-700 pr-4">{row.outboundClick.toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Overview Tab — Catalog Performance ──────────────────────────────────────
+
+// Metric definitions follow Pinterest's official API definitions.
+// "Engagements" per Pinterest = Saves + Pin clicks + Outbound clicks + other engagement actions.
+
+type TrafficSource = "ALL" | "ORGANIC" | "PAID";
+type SortMetric =
+  | "checkouts" | "addToCart" | "pageVisits"
+  | "saves" | "pinClicks" | "impressions" | "outboundClicks" | "engagement";
+
+const SORT_OPTIONS: { value: SortMetric; label: string }[] = [
+  { value: "checkouts",      label: "Checkouts" },
+  { value: "addToCart",      label: "Add to Cart" },
+  { value: "pageVisits",     label: "Page Visits" },
+  { value: "saves",          label: "Saves" },
+  { value: "pinClicks",      label: "Pin Clicks" },
+  { value: "impressions",    label: "Impressions" },
+  { value: "outboundClicks", label: "Outbound Clicks" },
+  { value: "engagement",     label: "Engagement" },
+];
+
+interface PerfCatalog {
+  id: string; name: string; catalogType: string; organicNote: string;
+  paid: {
+    impressions: number | null; pinClicks: number | null; outboundClicks: number | null;
+    engagement: number | null; saves: number | null; checkouts: number | null;
+    addToCart: number | null; pageVisits: number | null; spend: number | null;
+    roas: number | null; groupCount: number;
+  } | null;
+  opportunityScore: "STRONG" | "GOOD" | "NEEDS_REVIEW" | "INSUFFICIENT_DATA";
+  opportunityReasons: string[];
+  recommendation: string;
+  bestAdProductGroupId: string | null;
+  adAccountId: string | null;
+}
+
+interface TopOrganicPin {
+  id: string; title: string; imageUrl: string; link: string;
+  impressions: number; saves: number; pinClicks: number;
+  outboundClicks: number; engagement: number;
+  checkouts: null; addToCart: null; pageVisits: null;
+  source: "ORGANIC";
+}
+
+interface TopPaidGroup {
+  id: string; name: string; catalogId: string | null; catalogName: string | null;
+  impressions: number | null; pinClicks: number | null; outboundClicks: number | null;
+  checkouts: number | null; addToCart: number | null; pageVisits: number | null;
+  spend: number | null; source: "PAID";
+}
+
+interface Opportunity {
+  type: "ORGANIC_PIN" | "PAID_CATALOG";
+  id: string; name: string; imageUrl: string;
+  strength: "STRONG" | "GOOD" | "POTENTIAL";
+  signals: string[]; recommendation: string;
+  adProductGroupId: string | null; adAccountId: string | null;
+}
+
+interface PerfData {
+  period: { startDate: string; endDate: string; range: string };
+  source: TrafficSource;
+  organicAccountTotals: {
+    engagement: number | null; saves: number | null; impressions: number | null;
+    pinClicks: number | null; outboundClicks: number | null;
+  } | null;
+  organicNote: string;
+  catalogs: PerfCatalog[];
+  topOrganicPins: TopOrganicPin[];
+  topPaidProductGroups: TopPaidGroup[];
+  opportunities: Opportunity[];
+  _meta: { adAccountId: string | null; adAccountName: string | null; errors: string[] };
+}
+
+function fmt(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+const SCORE_CONFIG = {
+  STRONG:           { label: "Strong Opportunity", color: "bg-emerald-100 text-emerald-700", dot: "bg-emerald-500" },
+  GOOD:             { label: "Good Opportunity",   color: "bg-blue-100 text-blue-700",       dot: "bg-blue-500"   },
+  NEEDS_REVIEW:     { label: "Needs Review",        color: "bg-amber-100 text-amber-700",     dot: "bg-amber-500"  },
+  INSUFFICIENT_DATA:{ label: "Insufficient Data",   color: "bg-gray-100 text-gray-500",       dot: "bg-gray-400"   },
+} as const;
+
+// Tooltip for metrics Pinterest does not expose at catalog level
+function UnavailableTooltip({ text }: { text: string }) {
+  return (
+    <span
+      className="cursor-help text-gray-300 hover:text-gray-500 transition-colors"
+      title={text}
+    >
+      <Info className="w-3 h-3 inline-block" />
+    </span>
+  );
+}
+
+function OverviewTab({ data }: { data: OverviewData }) {
+  if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
+
+  const { summary } = data;
+
+  // ── Controls ────────────────────────────────────────────────────────────────
+  const [dateRange,  setDateRange]  = useState<"7d" | "30d" | "90d">("30d");
+  const [source,     setSource]     = useState<TrafficSource>("ALL");
+  const [catSort,    setCatSort]    = useState<SortMetric>("checkouts");
+  const [prodSort,   setProdSort]   = useState<SortMetric>("checkouts");
+  const [prodSource, setProdSource] = useState<TrafficSource>("ALL");
+
+  // ── Data loading ─────────────────────────────────────────────────────────────
+  const [perfData,    setPerfData]    = useState<PerfData | null>(null);
+  const [perfLoading, setPerfLoading] = useState(false);
+  const [perfError,   setPerfError]   = useState<string | null>(null);
+
+  // Per-pin drill-down drawer
+  const [selectedPin, setSelectedPin] = useState<{ id: string; title: string; imageUrl: string } | null>(null);
+
+  // Pin analytics cache — auto-fetched for all top organic pins so cards show inline data
+  const [pinCache, setPinCache] = useState<Record<string, PinAnalyticsResult | null>>({});
+
+  useEffect(() => {
+    setPerfLoading(true);
+    setPerfError(null);
+    const params = new URLSearchParams({ range: dateRange, source });
+    fetch(`/api/pinterest-catalog/performance?${params}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.error) setPerfError(d.error);
+        else setPerfData(d);
+      })
+      .catch(() => setPerfError("Unable to retrieve Pinterest analytics."))
+      .finally(() => setPerfLoading(false));
+  }, [dateRange, source]);
+
+  // Auto-fetch per-pin analytics for top organic pins when they change
+  useEffect(() => {
+    if (!perfData?.topOrganicPins?.length) return;
+    const pins = perfData.topOrganicPins.slice(0, 12); // cap at 12 to stay within rate limits
+    for (const pin of pins) {
+      if (pinCache[pin.id] !== undefined) continue; // already fetched
+      setPinCache((prev) => ({ ...prev, [pin.id]: null })); // mark as loading
+      fetch(`/api/pinterest-catalog/pin-analytics?pinId=${encodeURIComponent(pin.id)}&days=30`)
+        .then((r) => r.json())
+        .then((d) => {
+          setPinCache((prev) => ({ ...prev, [pin.id]: d.error ? null : d }));
+        })
+        .catch(() => {
+          setPinCache((prev) => ({ ...prev, [pin.id]: null }));
+        });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perfData?.topOrganicPins]);
+
+  // ── Derived data ──────────────────────────────────────────────────────────────
+  // Sort catalogs by selected metric (paid side), nulls last
+  const sortedCatalogs = perfData
+    ? [...perfData.catalogs].sort((a, b) => {
+        const av = a.paid?.[catSort as keyof typeof a.paid] as number | null ?? null;
+        const bv = b.paid?.[catSort as keyof typeof b.paid] as number | null ?? null;
+        if (av === null && bv === null) return 0;
+        if (av === null) return 1;
+        if (bv === null) return -1;
+        return bv - av;
+      })
+    : [];
+
+  // Combined top products (organic pins + paid product groups), filtered by source
+  type TopItem = (TopOrganicPin | TopPaidGroup) & { _sortVal: number };
+  const topProducts: TopItem[] = (() => {
+    if (!perfData) return [];
+    const organic: TopItem[] = prodSource !== "PAID"
+      ? perfData.topOrganicPins.map((p) => ({
+          ...p,
+          _sortVal: (p[prodSort as keyof TopOrganicPin] as number | null) ?? -1,
+        }))
+      : [];
+    const paid: TopItem[] = prodSource !== "ORGANIC"
+      ? perfData.topPaidProductGroups.map((g) => ({
+          ...g,
+          _sortVal: (g[prodSort as keyof TopPaidGroup] as number | null) ?? -1,
+        }))
+      : [];
+    return [...organic, ...paid].sort((a, b) => b._sortVal - a._sortVal).slice(0, 25);
+  })();
+
+  // ── Shared select class ───────────────────────────────────────────────────────
+  const sel = "text-sm border border-gray-200 rounded-xl px-3 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#e60023]/30";
+
+  const statCards = [
+    { label: "Catalogs",          value: summary?.totalCatalogs ?? 0,                                               icon: ShoppingBag, color: "bg-purple-100 text-purple-600" },
+    { label: "Feeds",             value: summary?.totalFeeds ?? 0,                                                  icon: Layers,      color: "bg-blue-100 text-blue-600"   },
+    { label: "Total Products",    value: summary?.totalProducts != null ? summary.totalProducts.toLocaleString() : "—", icon: BarChart2,   color: "bg-green-100 text-green-600" },
+    { label: "Products w/ Errors",value: summary?.totalErrors  != null ? summary.totalErrors.toLocaleString()  : "—", icon: XCircle,     color: "bg-red-100 text-red-600"     },
+  ];
+
+  const ORGANIC_CATALOG_NOTE = "Pinterest does not provide organic analytics at catalog level via its API. Account-level organic totals are shown above the table.";
+
+  return (
+    <>
     <div className="space-y-6">
-      {/* Stat cards */}
+
+      {/* ── Stat cards ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map((s) => (
           <div key={s.label} className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -183,75 +577,516 @@ function OverviewTab({ data }: { data: OverviewData }) {
         ))}
       </div>
 
-      {/* Feeds overview */}
+      {/* ── Catalog Performance ───────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100">
-        <div className="px-5 py-4 border-b border-gray-100">
-          <h3 className="font-semibold text-gray-900">Active Feeds</h3>
+
+        {/* Controls header */}
+        <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-semibold text-gray-900">Catalog Performance</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {perfData
+                  ? `${perfData.period.startDate} → ${perfData.period.endDate}`
+                  : "Select a date range"}
+              </p>
+            </div>
+            {perfLoading && (
+              <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Loading catalog performance…
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Date range */}
+            <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+              {(["7d","30d","90d"] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setDateRange(r)}
+                  className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                    dateRange === r ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"
+                  )}
+                >
+                  {r === "7d" ? "Last 7 Days" : r === "30d" ? "Last 30 Days" : "Last 90 Days"}
+                </button>
+              ))}
+            </div>
+            {/* Traffic source */}
+            <select value={source} onChange={(e) => setSource(e.target.value as TrafficSource)} className={sel}>
+              <option value="ALL">All Traffic</option>
+              <option value="ORGANIC">Organic</option>
+              <option value="PAID">Paid</option>
+            </select>
+            {/* Sort by */}
+            <div className="flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-gray-400" />
+              <select value={catSort} onChange={(e) => setCatSort(e.target.value as SortMetric)} className={sel}>
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
-        {feeds.length === 0 ? (
-          <div className="py-12 text-center text-gray-400 text-sm">No feeds found</div>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {feeds.map((feed) => {
-              const hs = healthScore(feed);
-              return (
-                <div key={feed.id} className="px-5 py-4 flex items-center gap-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 text-sm truncate">{feed.name || feed.id}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{feed.format} · {feed.catalog_type}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full", feedStatusColor(feed.status))}>
-                      {feed.status}
-                    </span>
-                  </div>
-                  <div className="w-20 text-right">
-                    <p className={cn("text-sm font-bold", scoreColor(hs))}>{hs}%</p>
-                    <p className="text-xs text-gray-400">health</p>
-                  </div>
+
+        {/* Error state */}
+        {perfError && !perfLoading && (
+          <div className="px-5 py-6 flex items-center gap-2 text-sm text-red-600">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            {perfError === "Pinterest not connected"
+              ? "Pinterest account not connected."
+              : perfError.includes("rate limit") || perfError.includes("429")
+                ? "Pinterest API rate limit reached. Please try again later."
+                : `Unable to retrieve Pinterest analytics. ${perfError}`}
+          </div>
+        )}
+
+        {/* Account-level organic totals banner (only when organic data is available) */}
+        {!perfLoading && !perfError && perfData?.organicAccountTotals && source !== "PAID" && (
+          <div className="mx-5 mt-4 mb-1 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+            <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5">
+              <Info className="w-3.5 h-3.5" />
+              Account-Level Organic Analytics (not per-catalog — Pinterest API limitation)
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {[
+                { label: "Impressions",     val: perfData.organicAccountTotals.impressions    },
+                { label: "Engagement",      val: perfData.organicAccountTotals.engagement     },
+                { label: "Saves",           val: perfData.organicAccountTotals.saves          },
+                { label: "Pin Clicks",      val: perfData.organicAccountTotals.pinClicks      },
+                { label: "Outbound Clicks", val: perfData.organicAccountTotals.outboundClicks },
+              ].map((m) => (
+                <div key={m.label}>
+                  <p className="text-base font-bold text-blue-900">{fmt(m.val)}</p>
+                  <p className="text-[10px] text-blue-600">{m.label}</p>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Catalog table */}
+        {!perfError && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left font-medium">Catalog</th>
+                  <th className="px-4 py-3 text-left font-medium">Opportunity
+                    <span className="ml-1 font-normal normal-case text-gray-400">(Rambforce)</span>
+                  </th>
+                  {source !== "ORGANIC" && <>
+                    <th className="px-4 py-3 text-right font-medium">Checkouts</th>
+                    <th className="px-4 py-3 text-right font-medium">Add to Cart</th>
+                    <th className="px-4 py-3 text-right font-medium">Impressions</th>
+                    <th className="px-4 py-3 text-right font-medium">Pin Clicks</th>
+                    <th className="px-4 py-3 text-right font-medium pr-5">Outbound</th>
+                  </>}
+                  {source === "ORGANIC" && <>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Engagement <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Saves <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Impressions <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium">
+                      Pin Clicks <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                    <th className="px-4 py-3 text-right font-medium pr-5">
+                      Outbound <UnavailableTooltip text={ORGANIC_CATALOG_NOTE} />
+                    </th>
+                  </>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {perfLoading
+                  ? Array.from({ length: 3 }).map((_, i) => (
+                      <tr key={i}>
+                        <td colSpan={7} className="px-5 py-4">
+                          <div className="h-4 bg-gray-100 rounded animate-pulse w-full" />
+                        </td>
+                      </tr>
+                    ))
+                  : sortedCatalogs.length === 0
+                    ? (
+                      <tr>
+                        <td colSpan={7} className="px-5 py-10 text-center text-sm text-gray-400">
+                          No analytics available for this period.
+                        </td>
+                      </tr>
+                    )
+                    : sortedCatalogs.map((cat) => {
+                        const sc = SCORE_CONFIG[cat.opportunityScore];
+                        return (
+                          <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-5 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                  <ShoppingBag className="w-4 h-4 text-purple-600" />
+                                </div>
+                                <div>
+                                  <p className="font-medium text-gray-900">{cat.name}</p>
+                                  <p className="text-xs text-gray-400">{cat.catalogType}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", sc.dot)} />
+                                <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full", sc.color)}>
+                                  {sc.label}
+                                </span>
+                              </div>
+                              {cat.adAccountId && cat.bestAdProductGroupId && (
+                                <a
+                                  href={`/ads`}
+                                  className="mt-1.5 flex items-center gap-1 text-xs text-[#e60023] hover:underline"
+                                  title="Open Pinterest Ads to promote this catalog"
+                                >
+                                  <ArrowUpRight className="w-3 h-3" />
+                                  Promote with Ads
+                                </a>
+                              )}
+                            </td>
+                            {source !== "ORGANIC" ? <>
+                              <td className="px-4 py-4 text-right font-semibold text-gray-700">{fmt(cat.paid?.checkouts)}</td>
+                              <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.paid?.addToCart)}</td>
+                              <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.paid?.impressions)}</td>
+                              <td className="px-4 py-4 text-right text-gray-600">{fmt(cat.paid?.pinClicks)}</td>
+                              <td className="px-4 py-4 text-right text-gray-600 pr-5">{fmt(cat.paid?.outboundClicks)}</td>
+                            </> : <>
+                              {/* Organic catalog-level metrics are not available — Pinterest API limitation */}
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs">—</td>
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs">—</td>
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs">—</td>
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs">—</td>
+                              <td className="px-4 py-4 text-right text-gray-300 text-xs pr-5">—</td>
+                            </>}
+                          </tr>
+                        );
+                      })}
+              </tbody>
+            </table>
+
+            {/* Organic limitation notice */}
+            {source === "ORGANIC" && !perfLoading && (
+              <div className="px-5 py-3 border-t border-gray-100 flex items-start gap-2 text-xs text-amber-700 bg-amber-50">
+                <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                Pinterest does not provide organic analytics at catalog level.
+                Catalog-level organic metrics are not available from the Pinterest API v5.
+                Account-level organic totals are shown above. Switch to &ldquo;All&rdquo; or &ldquo;Paid&rdquo; to see paid catalog metrics.
+              </div>
+            )}
+            {source !== "ORGANIC" && !perfLoading && sortedCatalogs.length > 0 && sortedCatalogs.every((c) => !c.paid) && (
+              <div className="px-5 py-3 border-t border-gray-100 flex items-start gap-2 text-xs text-amber-700 bg-amber-50">
+                <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                No Pinterest Shopping Ads product groups found for this account.
+                Paid catalog metrics require active Shopping campaigns targeting these catalogs.
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Catalogs */}
-      {catalogs.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100">
-          <div className="px-5 py-4 border-b border-gray-100">
-            <h3 className="font-semibold text-gray-900">Catalogs</h3>
+      {/* ── Top Converting Products ───────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100">
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="font-semibold text-gray-900">Top Converting Products</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Organic = top pins by account analytics · Paid = top product groups by ads reporting · Click organic pin for daily breakdown
+            </p>
           </div>
-          <div className="divide-y divide-gray-50">
-            {catalogs.map((cat) => (
-              <div key={cat.id} className="px-5 py-4 flex items-center gap-3">
-                <div className="w-8 h-8 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <ShoppingBag className="w-4 h-4 text-purple-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-gray-900 text-sm">{cat.name || cat.id}</p>
-                  <p className="text-xs text-gray-400">{cat.catalog_type}</p>
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            <select value={prodSource} onChange={(e) => setProdSource(e.target.value as TrafficSource)} className={sel}>
+              <option value="ALL">All Traffic</option>
+              <option value="ORGANIC">Organic</option>
+              <option value="PAID">Paid</option>
+            </select>
+            <div className="flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-gray-400" />
+              <select value={prodSort} onChange={(e) => setProdSort(e.target.value as SortMetric)} className={sel}>
+                {SORT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {perfLoading ? (
+          <div className="py-10 flex items-center justify-center gap-2 text-gray-400 text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin" /> Loading products…
+          </div>
+        ) : topProducts.length === 0 ? (
+          <div className="py-12 text-center text-sm text-gray-400">
+            No analytics available for this period.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left font-medium">Product / Group</th>
+                  <th className="px-4 py-3 text-left font-medium">Source</th>
+                  <th className="px-4 py-3 text-right font-medium text-[#e60023]">
+                    {SORT_OPTIONS.find((o) => o.value === prodSort)?.label}
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">Checkouts</th>
+                  <th className="px-4 py-3 text-right font-medium">Add to Cart</th>
+                  <th className="px-4 py-3 text-right font-medium">Saves</th>
+                  <th className="px-4 py-3 text-right font-medium">Pin Clicks</th>
+                  <th className="px-4 py-3 text-right font-medium pr-5">Impressions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {topProducts.map((item, i) => {
+                  const isOrganic = item.source === "ORGANIC";
+                  const pin = isOrganic ? (item as TopOrganicPin) : null;
+                  const group = !isOrganic ? (item as TopPaidGroup) : null;
+                  const sortVal = item[prodSort as keyof typeof item] as number | null;
+                  return (
+                    <tr
+                      key={item.id + i}
+                      className={cn("hover:bg-gray-50 transition-colors", isOrganic && "cursor-pointer")}
+                      onClick={isOrganic && pin ? () => setSelectedPin({ id: pin.id, title: pin.title, imageUrl: pin.imageUrl }) : undefined}
+                    >
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3">
+                          {pin?.imageUrl ? (
+                            <img src={pin.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+                              <ShoppingBag className="w-4 h-4 text-gray-300" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-900 truncate max-w-[200px]">
+                              {(pin?.title || group?.name || "—")}
+                            </p>
+                            {group?.catalogName && (
+                              <p className="text-xs text-gray-400 truncate max-w-[200px]">{group.catalogName}</p>
+                            )}
+                            {pin?.link && (
+                              <a href={pin.link} target="_blank" rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-xs text-[#e60023] hover:underline truncate block max-w-[200px]">
+                                {pin.link.replace(/^https?:\/\//, "").slice(0, 40)}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full",
+                          isOrganic ? "bg-green-100 text-green-700" : "bg-purple-100 text-purple-700"
+                        )}>
+                          {isOrganic ? "Organic" : "Paid"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-[#e60023]">{fmt(sortVal)}</td>
+                      {/* Checkouts: organic pins don't have checkout data (Pinterest organic analytics don't include conversions) */}
+                      <td className="px-4 py-3 text-right text-gray-600">{fmt(item.checkouts)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmt(item.addToCart)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmt(isOrganic ? pin?.saves : null)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{fmt(isOrganic ? pin?.pinClicks : group?.pinClicks)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600 pr-5">{fmt(isOrganic ? pin?.impressions : group?.impressions)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Pin Performance Dashboard ────────────────────────────────── */}
+      {!perfLoading && (perfData?.topOrganicPins?.length ?? 0) > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="font-semibold text-gray-900">Pin Performance Dashboard</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Your top organic pins · 30-day analytics · Click any pin for daily breakdown
+              </p>
+            </div>
+            <span className="text-xs text-gray-400 bg-gray-50 rounded-xl px-3 py-1">
+              {perfData!.topOrganicPins.slice(0, 12).length} pins
+            </span>
+          </div>
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {perfData!.topOrganicPins.slice(0, 12).map((pin) => {
+              const pa = pinCache[pin.id];
+              const isLoading = pinCache[pin.id] === undefined || (pinCache[pin.id] === null && !(pin.id in pinCache));
+              const daily = pa?.daily ?? [];
+              const totals = pa?.totals;
+              // sparkline max for impression bars
+              const maxImp = Math.max(...daily.map((d) => d.impression), 1);
+              return (
+                <button
+                  key={pin.id}
+                  onClick={() => setSelectedPin({ id: pin.id, title: pin.title, imageUrl: pin.imageUrl })}
+                  className="group text-left bg-gray-50 hover:bg-gray-100 rounded-2xl p-4 transition-colors flex flex-col gap-3 border border-transparent hover:border-gray-200"
+                >
+                  {/* Pin header */}
+                  <div className="flex items-start gap-3">
+                    {pin.imageUrl ? (
+                      <img src={pin.imageUrl} alt="" className="w-14 h-14 rounded-xl object-cover flex-shrink-0 bg-gray-200" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl bg-gray-200 flex items-center justify-center flex-shrink-0">
+                        <ShoppingBag className="w-6 h-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm leading-snug line-clamp-2">
+                        {pin.title || `Pin ${pin.id}`}
+                      </p>
+                      {pin.link && (
+                        <p className="text-xs text-[#e60023] truncate mt-0.5">
+                          {pin.link.replace(/^https?:\/\//, "").slice(0, 36)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Metric row */}
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    {[
+                      { label: "Impr.", val: totals?.impression ?? pin.impressions, color: "text-blue-600" },
+                      { label: "Saves", val: totals?.save ?? pin.saves,            color: "text-emerald-600" },
+                      { label: "Clicks", val: totals?.pinClick ?? pin.pinClicks,   color: "text-violet-600" },
+                      { label: "Outbound", val: totals?.outboundClick ?? pin.outboundClicks, color: "text-orange-500" },
+                    ].map(({ label, val, color }) => (
+                      <div key={label} className="bg-white rounded-xl py-2 px-1">
+                        <p className={`text-sm font-bold ${color}`}>{fmt(val ?? null)}</p>
+                        <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Mini sparkline (impression trend) */}
+                  {daily.length > 0 ? (
+                    <div className="flex items-end gap-0.5 h-10">
+                      {daily.slice(-20).map((d, i) => (
+                        <div
+                          key={i}
+                          className="flex-1 rounded-sm bg-blue-400 opacity-70 group-hover:opacity-100 transition-opacity"
+                          style={{ height: `${Math.max(4, Math.round((d.impression / maxImp) * 40))}px` }}
+                          title={`${d.date}: ${d.impression.toLocaleString()} impressions`}
+                        />
+                      ))}
+                    </div>
+                  ) : isLoading ? (
+                    <div className="h-10 flex items-center justify-center">
+                      <RefreshCw className="w-3.5 h-3.5 text-gray-300 animate-spin" />
+                    </div>
+                  ) : (
+                    <div className="h-10 flex items-center justify-center text-[10px] text-gray-300">No trend data</div>
+                  )}
+
+                  <p className="text-[10px] text-gray-400 text-center">
+                    {daily.length > 0 ? `Impressions trend · last ${daily.length} days` : "Click for daily breakdown"}
+                  </p>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
+
+      {/* ── Shopping Ads Opportunities ────────────────────────────────── */}
+      {!perfLoading && !perfError && (perfData?.opportunities?.length ?? 0) > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900">Shopping Ads Opportunities</h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Rambforce analysis based on your authorized account data.
+              These are recommendations only — no ads are created automatically.
+            </p>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {perfData!.opportunities.map((opp, idx) => {
+              const strengthColor = opp.strength === "STRONG" ? "text-emerald-600" : opp.strength === "GOOD" ? "text-blue-600" : "text-amber-600";
+              return (
+                <div key={opp.id + idx} className="px-5 py-4 flex items-start gap-4">
+                  <div className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-sm font-bold text-gray-500">
+                    {idx + 1}
+                  </div>
+                  {opp.imageUrl && (
+                    <img src={opp.imageUrl} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-gray-900">{opp.name}</p>
+                      <span className={cn("text-xs font-semibold", strengthColor)}>
+                        {opp.strength === "STRONG" ? "Strong Signal" : opp.strength === "GOOD" ? "Good Signal" : "Potential"}
+                      </span>
+                    </div>
+                    <ul className="mt-1 space-y-0.5">
+                      {opp.signals.map((s, si) => (
+                        <li key={si} className="text-xs text-gray-500 flex items-center gap-1">
+                          <span className="w-1 h-1 bg-gray-300 rounded-full flex-shrink-0" />
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 text-xs text-gray-700 italic">{opp.recommendation}</p>
+                  </div>
+                  {opp.adAccountId && (
+                    <a
+                      href="/ads"
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-[#e60023] text-white text-xs font-semibold rounded-xl hover:bg-[#c0001f] transition-colors"
+                      title="Opens Pinterest Ads workflow — you must review and launch the campaign manually"
+                    >
+                      <ArrowUpRight className="w-3.5 h-3.5" />
+                      View in Ads
+                    </a>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* API errors debug (only when data loaded) */}
+      {!perfLoading && perfData?._meta?.errors?.length ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl px-5 py-3 text-xs text-amber-700 space-y-1">
+          <p className="font-semibold flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> Some data could not be loaded:</p>
+          {perfData._meta.errors.map((e, i) => <p key={i}>• {e}</p>)}
+        </div>
+      ) : null}
+
     </div>
+    <PinAnalyticsDrawerPortal selectedPin={selectedPin} onClose={() => setSelectedPin(null)} />
+    </>
   );
 }
 
 // ─── Feed Audit Tab ───────────────────────────────────────────────────────────
 
-function AuditTab({ data }: { data: OverviewData }) {
-  if (data.scopeError) return <ScopeErrorBanner />;
+function AuditTab({ data, onRefresh }: { data: OverviewData; onRefresh: () => void }) {
+  if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
   const { feeds = [] } = data;
 
   return (
     <div className="space-y-5">
-      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex gap-3 text-sm text-blue-700">
-        <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <p>Feed health is calculated from ingested, failed, and warning counts reported by Pinterest&apos;s feed processing pipeline.</p>
+      <div className="flex items-center justify-between gap-3">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex gap-3 text-sm text-blue-700 flex-1">
+          <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <p>Feed health is calculated from ingested, failed, and warning counts reported by Pinterest&apos;s feed processing pipeline.</p>
+        </div>
+        <button
+          onClick={onRefresh}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors flex-shrink-0"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </button>
       </div>
 
       {feeds.length === 0 ? (
@@ -260,6 +1095,7 @@ function AuditTab({ data }: { data: OverviewData }) {
         </div>
       ) : (
         feeds.map((feed) => {
+          const countsAvailable = feed.counts != null;
           const total = feed.counts?.TOTAL ?? 0;
           const ingested = feed.counts?.INGESTED ?? 0;
           const failed = feed.counts?.FAILED ?? 0;
@@ -267,12 +1103,15 @@ function AuditTab({ data }: { data: OverviewData }) {
           const expired = feed.counts?.EXPIRED ?? 0;
           const hs = healthScore(feed);
 
-          const issues: { type: "critical" | "warning" | "ok"; label: string; count?: number }[] = [];
-          if (failed > 0) issues.push({ type: "critical", label: "Products failed to ingest", count: failed });
-          if (warnings > 0) issues.push({ type: "warning", label: "Products with warnings", count: warnings });
-          if (expired > 0) issues.push({ type: "warning", label: "Expired products", count: expired });
+          const issues: { type: "critical" | "warning" | "ok" | "info"; label: string; count?: number }[] = [];
           if (feed.status !== "ACTIVE") issues.push({ type: "critical", label: `Feed status: ${feed.status}` });
-          if (issues.length === 0) issues.push({ type: "ok", label: "No critical issues found" });
+          if (countsAvailable) {
+            if (failed > 0) issues.push({ type: "critical", label: "Products failed to ingest", count: failed });
+            if (warnings > 0) issues.push({ type: "warning", label: "Products with warnings", count: warnings });
+            if (expired > 0) issues.push({ type: "warning", label: "Expired products", count: expired });
+          }
+          if (!countsAvailable) issues.push({ type: "info", label: "Processing counts not yet available — feed may not have been processed yet" });
+          else if (issues.length === 0) issues.push({ type: "ok", label: "No critical issues found" });
 
           return (
             <div key={feed.id} className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
@@ -282,35 +1121,37 @@ function AuditTab({ data }: { data: OverviewData }) {
                   <p className="text-xs text-gray-400 mt-0.5">{feed.format} · Last updated: {feed.updated_at ? new Date(feed.updated_at).toLocaleDateString() : "—"}</p>
                 </div>
                 <div className="text-right">
-                  <p className={cn("text-2xl font-bold", scoreColor(hs))}>{hs}%</p>
+                  <p className={cn("text-2xl font-bold", hs != null ? scoreColor(hs) : "text-gray-400")}>{hs != null ? `${hs}%` : "—"}</p>
                   <p className="text-xs text-gray-400">health score</p>
                 </div>
               </div>
 
               {/* Progress bar */}
-              <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
-                <div className="flex justify-between text-xs text-gray-500 mb-1.5">
-                  <span>{ingested.toLocaleString()} ingested</span>
-                  <span>{total.toLocaleString()} total</span>
+              {countsAvailable && (
+                <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1.5">
+                    <span>{ingested.toLocaleString()} ingested</span>
+                    <span>{total.toLocaleString()} total</span>
+                  </div>
+                  <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-2 bg-green-500 rounded-full"
+                      style={{ width: total ? `${Math.round((ingested / total) * 100)}%` : "0%" }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-2 bg-green-500 rounded-full"
-                    style={{ width: total ? `${Math.round((ingested / total) * 100)}%` : "0%" }}
-                  />
-                </div>
-              </div>
+              )}
 
               {/* Stats row */}
-              <div className="grid grid-cols-4 divide-x divide-gray-100 border-b border-gray-100">
+              <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 divide-x divide-gray-100 border-b border-gray-100">
                 {[
-                  { label: "Total", value: total, color: "text-gray-900" },
-                  { label: "Ingested", value: ingested, color: "text-green-600" },
-                  { label: "Failed", value: failed, color: "text-red-500" },
-                  { label: "Warnings", value: warnings, color: "text-yellow-600" },
+                  { label: "Total", value: countsAvailable ? total.toLocaleString() : "—", color: "text-gray-900" },
+                  { label: "Ingested", value: countsAvailable ? ingested.toLocaleString() : "—", color: "text-green-600" },
+                  { label: "Failed", value: countsAvailable ? failed.toLocaleString() : "—", color: "text-red-500" },
+                  { label: "Warnings", value: countsAvailable ? warnings.toLocaleString() : "—", color: "text-yellow-600" },
                 ].map((stat) => (
                   <div key={stat.label} className="px-4 py-3 text-center">
-                    <p className={cn("text-lg font-bold", stat.color)}>{stat.value.toLocaleString()}</p>
+                    <p className={cn("text-lg font-bold", stat.color)}>{stat.value}</p>
                     <p className="text-xs text-gray-400">{stat.label}</p>
                   </div>
                 ))}
@@ -322,10 +1163,12 @@ function AuditTab({ data }: { data: OverviewData }) {
                   <div key={i} className={cn("flex items-center gap-2 text-sm rounded-lg px-3 py-2",
                     issue.type === "critical" ? "bg-red-50 text-red-700" :
                     issue.type === "warning" ? "bg-yellow-50 text-yellow-700" :
+                    issue.type === "info" ? "bg-blue-50 text-blue-700" :
                     "bg-green-50 text-green-700"
                   )}>
                     {issue.type === "critical" ? <XCircle className="w-3.5 h-3.5 flex-shrink-0" /> :
                      issue.type === "warning" ? <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> :
+                     issue.type === "info" ? <Info className="w-3.5 h-3.5 flex-shrink-0" /> :
                      <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />}
                     <span>{issue.label}{issue.count !== undefined ? ` (${issue.count.toLocaleString()})` : ""}</span>
                   </div>
@@ -339,15 +1182,42 @@ function AuditTab({ data }: { data: OverviewData }) {
   );
 }
 
+function PinAnalyticsDrawerPortal({ selectedPin, onClose }: { selectedPin: { id: string; title: string; imageUrl: string } | null; onClose: () => void }) {
+  if (!selectedPin) return null;
+  return <PinAnalyticsDrawer pinId={selectedPin.id} pinTitle={selectedPin.title} pinImage={selectedPin.imageUrl} onClose={onClose} />;
+}
+
 // ─── Product SEO Tab ──────────────────────────────────────────────────────────
 
-function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange }: {
+function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange, apiError }: {
   products: Product[];
   loading: boolean;
   feeds: Feed[];
   selectedFeed: string;
   onFeedChange: (id: string) => void;
+  apiError?: string | null;
 }) {
+  const [kwSuggestions, setKwSuggestions] = useState<Record<string, { keywords: string[]; loading: boolean; error?: string }>>({});
+
+  async function generateKwSuggestions(id: string, title: string, description: string) {
+    setKwSuggestions(prev => ({ ...prev, [id]: { keywords: [], loading: true } }));
+    try {
+      const res = await fetch("/api/pinterest-catalog/keyword-suggestions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description }),
+      });
+      const json = await res.json() as { keywords?: string[]; error?: string };
+      if (!res.ok || json.error) {
+        setKwSuggestions(prev => ({ ...prev, [id]: { keywords: [], loading: false, error: json.error ?? "Failed" } }));
+      } else {
+        setKwSuggestions(prev => ({ ...prev, [id]: { keywords: json.keywords ?? [], loading: false } }));
+      }
+    } catch {
+      setKwSuggestions(prev => ({ ...prev, [id]: { keywords: [], loading: false, error: "Network error" } }));
+    }
+  }
+
   if (loading) return <LoadingState label="Loading product SEO data..." />;
 
   const avgScore = products.length
@@ -387,14 +1257,33 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange }:
       )}
 
       {products.length === 0 ? (
-        <EmptyState label="Select a feed to view product SEO scores." />
+        <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
+          <ShoppingBag className="w-10 h-10 text-gray-300" />
+          {apiError ? (
+            <>
+              <p className="text-sm font-semibold text-red-600">Error loading products</p>
+              <p className="text-xs text-gray-500 max-w-sm">{apiError}</p>
+            </>
+          ) : feeds.length === 0 ? (
+            <p className="text-sm text-gray-500">No feeds found.</p>
+          ) : (
+            <>
+              <p className="text-sm font-semibold text-gray-700">No products returned for this feed</p>
+              <p className="text-xs text-gray-500 max-w-sm">
+                Pinterest may not expose feed-level product listings via this API. Try the{" "}
+                <span className="font-semibold text-[#e60023]">Product Groups</span> tab to browse
+                and analyze products by group.
+              </p>
+            </>
+          )}
+        </div>
       ) : (
         <>
           {/* Score summary */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
               <p className={cn("text-3xl font-bold", scoreColor(avgScore))}>{avgScore}</p>
-              <p className="text-xs text-gray-500 mt-1">Avg SEO Score</p>
+              <p className="text-xs text-gray-500 mt-1">Rambforce SEO Score</p>
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 p-5">
               <p className="text-3xl font-bold text-green-600">{goodCount}</p>
@@ -432,28 +1321,82 @@ function ProductSeoTab({ products, loading, feeds, selectedFeed, onFeedChange }:
 
           {/* Product score breakdown */}
           <div className="bg-white rounded-2xl border border-gray-100">
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="font-semibold text-gray-900">Product Scores</h3>
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
+              <div className="w-10 flex-shrink-0" />
+              <h3 className="font-semibold text-gray-900 flex-1 min-w-0">Product Scores</h3>
+              <div className="w-64 flex-shrink-0 text-xs font-medium text-gray-400 uppercase tracking-wide text-center">Keyword Suggestions</div>
+              <div className="w-10 flex-shrink-0 text-xs font-medium text-gray-400 uppercase tracking-wide text-right">Score</div>
+              <div className="w-20 flex-shrink-0 text-xs font-medium text-gray-400 uppercase tracking-wide text-center">Action</div>
             </div>
             <div className="divide-y divide-gray-50 max-h-96 overflow-y-auto">
-              {products.sort((a, b) => a.seoScore - b.seoScore).map((p, i) => (
-                <div key={i} className="px-5 py-3 flex items-center gap-3">
-                  {p.imageLink ? (
-                    <img src={p.imageLink} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{p.title || "Untitled"}</p>
-                    {p.issues.length > 0 && (
-                      <p className="text-xs text-red-500 truncate">{p.issues[0]}{p.issues.length > 1 ? ` +${p.issues.length - 1} more` : ""}</p>
+              {products.sort((a, b) => a.seoScore - b.seoScore).map((p, i) => {
+                const kwState = p.id ? kwSuggestions[String(p.id)] : undefined;
+                return (
+                  <div key={i} className="px-5 py-3 flex items-center gap-3">
+                    {p.imageLink ? (
+                      <img src={p.imageLink} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-gray-100" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{p.title || "Untitled"}</p>
+                      {p.issues.length > 0 && (
+                        <p className="text-xs text-red-500 truncate">{p.issues[0]}{p.issues.length > 1 ? ` +${p.issues.length - 1} more` : ""}</p>
+                      )}
+                    </div>
+
+                    {/* Keyword Suggestions column */}
+                    <div className="w-64 flex-shrink-0">
+                      {!kwState ? (
+                        <button
+                          onClick={() => p.id && generateKwSuggestions(String(p.id), p.title ?? "", p.description ?? "")}
+                          className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-[#e60023] border border-dashed border-gray-200 hover:border-[#e60023]/40 rounded-lg px-2.5 py-1.5 transition-colors"
+                        >
+                          <Tag className="w-3 h-3" /> Get keywords
+                        </button>
+                      ) : kwState.loading ? (
+                        <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Generating…
+                        </div>
+                      ) : kwState.error ? (
+                        <span className="text-xs text-red-400">{kwState.error}</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {kwState.keywords.map(kw => (
+                            <span key={kw} className="text-xs bg-[#e60023]/8 text-[#e60023] border border-[#e60023]/20 px-2 py-0.5 rounded-full font-medium">
+                              {kw}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <span className={cn("text-sm font-bold w-10 text-right flex-shrink-0", scoreColor(p.seoScore))}>
+                      {p.seoScore}
+                    </span>
+                    {!!p.id && (
+                      <Link
+                        href={`/catalog/${encodeURIComponent(String(p.id))}/optimized-suggestions?${new URLSearchParams({
+                          ...(selectedFeed ? { feedId: selectedFeed } : {}),
+                          title: p.title ?? "",
+                          description: p.description ?? "",
+                          brand: p.brand ?? "",
+                          price: p.price ?? "",
+                          availability: p.availability ?? "",
+                          condition: p.condition ?? "",
+                          googleProductCategory: p.googleProductCategory ?? "",
+                          imageLink: p.imageLink ?? "",
+                          link: p.link ?? "",
+                        }).toString()}`}
+                        className="flex-shrink-0 flex items-center gap-1.5 text-xs font-medium text-[#e60023] border border-[#e60023]/30 bg-[#e60023]/5 hover:bg-[#e60023]/10 px-2.5 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        Optimize
+                      </Link>
                     )}
                   </div>
-                  <span className={cn("text-sm font-bold w-10 text-right", scoreColor(p.seoScore))}>
-                    {p.seoScore}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </>
@@ -522,7 +1465,7 @@ function ProductsTab({ products, loading, feeds, selectedFeed, onFeedChange }: {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState label={products.length === 0 ? "Select a feed to view products." : "No products match your search."} />
+        <EmptyState label={products.length === 0 ? "No products found in this feed." : "No products match your search."} />
       ) : (
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
@@ -595,14 +1538,445 @@ function ProductsTab({ products, loading, feeds, selectedFeed, onFeedChange }: {
 
 // ─── Product Groups Tab ───────────────────────────────────────────────────────
 
-function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boolean }) {
+function GroupProductDetailView({ product, onBack }: { product: GroupProduct; onBack: () => void }) {
+  return (
+    <div className="space-y-4">
+      <button onClick={onBack} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-colors">
+        ← Back to products
+      </button>
+
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+        <div className="p-5 flex gap-5 border-b border-gray-100">
+          {product.imageLink ? (
+            <img src={product.imageLink} alt="" className="w-28 h-28 rounded-xl object-cover flex-shrink-0 bg-gray-100" />
+          ) : (
+            <div className="w-28 h-28 rounded-xl bg-gray-100 flex-shrink-0 flex items-center justify-center">
+              <ShoppingBag className="w-8 h-8 text-gray-300" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-gray-900 text-lg leading-snug">{product.title || "Untitled"}</h2>
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {product.price && <span className="text-base font-semibold text-gray-900">{product.price}</span>}
+              {product.salePrice && product.salePrice !== product.price && (
+                <span className="text-sm text-red-500 font-medium">{product.salePrice} sale</span>
+              )}
+              {product.availability && (
+                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+                  product.availability === "in stock" ? "bg-green-100 text-green-700" :
+                  product.availability === "out of stock" ? "bg-red-100 text-red-700" :
+                  "bg-gray-100 text-gray-600"
+                )}>
+                  {product.availability}
+                </span>
+              )}
+            </div>
+            {product.link && (
+              <a href={product.link} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline mt-1 block truncate">
+                {product.link}
+              </a>
+            )}
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className={cn("text-2xl font-bold", scoreColor(product.seoScore))}>{product.seoScore}</p>
+            <p className="text-xs text-gray-400 mt-0.5">Rambforce SEO Score</p>
+          </div>
+        </div>
+
+        <div className="divide-y divide-gray-50">
+          {[
+            { label: "Item ID", value: product.itemId },
+            { label: "Item Group ID", value: product.itemGroupId },
+            { label: "Brand", value: product.brand },
+            { label: "Product Type", value: product.productType },
+            { label: "Google Product Category", value: product.googleProductCategory },
+            { label: "Condition", value: product.condition },
+            { label: "Currency", value: product.currency },
+            { label: "Pin Status", value: product.status },
+          ].filter(r => r.value).map((row) => (
+            <div key={row.label} className="px-5 py-2.5 flex justify-between text-sm gap-4">
+              <span className="text-gray-500 flex-shrink-0">{row.label}</span>
+              <span className="font-medium text-gray-900 text-right break-all">{row.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {product.description && (
+          <div className="px-5 py-4 border-t border-gray-100">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Description</p>
+            <p className="text-sm text-gray-700 leading-relaxed">{product.description}</p>
+          </div>
+        )}
+      </div>
+
+      {product.issues.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100">
+          <div className="px-5 py-4 border-b border-gray-100">
+            <h3 className="font-semibold text-gray-900">SEO Recommendations</h3>
+          </div>
+          <div className="divide-y divide-gray-50">
+            {product.issues.map((issue, i) => (
+              <div key={i} className="px-5 py-3 flex items-center gap-3 text-sm">
+                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                <span className="text-gray-700">{issue}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroupsTab({ groups, loading, feeds }: { groups: ProductGroup[]; loading: boolean; feeds: Feed[] }) {
+  const [selectedGroup, setSelectedGroup] = useState<ProductGroup | null>(null);
+  const [selectedProduct, setSelectedProduct] = useState<GroupProduct | null>(null);
+
+  // Products for the open group
+  const [groupProducts, setGroupProducts] = useState<GroupProduct[]>([]);
+  const [productCount, setProductCount] = useState<number | null>(null);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [nextBookmark, setNextBookmark] = useState<string | null>(null);
+  // bookmarkStack[i] = bookmark to fetch page i+1 (null = first page)
+  const [bookmarkStack, setBookmarkStack] = useState<(string | null)[]>([null]);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [search, setSearch] = useState("");
+  const [debug, setDebug] = useState<GroupProductsDebug | null>(null);
+  const [usedFallback, setUsedFallback] = useState(false);
+
+  const fetchGroupProducts = useCallback((group: ProductGroup, bookmark: string | null) => {
+    setProductsLoading(true);
+    setProductsError(null);
+    const feedId = group.feedId || feeds[0]?.id || "";
+    const params = new URLSearchParams({ productGroupId: String(group.id), pageSize: "25" });
+    if (feedId) params.set("feedId", feedId);
+    if (bookmark) params.set("bookmark", bookmark);
+
+    fetch(`/api/pinterest-catalog/product-group-products?${params}`)
+      .then((r) => r.json())
+      .then((d) => {
+        setGroupProducts(d.products ?? []);
+        setProductCount(d.productCount ?? null);
+        setNextBookmark(d.bookmark ?? null);
+        setDebug(d._debug ?? null);
+        setUsedFallback(d.usedFallback ?? false);
+        if (d._debug?.productsApiError) {
+          setProductsError(`Pinterest API ${d._debug.productsApiError.status}: ${d._debug.productsApiError.body}`);
+        }
+      })
+      .catch(() => setProductsError("Failed to load products from Pinterest"))
+      .finally(() => setProductsLoading(false));
+  }, [feeds]);
+
+  function handleGroupSelect(group: ProductGroup) {
+    setSelectedGroup(group);
+    setSelectedProduct(null);
+    setGroupProducts([]);
+    setProductCount(null);
+    setNextBookmark(null);
+    setBookmarkStack([null]);
+    setPageIndex(0);
+    setSearch("");
+    setDebug(null);
+    setProductsError(null);
+    fetchGroupProducts(group, null);
+  }
+
+  function handleNextPage() {
+    if (!nextBookmark || !selectedGroup) return;
+    const newStack = [...bookmarkStack, nextBookmark];
+    setBookmarkStack(newStack);
+    const newIndex = pageIndex + 1;
+    setPageIndex(newIndex);
+    setSearch("");
+    fetchGroupProducts(selectedGroup, nextBookmark);
+  }
+
+  function handlePrevPage() {
+    if (pageIndex === 0 || !selectedGroup) return;
+    const newIndex = pageIndex - 1;
+    setPageIndex(newIndex);
+    setSearch("");
+    fetchGroupProducts(selectedGroup, bookmarkStack[newIndex]);
+  }
+
   if (loading) return <LoadingState label="Loading product groups..." />;
 
+  // Product detail view
+  if (selectedProduct) {
+    return <GroupProductDetailView product={selectedProduct} onBack={() => setSelectedProduct(null)} />;
+  }
+
+  // Group detail view
+  if (selectedGroup) {
+    const filtered = search
+      ? groupProducts.filter(p =>
+          p.title.toLowerCase().includes(search.toLowerCase()) ||
+          p.brand.toLowerCase().includes(search.toLowerCase()) ||
+          p.itemId.toLowerCase().includes(search.toLowerCase())
+        )
+      : groupProducts;
+
+    const countMismatch =
+      productCount !== null &&
+      groupProducts.length === 0 &&
+      !productsLoading &&
+      !productsError &&
+      productCount > 0;
+
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => setSelectedGroup(null)}
+          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+        >
+          ← Back to groups
+        </button>
+
+        {/* Header card */}
+        <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Layers className="w-5 h-5 text-purple-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-gray-900 text-lg">{selectedGroup.name || String(selectedGroup.id)}</p>
+              {selectedGroup.description && <p className="text-xs text-gray-500 mt-0.5">{selectedGroup.description}</p>}
+            </div>
+            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0",
+              selectedGroup.status === "ACTIVE" ? "bg-green-100 text-green-700" :
+              selectedGroup.status === "PAUSED" ? "bg-yellow-100 text-yellow-700" :
+              "bg-gray-100 text-gray-600"
+            )}>
+              {selectedGroup.status || "—"}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 divide-x divide-gray-100">
+            <div className="px-5 py-3">
+              <p className="text-xs text-gray-400">Feed</p>
+              <p className="text-sm font-medium text-gray-900 mt-0.5 truncate">{selectedGroup.feedId || "—"}</p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-xs text-gray-400">Products</p>
+              <p className="text-sm font-bold text-gray-900 mt-0.5">
+                {productCount !== null ? productCount.toLocaleString() : productsLoading ? "…" : "—"}
+              </p>
+            </div>
+            <div className="px-5 py-3">
+              <p className="text-xs text-gray-400">Last Updated</p>
+              <p className="text-sm font-medium text-gray-900 mt-0.5">
+                {selectedGroup.updatedAt ? new Date(selectedGroup.updatedAt).toLocaleDateString() : "—"}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Promote CTA */}
+        <div className="bg-gradient-to-r from-[#e60023]/5 to-purple-50 rounded-2xl border border-[#e60023]/10 px-5 py-4 flex items-center gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-gray-900">Promote with Pinterest Ads</p>
+            <p className="text-xs text-gray-500 mt-0.5">Target this product group in a Shopping campaign.</p>
+          </div>
+          <a
+            href="https://ads.pinterest.com"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 bg-[#e60023] text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-[#ad081b] transition-colors flex-shrink-0"
+          >
+            Ads Manager
+            <ArrowUpRight className="w-3.5 h-3.5" />
+          </a>
+        </div>
+
+        {/* Fallback notice */}
+        {usedFallback && debug?.note && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-800 text-sm">Showing all feed products</p>
+              <p className="text-xs text-amber-700 mt-1">{debug.note}</p>
+            </div>
+          </div>
+        )}
+
+        {/* API error */}
+        {productsError && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+            <div className="flex items-start gap-3">
+              <XCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-red-800 text-sm">Pinterest API Error</p>
+                <p className="text-xs text-red-700 mt-1 break-all">{productsError}</p>
+                {debug && (
+                  <details className="mt-2">
+                    <summary className="text-xs text-red-600 cursor-pointer hover:underline">Debug endpoints</summary>
+                    <div className="mt-2 space-y-1">
+                      <p className="text-xs font-mono text-red-700 break-all">Group: {debug.groupEndpoint} → {debug.groupStatus}</p>
+                      <p className="text-xs font-mono text-red-700 break-all">Products: {debug.productsEndpoint} → {debug.productsStatus}</p>
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Count vs results mismatch warning */}
+        {countMismatch && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-amber-800 text-sm">
+                Pinterest reports {productCount?.toLocaleString()} products but returned 0 items
+              </p>
+              <p className="text-xs text-amber-700 mt-1">
+                This product group is defined by filters. Pinterest currently reports no matching catalog items via the API.
+                The count and item list may not be in sync — this is a known Pinterest API behavior.
+              </p>
+              {debug && (
+                <details className="mt-2">
+                  <summary className="text-xs text-amber-600 cursor-pointer hover:underline">Debug info</summary>
+                  <div className="mt-2 space-y-1">
+                    <p className="text-xs font-mono text-amber-700 break-all">Group: {debug.groupEndpoint} → {debug.groupStatus}</p>
+                    <p className="text-xs font-mono text-amber-700 break-all">Products: {debug.productsEndpoint} → {debug.productsStatus}</p>
+                  </div>
+                </details>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Empty: productCount === 0 */}
+        {productCount === 0 && !productsLoading && (
+          <div className="bg-white rounded-2xl border border-gray-100 py-12 text-center px-6">
+            <ShoppingBag className="w-10 h-10 mx-auto mb-3 text-gray-200" />
+            <p className="font-semibold text-gray-700 text-sm">No products currently match this product group.</p>
+            <p className="text-xs text-gray-400 mt-1">
+              This product group is defined by filters. Pinterest currently reports no matching products.
+            </p>
+          </div>
+        )}
+
+        {/* Products section */}
+        {(productsLoading || groupProducts.length > 0) && (
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+              <h3 className="font-semibold text-gray-900 flex-1">Products</h3>
+              {productCount !== null && (
+                <span className="text-xs text-gray-400">{productCount.toLocaleString()} total</span>
+              )}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search this page..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 w-44"
+                />
+              </div>
+            </div>
+
+            {productsLoading ? (
+              <div className="py-16 flex flex-col items-center text-gray-400">
+                <RefreshCw className="w-6 h-6 animate-spin mb-2" />
+                <p className="text-sm">Loading products…</p>
+              </div>
+            ) : filtered.length === 0 && search ? (
+              <div className="py-12 text-center text-gray-400 text-sm">No products match &ldquo;{search}&rdquo; on this page.</div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Product</th>
+                        <th className="px-4 py-3 text-left">Item ID</th>
+                        <th className="px-4 py-3 text-left">Brand</th>
+                        <th className="px-4 py-3 text-left">Price</th>
+                        <th className="px-4 py-3 text-left">Availability</th>
+                        <th className="px-4 py-3 text-left">Type</th>
+                        <th className="px-4 py-3 text-left">SEO</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {filtered.map((p, i) => (
+                        <tr
+                          key={i}
+                          onClick={() => setSelectedProduct(p)}
+                          className="hover:bg-gray-50 cursor-pointer transition-colors"
+                        >
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              {p.imageLink ? (
+                                <img src={p.imageLink} alt="" className="w-9 h-9 rounded-lg object-cover bg-gray-100 flex-shrink-0" />
+                              ) : (
+                                <div className="w-9 h-9 rounded-lg bg-gray-100 flex-shrink-0" />
+                              )}
+                              <span className="font-medium text-gray-900 truncate max-w-[160px]">{p.title || "Untitled"}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.itemId || "—"}</td>
+                          <td className="px-4 py-3 text-gray-600">{p.brand || "—"}</td>
+                          <td className="px-4 py-3 text-gray-900 font-medium">{p.price || "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+                              p.availability === "in stock" ? "bg-green-100 text-green-700" :
+                              p.availability === "out of stock" ? "bg-red-100 text-red-700" :
+                              "bg-gray-100 text-gray-600"
+                            )}>
+                              {p.availability || "—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 text-xs truncate max-w-[120px]">{p.productType || "—"}</td>
+                          <td className="px-4 py-3">
+                            <span className={cn("font-bold text-sm", scoreColor(p.seoScore))}>{p.seoScore}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
+                  <p className="text-xs text-gray-400">
+                    Page {pageIndex + 1}
+                    {productCount !== null ? ` · ${productCount.toLocaleString()} total products` : ""}
+                    {search ? ` · ${filtered.length} match search` : ` · ${groupProducts.length} on this page`}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handlePrevPage}
+                      disabled={pageIndex === 0}
+                      className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      ← Prev
+                    </button>
+                    <button
+                      onClick={handleNextPage}
+                      disabled={!nextBookmark}
+                      className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Group list view
   return (
     <div className="space-y-4">
       <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex gap-3 text-sm text-blue-700">
         <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <p>Product groups allow you to target specific products in Pinterest Ads campaigns.</p>
+        <p>Product groups allow you to target specific products in Pinterest Ads campaigns. Click a group to view its products.</p>
       </div>
 
       {groups.length === 0 ? (
@@ -611,13 +1985,17 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
         <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="divide-y divide-gray-50">
             {groups.map((g, i) => (
-              <div key={i} className="px-5 py-4 flex items-center gap-4">
+              <button
+                key={i}
+                onClick={() => handleGroupSelect(g)}
+                className="w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 transition-colors text-left"
+              >
                 <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
                   <Layers className="w-5 h-5 text-purple-600" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-gray-900">{g.name || String(g.id)}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Feed ID: {g.feedId || "—"}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Feed: {g.feedId || "—"}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
@@ -627,17 +2005,9 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
                   )}>
                     {g.status || "—"}
                   </span>
-                  <a
-                    href="https://ads.pinterest.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-1.5 text-xs font-semibold text-[#e60023] hover:text-[#ad081b] transition-colors"
-                  >
-                    Promote with Ads
-                    <ArrowUpRight className="w-3 h-3" />
-                  </a>
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -649,7 +2019,7 @@ function GroupsTab({ groups, loading }: { groups: ProductGroup[]; loading: boole
 // ─── Diagnostics Tab ─────────────────────────────────────────────────────────
 
 function DiagnosticsTab({ data, products }: { data: OverviewData; products: Product[] }) {
-  if (data.scopeError) return <ScopeErrorBanner />;
+  if (data.scopeError) return <ScopeErrorBanner reason={data.reason} message={data.message} />;
 
   const feeds = data.feeds ?? [];
 
@@ -774,13 +2144,14 @@ function EmptyState({ label }: { label: string }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function CatalogPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [activeTab, setActiveTab] = useState<Tab>("seo");
   const [overviewData, setOverviewData] = useState<OverviewData | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [overviewError, setOverviewError] = useState("");
 
   const [products, setProducts] = useState<Product[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [productsApiError, setProductsApiError] = useState<string | null>(null);
   const [selectedFeedId, setSelectedFeedId] = useState("");
 
   const [groups, setGroups] = useState<ProductGroup[]>([]);
@@ -789,37 +2160,41 @@ export default function CatalogPage() {
 
   const feeds = overviewData?.feeds ?? [];
 
-  // Load overview on mount
-  useEffect(() => {
+  const loadOverview = useCallback(() => {
     setOverviewLoading(true);
+    setOverviewError("");
     fetch("/api/pinterest-catalog")
       .then((r) => r.json())
       .then((d) => {
         setOverviewData(d);
-        // Auto-select first feed
-        if (d.feeds?.length) setSelectedFeedId(d.feeds[0].id);
+        if (d.feeds?.length) setSelectedFeedId((prev) => prev || d.feeds[0].id);
       })
       .catch(() => setOverviewError("Failed to load catalog data"))
       .finally(() => setOverviewLoading(false));
   }, []);
 
+  // Load overview on mount
+  useEffect(() => { loadOverview(); }, [loadOverview]);
+
   // Load products when feedId is known and products/seo/diagnostics tab opened
   const loadProducts = useCallback((feedId: string) => {
     if (!feedId) return;
     setProductsLoading(true);
-    fetch(`/api/pinterest-catalog/products?feedId=${encodeURIComponent(feedId)}&pageSize=50`)
+    setProductsApiError(null);
+    fetch(`/api/pinterest-catalog/products?feedId=${encodeURIComponent(feedId)}&pageSize=100`)
       .then((r) => r.json())
-      .then((d) => setProducts(d.products ?? []))
-      .catch(() => setProducts([]))
+      .then((d) => {
+        setProducts(d.products ?? []);
+        if (d.error) setProductsApiError(`${d.error}${d.status ? ` (${d.status})` : ""}`);
+      })
+      .catch(() => { setProducts([]); setProductsApiError("Failed to load products"); })
       .finally(() => setProductsLoading(false));
   }, []);
 
-  // When feed selection changes, reload products
+  // Load products whenever the selected feed changes (pre-fetch so data is ready on any tab)
   useEffect(() => {
-    if (selectedFeedId && (activeTab === "products" || activeTab === "seo" || activeTab === "diagnostics")) {
-      loadProducts(selectedFeedId);
-    }
-  }, [selectedFeedId, activeTab, loadProducts]);
+    if (selectedFeedId) loadProducts(selectedFeedId);
+  }, [selectedFeedId, loadProducts]);
 
   // Load product groups once when tab is opened
   useEffect(() => {
@@ -832,6 +2207,9 @@ export default function CatalogPage() {
         .finally(() => { setGroupsLoading(false); setGroupsFetched(true); });
     }
   }, [activeTab, groupsFetched]);
+
+  const { limits, loading: planLoading } = usePlan();
+  if (!planLoading && !limits.canCatalog) return <UpgradeGate requiredPlan="enterprise" feature="Pinterest Catalog" />;
 
   function handleFeedChange(feedId: string) {
     setSelectedFeedId(feedId);
@@ -878,8 +2256,6 @@ export default function CatalogPage() {
         <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center text-red-600 text-sm">{overviewError}</div>
       ) : !overviewData ? null : (
         <>
-          {activeTab === "overview" && <OverviewTab data={overviewData} />}
-          {activeTab === "audit" && <AuditTab data={overviewData} />}
           {activeTab === "seo" && (
             <ProductSeoTab
               products={products}
@@ -887,6 +2263,7 @@ export default function CatalogPage() {
               feeds={feeds}
               selectedFeed={selectedFeedId}
               onFeedChange={handleFeedChange}
+              apiError={productsApiError}
             />
           )}
           {activeTab === "products" && (
@@ -899,7 +2276,7 @@ export default function CatalogPage() {
             />
           )}
           {activeTab === "groups" && (
-            <GroupsTab groups={groups} loading={groupsLoading} />
+            <GroupsTab groups={groups} loading={groupsLoading} feeds={feeds} />
           )}
           {activeTab === "diagnostics" && (
             <DiagnosticsTab data={overviewData} products={products} />

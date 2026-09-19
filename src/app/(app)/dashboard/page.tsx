@@ -22,8 +22,10 @@ const QUICK_ACTIONS = [
 interface Analytics {
   impressions: number;
   pinClicks: number;
+  outboundClicks: number;
   impressionsChange: number;
   pinClicksChange: number;
+  outboundClicksChange: number;
   period?: { startDate: string; endDate: string };
 }
 
@@ -31,6 +33,9 @@ export default function Dashboard() {
   const [pinterestConnected, setPinterestConnected] = useState(false);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [adSpend, setAdSpend] = useState<number | null>(null);
+  const [adSpendLoading, setAdSpendLoading] = useState(false);
+  const [noAdAccount, setNoAdAccount] = useState(false);
 
   useEffect(() => {
     fetch("/api/pinterest-connection")
@@ -44,6 +49,18 @@ export default function Dashboard() {
             .then(data => { if (!data.error) setAnalytics(data); })
             .catch(() => {})
             .finally(() => setAnalyticsLoading(false));
+
+          setAdSpendLoading(true);
+          fetch("/api/pinterest-ad-spend")
+            .then(r => r.json())
+            .then(data => {
+              if (!data.error) {
+                setAdSpend(data.adSpend ?? null);
+                setNoAdAccount(data.noAdAccount ?? false);
+              }
+            })
+            .catch(() => {})
+            .finally(() => setAdSpendLoading(false));
         }
       })
       .catch(() => {});
@@ -65,31 +82,32 @@ export default function Dashboard() {
       color: "bg-green-50 text-green-600",
     },
     {
-      label: "Keywords Tracked",
-      value: 248,
-      change: 15.0,
-      icon: Search,
+      label: "Outbound Clicks",
+      value: analytics?.outboundClicks ?? null,
+      change: analytics?.outboundClicksChange ?? null,
+      icon: TrendingUp,
       color: "bg-purple-50 text-purple-600",
-      static: true,
+      placeholder: "Connect Pinterest",
     },
     {
       label: "Ad Spend",
-      value: null as number | null,
+      value: adSpend,
       change: null as number | null,
       icon: DollarSign,
       color: "bg-orange-50 text-orange-600",
       isCurrency: true,
-      placeholder: "Connect Ads",
+      loading: adSpendLoading,
+      placeholder: noAdAccount ? "No ad account" : "Connect Pinterest",
     },
   ];
 
   return (
     <div>
       <Header title="Dashboard" subtitle="Welcome back! Here's your Pinterest overview." />
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-6">
         {/* Stats Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {stats.map(({ label, value, change, icon: Icon, color, isCurrency, placeholder, static: isStatic }) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {stats.map(({ label, value, change, icon: Icon, color, isCurrency, loading: tileLoading, placeholder }) => (
             <div key={label} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm text-gray-500 font-medium">{label}</span>
@@ -97,7 +115,7 @@ export default function Dashboard() {
                   <Icon className="w-4 h-4" />
                 </div>
               </div>
-              {analyticsLoading && !isStatic && value === null ? (
+              {(analyticsLoading || tileLoading) && value === null ? (
                 <div className="flex items-center gap-2 text-gray-400 mt-1">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">Loading…</span>
@@ -129,9 +147,9 @@ export default function Dashboard() {
           </p>
         )}
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Quick Actions */}
-          <div className="col-span-1 space-y-3">
+          <div className="lg:col-span-1 space-y-3">
             <h2 className="text-base font-semibold text-gray-900">Quick Actions</h2>
             {QUICK_ACTIONS.map(({ href, icon: Icon, label, desc, color }) => (
               <Link
@@ -152,7 +170,7 @@ export default function Dashboard() {
           </div>
 
           {/* Trending Keywords */}
-          <div className="col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="lg:col-span-2 bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-base font-semibold text-gray-900">Trending Keywords</h2>
               <Link href="/keywords" className="text-xs text-[#e60023] font-medium hover:underline">View all →</Link>
@@ -177,9 +195,9 @@ export default function Dashboard() {
 
         {/* Pinterest Connect Banner */}
         {!pinterestConnected && (
-          <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex items-center justify-between">
+          <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-[#e60023] rounded-xl flex items-center justify-center text-white text-xl font-bold">P</div>
+              <div className="w-12 h-12 bg-[#e60023] rounded-xl flex items-center justify-center text-white text-xl font-bold flex-shrink-0">P</div>
               <div>
                 <div className="font-semibold text-gray-900">Connect your Pinterest account</div>
                 <div className="text-sm text-gray-500">Link your account to see real impressions, clicks, and analytics.</div>

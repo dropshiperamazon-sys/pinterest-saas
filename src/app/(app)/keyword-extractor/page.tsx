@@ -1,4 +1,6 @@
 "use client";
+import { usePlan } from "@/hooks/usePlan";
+import UpgradeGate from "@/components/UpgradeGate";
 import { useState, useMemo, useRef } from "react";
 import {
   Globe, Copy, Download, Sparkles, CheckCircle,
@@ -311,7 +313,7 @@ export default function KeywordExtractorPage() {
       : <ChevronDown className="w-3 h-3 text-gray-300" />;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Globe className="w-7 h-7 text-red-500" />
@@ -937,6 +939,9 @@ function PinterestKeywordsTab({
     }
     return Array.from(map.entries());
   }, [pageRows]);
+
+  const { limits, loading: planLoading } = usePlan();
+  if (!planLoading && !limits.canKeywordExtractor) return <UpgradeGate requiredPlan="pro" feature="Keyword Extractor" />;
 
   if (!pinterestData && !loading && !error) {
     return (

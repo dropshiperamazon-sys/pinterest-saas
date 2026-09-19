@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
+import { guardFeature } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -32,10 +34,13 @@ export async function GET(req: Request) {
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const raw = await redis.get(`pinterest_connection:${email}`);
-  if (!raw) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
+  const featureGuard = await guardFeature(email, "canAds");
+  if (!featureGuard.allowed) {
+    return NextResponse.json({ error: featureGuard.error, upgradeRequired: featureGuard.upgradeRequired }, { status: 403 });
+  }
 
-  const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
+  const accessToken = await getActivePinterestToken(email);
+  if (!accessToken) return NextResponse.json({ error: "Pinterest not connected" }, { status: 400 });
 
   const { searchParams } = new URL(req.url);
   const days = Math.min(90, Math.max(1, Number(searchParams.get("days") ?? "30")));
@@ -52,11 +57,27 @@ export async function GET(req: Request) {
   const startDate = dateStr(days);
   const endDate = dateStr(1);
 
+  // Pinterest v5 valid column names (verified from API error response)
+  const ANALYTICS_COLS = "SPEND_IN_DOLLAR,IMPRESSION_1,CLICKTHROUGH_1,REPIN_1,ENGAGEMENT_1,CTR,CPM_IN_DOLLAR,TOTAL_CHECKOUT,TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR,TOTAL_CLICK_ADD_TO_CART,TOTAL_PAGE_VISIT";
+
+  // summary_status → display label mapping
+  // Pinterest returns: RUNNING, NOT_STARTED, PAUSED, COMPLETED, ADVERTISER_DISABLED, ARCHIVED, DRAFT
+  function mapStatus(summaryStatus: string, rawStatus: string): string {
+    const s = (summaryStatus || rawStatus || "").toUpperCase();
+    if (s === "RUNNING") return "active";
+    if (s === "PAUSED") return "paused";
+    if (s === "COMPLETED") return "completed";
+    if (s === "NOT_STARTED") return "draft";
+    if (s === "ARCHIVED") return "archived";
+    if (s === "ADVERTISER_DISABLED") return "paused";
+    return (rawStatus || "unknown").toLowerCase();
+  }
+
   // 2. Fetch campaigns + account analytics in parallel
   const [campaignsData, analyticsData] = await Promise.all([
-    pinterestGet(`/ad_accounts/${adAccountId}/campaigns?page_size=25`, accessToken),
+    pinterestGet(`/ad_accounts/${adAccountId}/campaigns?page_size=100`, accessToken),
     pinterestGet(
-      `/ad_accounts/${adAccountId}/analytics?start_date=${startDate}&end_date=${endDate}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_CLICKTHROUGH,TOTAL_ENGAGEMENT,TOTAL_SAVE&granularity=TOTAL`,
+      `/ad_accounts/${adAccountId}/analytics?start_date=${startDate}&end_date=${endDate}&columns=${ANALYTICS_COLS}&granularity=TOTAL`,
       accessToken
     ),
   ]);
@@ -64,16 +85,16 @@ export async function GET(req: Request) {
   const campaigns = (campaignsData?.items ?? []).map((c: Record<string, unknown>) => ({
     id: c.id,
     name: c.name,
-    status: (c.status as string)?.toLowerCase() ?? "unknown",
+    status: mapStatus(c.summary_status as string, c.status as string),
     objective: c.objective_type,
     dailyBudget: c.daily_spend_cap ? Number(c.daily_spend_cap) / 1_000_000 : null,
     lifetimeBudget: c.lifetime_spend_cap ? Number(c.lifetime_spend_cap) / 1_000_000 : null,
     startTime: c.start_time,
     endTime: c.end_time,
     createdTime: c.created_time,
-    // Pre-initialize analytics fields so they're always numbers even if analytics fetch fails
     spend: 0, impressions: 0, clicks: 0, saves: 0, engagements: 0,
     ctr: 0, cpc: 0, cpm: 0, saveRate: 0,
+    checkouts: 0, addToCart: 0, pageVisits: 0, revenue: 0, aov: 0,
   }));
 
   // 3. Fetch per-campaign analytics + ad groups in parallel
@@ -82,32 +103,47 @@ export async function GET(req: Request) {
 
     const [camAnalytics, adGroupsData] = await Promise.all([
       pinterestGet(
-        `/ad_accounts/${adAccountId}/campaigns/analytics?start_date=${startDate}&end_date=${endDate}&campaign_ids=${ids}&columns=SPEND_IN_DOLLAR,IMPRESSION_1,CLICK_1,TOTAL_SAVE,TOTAL_ENGAGEMENT&granularity=TOTAL`,
+        `/ad_accounts/${adAccountId}/campaigns/analytics?start_date=${startDate}&end_date=${endDate}&campaign_ids=${ids}&columns=${ANALYTICS_COLS}&granularity=TOTAL`,
         accessToken
       ),
-      pinterestGet(`/ad_accounts/${adAccountId}/ad_groups?page_size=50`, accessToken),
+      pinterestGet(`/ad_accounts/${adAccountId}/ad_groups?page_size=100`, accessToken),
     ]);
 
     // Attach analytics to each campaign
     if (Array.isArray(camAnalytics)) {
-      const byId: Record<string, Record<string, number>> = {};
+      const byId: Record<string, Record<string, unknown>> = {};
       for (const row of camAnalytics) {
-        byId[row.CAMPAIGN_ID] = row;
+        if (row.CAMPAIGN_ID != null) byId[String(row.CAMPAIGN_ID)] = row;
       }
       for (const c of campaigns) {
-        const row = byId[c.id as string] ?? {};
-        (c as Record<string, unknown>).spend = row.SPEND_IN_DOLLAR ?? 0;
-        (c as Record<string, unknown>).impressions = row.IMPRESSION_1 ?? 0;
-        (c as Record<string, unknown>).clicks = row.CLICK_1 ?? 0;
-        (c as Record<string, unknown>).saves = row.TOTAL_SAVE ?? 0;
-        (c as Record<string, unknown>).engagements = row.TOTAL_ENGAGEMENT ?? 0;
-        const imps = row.IMPRESSION_1 || 1;
-        const clicks = row.CLICK_1 || 0;
-        const spend = row.SPEND_IN_DOLLAR || 0;
-        (c as Record<string, unknown>).ctr = Math.round((clicks / imps) * 10000) / 100;
-        (c as Record<string, unknown>).cpc = clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : 0;
-        (c as Record<string, unknown>).cpm = imps > 0 ? Math.round((spend / imps) * 1000 * 100) / 100 : 0;
-        (c as Record<string, unknown>).saveRate = clicks > 0 ? Math.round((row.TOTAL_SAVE ?? 0) / clicks * 10000) / 100 : 0;
+        const row = byId[String(c.id)] ?? {};
+        const rawSpend  = Number(row.SPEND_IN_DOLLAR)   || 0;
+        const rawImps   = Number(row.IMPRESSION_1)      || 0;
+        const rawClicks = Number(row.CLICKTHROUGH_1)    || 0;
+        const rawSaves  = Number(row.REPIN_1)           || 0;
+        const rawEngage = Number(row.ENGAGEMENT_1)      || 0;
+        const apiCtr    = Number(row.CTR)               || 0;
+        const apiCpm    = Number(row.CPM_IN_DOLLAR)     || 0;
+        const imps      = rawImps || 1;
+        (c as Record<string, unknown>).spend       = rawSpend;
+        (c as Record<string, unknown>).impressions = rawImps;
+        (c as Record<string, unknown>).clicks      = rawClicks;
+        (c as Record<string, unknown>).saves       = rawSaves;
+        (c as Record<string, unknown>).engagements = rawEngage;
+        const rawCheckouts = Number(row.TOTAL_CHECKOUT) || 0;
+        const rawAddToCart = Number(row.TOTAL_CLICK_ADD_TO_CART) || 0;
+        const rawPageVisit = Number(row.TOTAL_PAGE_VISIT) || 0;
+        const rawRevenue   = Number(row.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000 || 0;
+        // Use API-provided CTR/CPM if available, fall back to calculated
+        (c as Record<string, unknown>).ctr        = apiCtr || Math.round((rawClicks / imps) * 10000) / 100;
+        (c as Record<string, unknown>).cpc        = rawClicks > 0 ? Math.round((rawSpend / rawClicks) * 100) / 100 : 0;
+        (c as Record<string, unknown>).cpm        = apiCpm || Math.round((rawSpend / imps) * 1000 * 100) / 100;
+        (c as Record<string, unknown>).saveRate   = rawClicks > 0 ? Math.round(rawSaves / rawClicks * 10000) / 100 : 0;
+        (c as Record<string, unknown>).checkouts  = rawCheckouts;
+        (c as Record<string, unknown>).addToCart  = rawAddToCart;
+        (c as Record<string, unknown>).pageVisits = rawPageVisit;
+        (c as Record<string, unknown>).revenue    = rawRevenue;
+        (c as Record<string, unknown>).aov        = rawCheckouts > 0 ? Math.round((rawRevenue / rawCheckouts) * 100) / 100 : 0;
       }
     }
 
@@ -142,11 +178,18 @@ export async function GET(req: Request) {
     adAccountName,
     period: { startDate, endDate },
     totals: {
-      spend: totals.SPEND_IN_DOLLAR ?? 0,
-      impressions: totals.IMPRESSION_1 ?? 0,
-      clicks: totals.CLICK_1 ?? 0,
-      saves: totals.TOTAL_SAVE ?? 0,
-      engagements: totals.TOTAL_ENGAGEMENT ?? 0,
+      spend:       Number(totals.SPEND_IN_DOLLAR)        || 0,
+      impressions: Number(totals.IMPRESSION_1)            || 0,
+      clicks:      Number(totals.CLICKTHROUGH_1)          || 0,
+      saves:       Number(totals.REPIN_1)                 || 0,
+      engagements: Number(totals.ENGAGEMENT_1)            || 0,
+      checkouts:   Number(totals.TOTAL_CHECKOUT)          || 0,
+      addToCart:   Number(totals.TOTAL_CLICK_ADD_TO_CART) || 0,
+      pageVisits:  Number(totals.TOTAL_PAGE_VISIT)        || 0,
+      revenue:     Number(totals.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000 || 0,
+      aov:         Number(totals.TOTAL_CHECKOUT) > 0
+        ? (Number(totals.TOTAL_CHECKOUT_VALUE_IN_MICRO_DOLLAR) / 1_000_000) / Number(totals.TOTAL_CHECKOUT)
+        : 0,
     },
     campaigns,
   });

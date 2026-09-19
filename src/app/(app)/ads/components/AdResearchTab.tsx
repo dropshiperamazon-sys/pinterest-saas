@@ -56,7 +56,7 @@ const NICHES = ["All", "Home Decor", "Fashion", "Beauty", "Food & Recipes", "Fit
 const FORMATS = ["All", "standard", "video", "carousel", "idea"];
 const COUNTRIES = ["All", "United States", "United Kingdom", "Canada", "Australia"];
 const SORT_OPTIONS = ["Most Liked", "Most Shared", "Most Viewed", "Most Recent"];
-const STORAGE_KEY = "mypinpro_swipe_file";
+const STORAGE_KEY = "rambforce_swipe_file";
 
 const FORMAT_LABEL: Record<string, string> = { standard: "Standard", video: "Video", carousel: "Carousel", idea: "Idea Pin" };
 const FORMAT_COLOR: Record<string, string> = {

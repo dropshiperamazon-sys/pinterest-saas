@@ -25,6 +25,8 @@
 import { NextRequest } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
+import { guardFeature } from "@/lib/plan-limits";
 import {
   searchKeywords,
   logSearchSignal,
@@ -444,9 +446,13 @@ export async function GET(req: NextRequest) {
   const email = session?.user?.email;
   if (!email) return new Response(JSON.stringify({ error: "Not authenticated" }), { status: 401 });
 
-  const raw = await redis.get(`pinterest_connection:${email}`);
-  if (!raw) return new Response(JSON.stringify({ error: "Pinterest not connected" }), { status: 400 });
-  const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
+  const featureGuard = await guardFeature(email, "canKeywordExtractor");
+  if (!featureGuard.allowed) {
+    return new Response(JSON.stringify({ error: featureGuard.error, upgradeRequired: featureGuard.upgradeRequired }), { status: 403 });
+  }
+
+  const accessToken = await getActivePinterestToken(email);
+  if (!accessToken) return new Response(JSON.stringify({ error: "Pinterest not connected" }), { status: 400 });
 
   const url = new URL(req.url);
   const seed = (url.searchParams.get("q") ?? "room decor").trim();
@@ -550,14 +556,18 @@ export async function POST(req: NextRequest) {
     return new Response(JSON.stringify({ error: "Not authenticated" }), { status: 401 });
   }
 
-  const raw = await redis.get(`pinterest_connection:${email}`);
-  if (!raw) {
+  const featureGuard = await guardFeature(email, "canKeywordExtractor");
+  if (!featureGuard.allowed) {
+    return new Response(JSON.stringify({ error: featureGuard.error, upgradeRequired: featureGuard.upgradeRequired }), { status: 403 });
+  }
+
+  const accessToken = await getActivePinterestToken(email);
+  if (!accessToken) {
     return new Response(
       JSON.stringify({ error: "Pinterest not connected. Connect your Pinterest account in Settings." }),
       { status: 400 },
     );
   }
-  const { accessToken } = (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken: string };
 
   const body = await req.json() as {
     keywords: string[];

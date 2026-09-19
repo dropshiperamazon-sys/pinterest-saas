@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
+import { guardPinSchedule, incrementScheduledPin } from "@/lib/plan-limits";
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
@@ -54,9 +56,7 @@ export async function POST(req: NextRequest) {
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   // Fetch the stored Pinterest access token for this user
-  const connRaw = await redis.get(`pinterest_connection:${email}`);
-  const conn = connRaw ? (typeof connRaw === "string" ? JSON.parse(connRaw) : connRaw) as { accessToken?: string } : null;
-  const accessToken = conn?.accessToken ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
+  const accessToken = await getActivePinterestToken(email) ?? process.env.PINTEREST_ACCESS_TOKEN ?? "";
 
   try {
     const body = await req.json();
@@ -64,6 +64,15 @@ export async function POST(req: NextRequest) {
 
     if (!title || !scheduledAt) {
       return NextResponse.json({ error: "Title and scheduledAt are required" }, { status: 400 });
+    }
+
+    // Plan guard: check monthly pin schedule limit
+    const scheduleGuard = await guardPinSchedule(email);
+    if (!scheduleGuard.allowed) {
+      return NextResponse.json(
+        { error: scheduleGuard.error, upgradeRequired: scheduleGuard.upgradeRequired, count: scheduleGuard.count, limit: scheduleGuard.limit },
+        { status: 403 }
+      );
     }
 
     const pinId = `pin_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -97,6 +106,7 @@ export async function POST(req: NextRequest) {
         ex: 60 * 60 * 24 * 90,
       }),
       redis.sadd(userPinSetKey(email), pinId),
+      incrementScheduledPin(email),
     ]);
 
     // Try QStash (non-fatal if missing)

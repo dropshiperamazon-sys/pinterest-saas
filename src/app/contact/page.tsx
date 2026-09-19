@@ -49,7 +49,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <div className="font-semibold text-gray-900 mb-0.5">Email us</div>
-                  <div className="text-sm text-gray-500">saiful.khank16@gmail.com</div>
+                  <div className="text-sm text-gray-500">app.support@rambforce.com</div>
                   <div className="text-xs text-gray-400 mt-0.5">We reply within 24 hours</div>
                 </div>
               </div>

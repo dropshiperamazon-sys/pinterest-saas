@@ -1,50 +1,58 @@
 import { NextResponse } from "next/server";
-import { Redis } from "@upstash/redis";
 import { auth } from "@/auth";
+import {
+  getUserLimits,
+  getKeywordSearchCount,
+  incrementKeywordSearch,
+  guardKeywordSearch,
+} from "@/lib/plan-limits";
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
-
-// Free tier: 10 searches per day. Reset at UTC midnight.
-// Set high during development — change back to 10 before launch.
-const FREE_DAILY_LIMIT = 10000;
-
-function todayKey(email: string) {
-  const d = new Date();
-  const day = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-  return `search_count:${email}:${day}`;
-}
-
-// GET — return current count and limit
+// GET — return current count and limit for this user's plan
 export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const key = todayKey(email);
-  const count = (await redis.get<number>(key)) ?? 0;
-  return NextResponse.json({ count, limit: FREE_DAILY_LIMIT, remaining: Math.max(0, FREE_DAILY_LIMIT - count) });
+  const [limits, count] = await Promise.all([getUserLimits(email), getKeywordSearchCount(email)]);
+  const limit = limits.keywordSearchesPerDay;
+  const unlimited = limit === -1;
+
+  return NextResponse.json({
+    count,
+    limit: unlimited ? null : limit,
+    remaining: unlimited ? null : Math.max(0, limit - count),
+    unlimited,
+    plan: limits.plan,
+  });
 }
 
-// POST — increment count, return whether search is allowed
+// POST — check allowance and increment counter
 export async function POST() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
-  const key = todayKey(email);
-  const count = (await redis.get<number>(key)) ?? 0;
-
-  if (count >= FREE_DAILY_LIMIT) {
-    return NextResponse.json({ allowed: false, count, limit: FREE_DAILY_LIMIT, remaining: 0 });
+  const guard = await guardKeywordSearch(email);
+  if (!guard.allowed) {
+    return NextResponse.json({
+      allowed: false,
+      error: guard.error,
+      upgradeRequired: guard.upgradeRequired,
+      count: guard.count,
+      limit: guard.limit,
+    });
   }
 
-  // Increment, set TTL to 48h so it expires after the day rolls over
-  await redis.incr(key);
-  await redis.expire(key, 172800);
+  const newCount = await incrementKeywordSearch(email);
+  const limits = await getUserLimits(email);
+  const limit = limits.keywordSearchesPerDay;
+  const unlimited = limit === -1;
 
-  const newCount = count + 1;
-  return NextResponse.json({ allowed: true, count: newCount, limit: FREE_DAILY_LIMIT, remaining: FREE_DAILY_LIMIT - newCount });
+  return NextResponse.json({
+    allowed: true,
+    count: newCount,
+    limit: unlimited ? null : limit,
+    remaining: unlimited ? null : Math.max(0, limit - newCount),
+    unlimited,
+  });
 }

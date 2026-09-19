@@ -1,23 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Redis } from "@upstash/redis";
+import { auth } from "@/auth";
+import { getActivePinterestToken } from "@/lib/pinterest-token";
 
-async function getToken(req: NextRequest): Promise<string> {
-  const auth = req.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) return auth.slice(7);
-  // Fallback: look up from redis via email in session header
-  const email = req.headers.get("x-user-email");
-  if (email) {
-    const redis = new Redis({ url: process.env.UPSTASH_REDIS_REST_URL!, token: process.env.UPSTASH_REDIS_REST_TOKEN! });
-    const raw = await redis.get<string>(`pinterest_connection:${email}`);
-    const conn = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) as { accessToken?: string } : null;
-    if (conn?.accessToken) return conn.accessToken;
-  }
-  return process.env.PINTEREST_ACCESS_TOKEN ?? "";
+
+async function getToken(): Promise<string | null> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return null;
+  return await getActivePinterestToken(email);
 }
 
 // GET /api/manage-boards — list boards with their sections
-export async function GET(req: NextRequest) {
-  const token = await getToken(req);
+export async function GET(_req: NextRequest) {
+  const token = await getToken();
   if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   try {
@@ -57,7 +52,7 @@ export async function GET(req: NextRequest) {
 // POST /api/manage-boards — create board  { action:"create_board", name, description?, privacy? }
 //                         — create section { action:"create_section", boardId, name }
 export async function POST(req: NextRequest) {
-  const token = await getToken(req);
+  const token = await getToken();
   if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const body = await req.json();
@@ -94,7 +89,7 @@ export async function POST(req: NextRequest) {
 // PATCH /api/manage-boards — update board { boardId, name?, description? }
 //                          — rename section { boardId, sectionId, name }
 export async function PATCH(req: NextRequest) {
-  const token = await getToken(req);
+  const token = await getToken();
   if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const body = await req.json();
@@ -126,7 +121,7 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE /api/manage-boards — delete section { boardId, sectionId }
 export async function DELETE(req: NextRequest) {
-  const token = await getToken(req);
+  const token = await getToken();
   if (!token) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
 
   const body = await req.json();
