@@ -293,7 +293,7 @@ function PinAnalyticsDrawer({ pinId, pinTitle, pinImage, onClose }: { pinId: str
           ) : result ? (
             <>
               {/* Totals row */}
-              <div className="grid grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                 {PIN_CHART_METRICS.map((m) => {
                   const val = result.totals[m.key as keyof typeof result.totals] ?? 0;
                   const isActive = activeMetric === m.key;
@@ -649,7 +649,7 @@ function OverviewTab({ data }: { data: OverviewData }) {
               <Info className="w-3.5 h-3.5" />
               Account-Level Organic Analytics (not per-catalog — Pinterest API limitation)
             </p>
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               {[
                 { label: "Impressions",     val: perfData.organicAccountTotals.impressions    },
                 { label: "Engagement",      val: perfData.organicAccountTotals.engagement     },
@@ -1143,7 +1143,7 @@ function AuditTab({ data, onRefresh }: { data: OverviewData; onRefresh: () => vo
               )}
 
               {/* Stats row */}
-              <div className="grid grid-cols-4 divide-x divide-gray-100 border-b border-gray-100">
+              <div className="grid grid-cols-2 sm:grid-cols-4 divide-y sm:divide-y-0 divide-x divide-gray-100 border-b border-gray-100">
                 {[
                   { label: "Total", value: countsAvailable ? total.toLocaleString() : "—", color: "text-gray-900" },
                   { label: "Ingested", value: countsAvailable ? ingested.toLocaleString() : "—", color: "text-green-600" },

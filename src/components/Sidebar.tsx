@@ -57,12 +57,20 @@ export default function Sidebar() {
   const { data: session } = useSession();
   const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? "";
 
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [accounts, setAccounts] = useState<PinterestAccountInfo[]>([]);
   const [activeUsername, setActiveUsername] = useState<string | null>(null);
   const [canAddMore, setCanAddMore] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [userPlan, setUserPlan] = useState<"free" | "pro" | "enterprise">("free");
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Listen for mobile toggle events dispatched from Header
+  useEffect(() => {
+    function handleToggle() { setMobileOpen(o => !o); }
+    document.addEventListener("sidebar-toggle", handleToggle);
+    return () => document.removeEventListener("sidebar-toggle", handleToggle);
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -125,8 +133,8 @@ export default function Sidebar() {
   const activeAccount = accounts.find((a) => a.username === activeUsername) ?? accounts[0] ?? null;
   const connected = !!activeAccount;
 
-  return (
-    <aside className="w-64 bg-white border-r border-gray-100 flex flex-col h-screen sticky top-0">
+  const sidebarContent = (
+    <>
       {/* Logo */}
       <div className="p-6 border-b border-gray-100">
         <Link href="/" className="flex items-center gap-2">
@@ -145,6 +153,7 @@ export default function Sidebar() {
             <Link
               key={href}
               href={href}
+              onClick={() => setMobileOpen(false)}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group",
                 active
@@ -278,6 +287,33 @@ export default function Sidebar() {
           )}
         </div>
       )}
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Mobile overlay backdrop */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
+      {/* Mobile slide-in drawer */}
+      <aside
+        className={cn(
+          "fixed top-0 left-0 h-full w-64 bg-white border-r border-gray-100 flex flex-col z-50 transition-transform duration-300 md:hidden",
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {sidebarContent}
+      </aside>
+
+      {/* Desktop sidebar */}
+      <aside className="hidden md:flex md:flex-col w-64 bg-white border-r border-gray-100 h-screen sticky top-0">
+        {sidebarContent}
+      </aside>
+    </>
   );
 }

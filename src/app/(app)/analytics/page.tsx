@@ -331,7 +331,7 @@ export default function AnalyticsPage() {
   return (
     <div>
       <Header title="Analytics" subtitle="Real-time performance data from your Pinterest account." />
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-6">
 
         {/* Time frame selector */}
         <div className="flex items-center gap-3 flex-wrap">
@@ -594,7 +594,7 @@ export default function AnalyticsPage() {
                 </div>
 
                 {/* Saves & Engagements */}
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
                     <h2 className="text-sm font-semibold text-gray-900 mb-1">Saves</h2>
                     <p className="text-xs text-gray-400 mb-4">Times users saved your pins to boards</p>

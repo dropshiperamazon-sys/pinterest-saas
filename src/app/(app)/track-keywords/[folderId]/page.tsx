@@ -165,7 +165,7 @@ export default function FolderDetailPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 max-w-sm">
+        <div className="grid grid-cols-3 gap-4 w-full sm:max-w-sm">
           {[
             { label: "Keywords", value: folder.total, icon: Tag },
             { label: "Tracked", value: folder.tracked, icon: BookmarkCheck },

@@ -261,7 +261,7 @@ function PinSEOAuditContent() {
 
   if (error) {
     return (
-      <div className="p-6 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-6 max-w-4xl mx-auto">
         <button onClick={() => router.back()} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-5">
           <ArrowLeft className="w-4 h-4" /> Back
         </button>
@@ -281,7 +281,7 @@ function PinSEOAuditContent() {
   }, {} as Record<string, SEOCheckResult[]>);
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       {/* Nav */}
       <div className="flex items-center gap-2 text-sm text-gray-400 mb-5">
         <button onClick={() => router.push("/seo-audit")} className="hover:text-gray-600">Account Audit</button>

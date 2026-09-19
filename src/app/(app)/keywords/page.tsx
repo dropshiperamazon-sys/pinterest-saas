@@ -1084,8 +1084,8 @@ export default function KeywordsPage() {
       )}
       <Header title="Keyword Research" subtitle="Discover 100+ closely relevant Pinterest keywords" />
       <div className="flex h-[calc(100vh-73px)]">
-        {/* Sidebar */}
-        <aside className="w-72 bg-white border-r border-gray-100 overflow-y-auto flex-shrink-0 flex flex-col">
+        {/* Sidebar — hidden on mobile */}
+        <aside className="hidden md:flex w-72 bg-white border-r border-gray-100 overflow-y-auto flex-shrink-0 flex-col">
           {/* Trending trigger — above browse categories */}
           <TrendingTrigger open={trendingOpen} isLive={false} onToggle={() => setTrendingOpen(p => !p)} />
 

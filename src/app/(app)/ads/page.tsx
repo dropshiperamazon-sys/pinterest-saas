@@ -31,9 +31,9 @@ export default function AdsPage() {
         subtitle="Plan, analyze, and optimize your Pinterest advertising"
       />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-6">
         {/* Tab bar */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-2 flex gap-2 shadow-sm">
+        <div className="bg-white border border-gray-200 rounded-2xl p-2 flex gap-1 sm:gap-2 shadow-sm overflow-x-auto">
           {TABS.map(({ key, label, icon: Icon, description, externalUrl }) => {
             const active = activeTab === key;
             if (externalUrl) return (

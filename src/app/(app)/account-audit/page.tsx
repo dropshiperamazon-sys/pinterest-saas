@@ -527,7 +527,7 @@ export default function AccountAuditPage() {
     <div>
       <Header title="Account Audit" subtitle="Analyze keyword strategy for your account or any public Pinterest profile" />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-6">
         {/* Tab Switch */}
         <div className="flex bg-gray-100 rounded-2xl p-1 w-fit gap-1">
           {([
@@ -590,7 +590,7 @@ export default function AccountAuditPage() {
                       <div className="text-sm text-gray-500">@{ownData.profile.username}</div>
                       {ownData.profile.about && <p className="text-xs text-gray-400 mt-1 truncate">{ownData.profile.about}</p>}
                     </div>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-center flex-shrink-0">
+                    <div className="hidden sm:grid grid-cols-2 gap-x-6 gap-y-1 text-center flex-shrink-0">
                       {[
                         { label: "Followers", val: ownData.profile.followerCount },
                         { label: "Following", val: ownData.profile.followingCount },
@@ -607,7 +607,7 @@ export default function AccountAuditPage() {
                   </div>
 
                   {/* Stats Row */}
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {[
                       { icon: LayoutGrid, label: "Boards", val: ownData.boards.length, color: "text-blue-600 bg-blue-50" },
                       { icon: Tag, label: "Keywords Detected", val: ownData.keywords.length, color: "text-[#e60023] bg-[#e60023]/10" },
@@ -633,7 +633,7 @@ export default function AccountAuditPage() {
                         <span className="font-semibold text-gray-800 text-sm">Your Boards ({ownData.boards.length})</span>
                         <span className="ml-auto text-xs text-gray-400">Click a board to audit its pins</span>
                       </div>
-                      <div className="grid grid-cols-3 divide-x divide-y divide-gray-50">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y divide-gray-50">
                         {ownData.boards.map((board) => (
                           <button
                             key={board.id}

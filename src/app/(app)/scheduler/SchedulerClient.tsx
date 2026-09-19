@@ -2989,10 +2989,10 @@ export default function SchedulerPage() {
 
       <Header title="Pin Scheduler" subtitle="Create and schedule multiple pins at once with AI-powered content generation" />
 
-      <div className="p-6 space-y-5">
+      <div className="p-4 sm:p-6 space-y-5">
         {/* Connect Banner */}
         {!connected ? (
-          <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex items-center justify-between">
+          <div className="bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4 justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-[#e60023] rounded-xl flex items-center justify-center text-white text-xl font-bold">P</div>
               <div>
@@ -3087,10 +3087,10 @@ export default function SchedulerPage() {
         </div>
 
         {/* ── Main layout: queue left, sidebar right ── */}
-        <div className="flex gap-5 items-start">
+        <div className="flex flex-col lg:flex-row gap-5 items-start">
 
           {/* ── Left: Pin Composer ── */}
-          <div className="flex-1 min-w-0 space-y-4">
+          <div className="flex-1 min-w-0 space-y-4 w-full">
             {/* Toolbar */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -3124,7 +3124,7 @@ export default function SchedulerPage() {
             </div>
 
             {/* Draft Cards — 3 columns */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {drafts.map((draft, i) => (
                 <DraftCard
                   key={draft.id}
@@ -3161,7 +3161,7 @@ export default function SchedulerPage() {
           </div>
 
           {/* ── Right: Sidebar ── */}
-          <div className="w-72 flex-shrink-0">
+          <div className="w-full lg:w-72 flex-shrink-0">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden sticky top-20">
               {/* Scheduling Tools */}
               <div className="px-3 pt-2.5 pb-2 border-b border-gray-100 flex items-center gap-2">
