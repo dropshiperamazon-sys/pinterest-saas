@@ -11,6 +11,7 @@ interface RealCampaign {
   ctr: number; cpc: number; cpm: number; saveRate: number;
 }
 interface AdsApiData {
+  adAccountId: string;
   adAccountName: string;
   period: { startDate: string; endDate: string };
   totals: { spend: number; impressions: number; clicks: number; saves: number; engagements: number };
@@ -19,6 +20,7 @@ interface AdsApiData {
 interface Rec {
   id: string; priority: "high" | "medium" | "low"; category: string;
   title: string; details: string; impact: string; effort: string;
+  campaignId?: string;
 }
 
 function useAdsData() {
@@ -69,26 +71,31 @@ function generateRecs(campaigns: RealCampaign[]): Rec[] {
   for (const c of campaigns) {
     if (c.status === "active" && c.spend === 0)
       recs.push({ id: String(i++), priority: "high", category: "Budget", effort: "5 min",
+        campaignId: c.id,
         title: `"${c.name}" is active but not spending`,
         details: "Bid is likely below auction floor or targeting is too narrow.",
         impact: "Restore impressions and reach" });
     if (c.impressions > 1000 && c.ctr < 0.3)
       recs.push({ id: String(i++), priority: "high", category: "Creative", effort: "1–2 hrs",
+        campaignId: c.id,
         title: `Refresh creative for "${c.name}" (CTR ${c.ctr}%)`,
         details: "Low CTR means users are scrolling past. Try lifestyle close-up, bold overlay, or short video.",
         impact: "Est. +40–80% more clicks at same spend" });
     if (c.clicks > 50 && c.saveRate < 2)
       recs.push({ id: String(i++), priority: "high", category: "Landing Page", effort: "2–4 hrs",
+        campaignId: c.id,
         title: `Fix landing page for "${c.name}" (${c.saveRate}% post-click rate)`,
         details: "Users click but leave immediately. Check page speed, price, social proof, and mobile UX.",
         impact: "Est. +2–3× conversion rate" });
     if (c.cpc > 2.5 && c.clicks > 20)
       recs.push({ id: String(i++), priority: "medium", category: "Bid", effort: "30 min",
+        campaignId: c.id,
         title: `Reduce CPC for "${c.name}" ($${c.cpc.toFixed(2)}/click)`,
         details: "High CPC means poor quality score or broad targeting. Tighten interests and refresh creative.",
         impact: "Est. −20–30% cost per click" });
     if (c.ctr > 1.0 && c.saves > 20 && c.status === "active")
       recs.push({ id: String(i++), priority: "medium", category: "Scale", effort: "10 min",
+        campaignId: c.id,
         title: `Scale budget for "${c.name}" — top performer`,
         details: `${c.ctr}% CTR with ${c.saves} saves. Increase daily budget 30–50%.`,
         impact: `Est. +${Math.round(c.saves * 0.4)} more saves/month` });
@@ -365,11 +372,25 @@ export default function OptimizeTab() {
                       <p className="text-xs text-gray-500 mt-1">{rec.details}</p>
                       <p className="text-xs text-green-700 font-medium mt-2">Est. impact: {rec.impact}</p>
                     </div>
-                    <button onClick={() => setAppliedRecs(prev => { const n = new Set(prev); applied ? n.delete(rec.id) : n.add(rec.id); return n; })}
-                      className={cn("flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-                        applied ? "bg-green-100 text-green-700" : "bg-[#e60023] text-white hover:bg-[#c8001e]")}>
-                      {applied ? "✓ Applied" : "Apply"}
-                    </button>
+                    {applied ? (
+                      <span className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-green-100 text-green-700">✓ Applied</span>
+                    ) : (
+                      <a
+                        href={
+                          data?.adAccountId && rec.campaignId
+                            ? `https://ads.pinterest.com/advertiser/${data.adAccountId}/campaigns/${rec.campaignId}/`
+                            : data?.adAccountId
+                            ? `https://ads.pinterest.com/advertiser/${data.adAccountId}/campaigns/`
+                            : "https://ads.pinterest.com/"
+                        }
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={() => setAppliedRecs(prev => { const n = new Set(prev); n.add(rec.id); return n; })}
+                        className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-[#e60023] text-white hover:bg-[#c8001e] transition-colors"
+                      >
+                        Apply in Pinterest ↗
+                      </a>
+                    )}
                   </div>
                 </div>
               );
