@@ -1117,16 +1117,18 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
     : allCampaigns.filter(c => c.id === ctx.selectedCampaign);
 
   // Build creative rows from real ad groups or fall back to mock
-  const creativeRows = real && campaigns.length > 0
+  // Only show campaigns that had spend in this period (hasData = true)
+  const allRows = real && campaigns.length > 0
     ? campaigns.flatMap(c => (c.adGroups ?? []).map(ag => ({
         id: ag.id,
         name: ag.name,
         campaignName: c.name,
-        spend: c.spend * 0.3, // estimate per-ad-group
+        spend: c.spend,          // campaign-level spend (ad-group breakdown not in API)
         ctr: c.ctr,
         cpc: c.cpc,
         conversions: null as number | null,
         cpa: null as number | null,
+        hasData: c.spend > 0 || c.impressions > 0,
         isReal: true,
       })))
     : MOCK_CREATIVES.map(ad => ({
@@ -1138,10 +1140,14 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
         cpc: 0,
         conversions: ad.conversions as number,
         cpa: null as number | null,
+        hasData: true,
         isReal: false,
       }));
 
-  // Find best/worst by CPA or CTR
+  const creativeRows = allRows.filter(r => r.hasData);
+  const inactiveRows = allRows.filter(r => !r.hasData);
+
+  // Find best/worst by CTR among rows with actual data
   const sorted = [...creativeRows].sort((a, b) => b.ctr - a.ctr);
   const best = sorted[0];
   const worst = sorted[sorted.length - 1];
@@ -1201,12 +1207,12 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
                 id: ad.id, name: ad.title, campaignName: (ad as { campaign?: string }).campaign ?? "",
                 spend: Math.round(ad.impressions * ad.ctr / 100 * 1.1),
                 ctr: ad.ctr, cpc: 1.1, conversions: ad.conversions as number, cpa: null as number | null,
-                format: ad.format, isReal: false,
+                format: ad.format, hasData: true, isReal: false,
               }))).map((row) => {
                 const mc = row as unknown as typeof MOCK_CREATIVES[0] & { spend: number; ctr: number; cpc: number; conversions: number };
                 const Icon = !real && FORMAT_ICON[mc.format ?? "standard"];
                 const rating = row.ctr > 2 ? { label: "Strong", color: "bg-green-100 text-green-700" }
-                  : row.ctr > 1 ? { label: "Average", color: "bg-amber-100 text-amber-700" }
+                  : row.ctr > 0.5 ? { label: "Average", color: "bg-amber-100 text-amber-700" }
                   : { label: "Weak", color: "bg-red-100 text-red-700" };
                 return (
                   <tr key={row.id} className="hover:bg-gray-50/50">
@@ -1230,6 +1236,30 @@ function CreativeAnalysisSection({ ctx, real }: { ctx: AnalyzeContext; real: Ads
                   </tr>
                 );
               })}
+              {real && inactiveRows.length > 0 && (
+                <tr>
+                  <td colSpan={8} className="px-3 py-2 bg-gray-50/60">
+                    <details className="group">
+                      <summary className="text-xs text-gray-400 cursor-pointer select-none flex items-center gap-1.5 py-0.5">
+                        <ChevronDown className="w-3.5 h-3.5 group-open:hidden" />
+                        <ChevronUp className="w-3.5 h-3.5 hidden group-open:block" />
+                        {inactiveRows.length} ad group{inactiveRows.length !== 1 ? "s" : ""} with no activity in this date range
+                      </summary>
+                      <table className="w-full mt-1">
+                        <tbody>
+                          {inactiveRows.map(row => (
+                            <tr key={row.id} className="opacity-50">
+                              <td className="px-3 py-2 text-sm text-gray-500 w-1/3">{row.name}</td>
+                              <td className="px-3 py-2 text-xs text-gray-400">{row.campaignName}</td>
+                              <td className="px-3 py-2 text-xs text-gray-400" colSpan={6}>No data in selected period</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
