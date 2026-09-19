@@ -207,7 +207,12 @@ export default function SignupPage() {
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/20 focus:border-[#e60023]" />
                 </div>
 
-                <button onClick={() => handleStep2(false)} disabled={!businessName.trim()}
+                <button onClick={() => setStep(1)}
+                className="w-full text-sm text-gray-400 hover:text-gray-600 py-2 transition-colors">
+                ← Go back
+              </button>
+
+              <button onClick={() => handleStep2(false)} disabled={!businessName.trim()}
                   className="w-full bg-[#e60023] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#ad081b] transition-colors disabled:opacity-40">
                   Continue →
                 </button>
@@ -245,6 +250,11 @@ export default function SignupPage() {
                 ))}
               </div>
 
+              <button onClick={() => setStep(2)}
+                className="w-full text-sm text-gray-400 hover:text-gray-600 py-2 transition-colors">
+                ← Go back
+              </button>
+
               <button onClick={() => handleStep3(false)} disabled={!goal}
                 className="w-full bg-[#e60023] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#ad081b] transition-colors disabled:opacity-40">
                 Continue →
@@ -276,6 +286,11 @@ export default function SignupPage() {
               </div>
 
               {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
+
+              <button onClick={() => setStep(3)} disabled={loading}
+                className="w-full text-sm text-gray-400 hover:text-gray-600 py-2 transition-colors disabled:opacity-40">
+                ← Go back
+              </button>
 
               <button onClick={() => handleStep4(false)} disabled={loading}
                 className="w-full bg-[#e60023] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#ad081b] transition-colors disabled:opacity-60">
