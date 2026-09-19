@@ -511,51 +511,63 @@ export default function OptimizeTab() {
               <h2 className="text-lg font-bold text-gray-900">Audience Optimization</h2>
               <p className="text-sm text-gray-500 mt-0.5">Expand reach and improve targeting efficiency</p>
             </div>
-            {!isReal && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            {isReal ? (
+              <div className="bg-white rounded-xl border border-gray-200 p-10 flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-2xl">👥</div>
                 <div>
-                  <p className="font-semibold">No active campaigns — sample data</p>
-                  <p className="mt-0.5 text-amber-700">These are example audience segments. Real audience performance data will appear once you have active campaigns.</p>
+                  <h3 className="font-semibold text-gray-800">Audience performance data not available</h3>
+                  <p className="text-sm text-gray-500 mt-1 max-w-sm">
+                    Pinterest&apos;s API does not provide audience-level performance breakdowns. View and manage your audiences directly in Pinterest Ads Manager.
+                  </p>
                 </div>
+                <a
+                  href="https://ads.pinterest.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 px-5 py-2 rounded-lg bg-[#e60023] text-white text-sm font-medium hover:bg-[#c8001e] transition-colors"
+                >
+                  Open Pinterest Ads Manager ↗
+                </a>
               </div>
+            ) : (
+              <>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">No active campaigns — sample data</p>
+                    <p className="mt-0.5 text-amber-700">These are example audience segments. Connect your Pinterest account to see live data.</p>
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-5 opacity-60">
+                  <h3 className="text-sm font-semibold text-gray-800 mb-4">Audience Performance Review</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
+                          {["Audience","Type","Size","CTR","Conv. Rate","Action"].map(h => <th key={h} className="pb-2 pr-4">{h}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {MOCK_AUDIENCES.sort((a, b) => b.convRate - a.convRate).map(aud => (
+                          <tr key={aud.id}>
+                            <td className="py-3 pr-4 font-medium text-gray-800">{aud.name}</td>
+                            <td className="py-3 pr-4"><span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full capitalize">{aud.type}</span></td>
+                            <td className="py-3 pr-4 text-gray-600">{formatNumber(aud.size)}</td>
+                            <td className="py-3 pr-4 text-gray-600">{aud.ctr}%</td>
+                            <td className="py-3 pr-4 font-semibold" style={{ color: aud.convRate >= 4 ? "#16a34a" : aud.convRate >= 2 ? "#ca8a04" : "#ef4444" }}>{aud.convRate}%</td>
+                            <td className="py-3"><button disabled className="text-xs font-medium text-gray-300 cursor-not-allowed">{aud.type === "retargeting" ? "Create Lookalike" : "Increase Budget"}</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="bg-blue-50 rounded-xl border border-blue-100 p-5 opacity-60">
+                  <h3 className="text-sm font-semibold text-blue-800 mb-2">💡 Audience Expansion Suggestion</h3>
+                  <p className="text-sm text-blue-700">Create a 1% lookalike from your <strong>Website Visitors (30d)</strong> retargeting list — estimated reach of <strong>2.1M similar users</strong> at 3–4% conv. rate.</p>
+                </div>
+              </>
             )}
-            <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Audience Performance Review</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
-                      {["Audience","Type","Size","CTR","Conv. Rate","Action"].map(h => <th key={h} className="pb-2 pr-4">{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {MOCK_AUDIENCES.sort((a, b) => b.convRate - a.convRate).map(aud => (
-                      <tr key={aud.id}>
-                        <td className="py-3 pr-4 font-medium text-gray-800">{aud.name}</td>
-                        <td className="py-3 pr-4"><span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full capitalize">{aud.type}</span></td>
-                        <td className="py-3 pr-4 text-gray-600">{formatNumber(aud.size)}</td>
-                        <td className="py-3 pr-4 text-gray-600">{aud.ctr}%</td>
-                        <td className="py-3 pr-4 font-semibold" style={{ color: aud.convRate >= 4 ? "#16a34a" : aud.convRate >= 2 ? "#ca8a04" : "#ef4444" }}>
-                          {aud.convRate}%
-                        </td>
-                        <td className="py-3">
-                          <button disabled={!isReal} className={cn("text-xs font-medium", isReal ? "text-[#e60023] hover:underline" : "text-gray-300 cursor-not-allowed")}>
-                            {aud.type === "retargeting" ? "Create Lookalike" : "Increase Budget"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            <div className={cn("bg-blue-50 rounded-xl border border-blue-100 p-5", !isReal && "opacity-60")}>
-              <h3 className="text-sm font-semibold text-blue-800 mb-2">💡 Audience Expansion Suggestion</h3>
-              <p className="text-sm text-blue-700">
-                Create a 1% lookalike from your <strong>Website Visitors (30d)</strong> retargeting list — estimated reach of <strong>2.1M similar users</strong> at 3–4% conv. rate.
-              </p>
-            </div>
           </div>
         )}
 
@@ -566,67 +578,79 @@ export default function OptimizeTab() {
               <h2 className="text-lg font-bold text-gray-900">Creative & Keyword Optimization</h2>
               <p className="text-sm text-gray-500 mt-0.5">Refresh underperforming creatives and tighten keyword strategy</p>
             </div>
-            {!isReal && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
-                <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            {isReal ? (
+              <div className="bg-white rounded-xl border border-gray-200 p-10 flex flex-col items-center text-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-2xl">🔍</div>
                 <div>
-                  <p className="font-semibold">No active campaigns — sample data</p>
-                  <p className="mt-0.5 text-amber-700">These are example suggestions. Once you have active campaigns, real creative fatigue and keyword data will appear here.</p>
+                  <h3 className="font-semibold text-gray-800">Creative & Keyword data not available</h3>
+                  <p className="text-sm text-gray-500 mt-1 max-w-sm">
+                    Pinterest&apos;s API does not expose creative fatigue scores or keyword-level performance. Manage creatives and keywords directly in Pinterest Ads Manager.
+                  </p>
                 </div>
+                <a
+                  href="https://ads.pinterest.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 px-5 py-2 rounded-lg bg-[#e60023] text-white text-sm font-medium hover:bg-[#c8001e] transition-colors"
+                >
+                  Open Pinterest Ads Manager ↗
+                </a>
               </div>
-            )}
-            <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Creative Refresh Queue</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {[
-                  { title: "Low CTR creative",  fatigue: "High",   drop: "−40% engagement", action: "Replace with video" },
-                  { title: "Behind the Scenes", fatigue: "Medium", drop: "−18% engagement", action: "Update thumbnail" },
-                  { title: "Static product pin",fatigue: "Low",    drop: "−8% engagement",  action: "A/B test copy" },
-                ].map(item => (
-                  <div key={item.title} className="border border-gray-100 rounded-lg p-4 flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-800">{item.title}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        Fatigue: <span className={cn("font-medium", item.fatigue === "High" ? "text-red-600" : item.fatigue === "Medium" ? "text-yellow-600" : "text-green-600")}>{item.fatigue}</span>
-                        {" · "}{item.drop}
-                      </p>
-                    </div>
-                    <button disabled={!isReal} className={cn("flex-shrink-0 text-xs px-3 py-1.5 rounded-lg", isReal ? "bg-[#e60023] text-white hover:bg-[#c8001e]" : "bg-gray-100 text-gray-400 cursor-not-allowed")}>{item.action}</button>
+            ) : (
+              <>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">No active campaigns — sample data</p>
+                    <p className="mt-0.5 text-amber-700">These are example suggestions. Connect your Pinterest account to see live data.</p>
                   </div>
-                ))}
-              </div>
-            </div>
-            <div className={cn("bg-white rounded-xl border border-gray-200 p-5", !isReal && "opacity-60")}>
-              <h3 className="text-sm font-semibold text-gray-800 mb-4">Keyword Optimization</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
-                      {["Keyword","Type","Vol.","Bid","Action"].map(h => <th key={h} className="pb-2 pr-4">{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {KEYWORD_PLAN.map((kw, i) => (
-                      <tr key={i} className={kw.negative ? "opacity-50" : ""}>
-                        <td className="py-2.5 pr-4 font-medium text-gray-800">
-                          {kw.keyword}
-                          {kw.negative && <span className="ml-2 text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded">−neg</span>}
-                        </td>
-                        <td className="py-2.5 pr-4">
-                          <span className={cn("text-xs px-1.5 py-0.5 rounded font-medium",
-                            kw.type === "exact" ? "bg-orange-100 text-orange-700" : kw.type === "phrase" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700")}>
-                            {kw.type === "exact" ? `[${kw.type}]` : kw.type === "phrase" ? `"${kw.type}"` : kw.type}
-                          </span>
-                        </td>
-                        <td className="py-2.5 pr-4 text-gray-600">{kw.volume ? formatNumber(kw.volume) : "—"}</td>
-                        <td className="py-2.5 pr-4 text-gray-600">{kw.suggestedBid ? formatCurrency(kw.suggestedBid) : "—"}</td>
-                        <td className="py-2.5">{!kw.negative && <button disabled={!isReal} className={cn("text-xs font-medium", isReal ? "text-[#e60023] hover:underline" : "text-gray-300 cursor-not-allowed")}>{kw.competition === "high" ? "Review bid" : "Add"}</button>}</td>
-                      </tr>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-5 opacity-60">
+                  <h3 className="text-sm font-semibold text-gray-800 mb-4">Creative Refresh Queue</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {[
+                      { title: "Low CTR creative",  fatigue: "High",   drop: "−40% engagement", action: "Replace with video" },
+                      { title: "Behind the Scenes", fatigue: "Medium", drop: "−18% engagement", action: "Update thumbnail" },
+                      { title: "Static product pin",fatigue: "Low",    drop: "−8% engagement",  action: "A/B test copy" },
+                    ].map(item => (
+                      <div key={item.title} className="border border-gray-100 rounded-lg p-4 flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{item.title}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Fatigue: <span className={cn("font-medium", item.fatigue === "High" ? "text-red-600" : item.fatigue === "Medium" ? "text-yellow-600" : "text-green-600")}>{item.fatigue}</span>
+                            {" · "}{item.drop}
+                          </p>
+                        </div>
+                        <button disabled className="flex-shrink-0 text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-400 cursor-not-allowed">{item.action}</button>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                  </div>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-5 opacity-60">
+                  <h3 className="text-sm font-semibold text-gray-800 mb-4">Keyword Optimization</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
+                          {["Keyword","Type","Vol.","Bid","Action"].map(h => <th key={h} className="pb-2 pr-4">{h}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {KEYWORD_PLAN.map((kw, i) => (
+                          <tr key={i} className={kw.negative ? "opacity-50" : ""}>
+                            <td className="py-2.5 pr-4 font-medium text-gray-800">{kw.keyword}{kw.negative && <span className="ml-2 text-xs bg-red-100 text-red-600 px-1.5 py-0.5 rounded">−neg</span>}</td>
+                            <td className="py-2.5 pr-4"><span className={cn("text-xs px-1.5 py-0.5 rounded font-medium", kw.type === "exact" ? "bg-orange-100 text-orange-700" : kw.type === "phrase" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700")}>{kw.type === "exact" ? `[${kw.type}]` : kw.type === "phrase" ? `"${kw.type}"` : kw.type}</span></td>
+                            <td className="py-2.5 pr-4 text-gray-600">{kw.volume ? formatNumber(kw.volume) : "—"}</td>
+                            <td className="py-2.5 pr-4 text-gray-600">{kw.suggestedBid ? formatCurrency(kw.suggestedBid) : "—"}</td>
+                            <td className="py-2.5">{!kw.negative && <button disabled className="text-xs font-medium text-gray-300 cursor-not-allowed">{kw.competition === "high" ? "Review bid" : "Add"}</button>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
