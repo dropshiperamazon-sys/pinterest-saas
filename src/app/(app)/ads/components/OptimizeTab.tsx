@@ -372,19 +372,11 @@ export default function OptimizeTab() {
                       <p className="text-xs text-gray-500 mt-1">{rec.details}</p>
                       <p className="text-xs text-green-700 font-medium mt-2">Est. impact: {rec.impact}</p>
                     </div>
-                    {applied ? (
-                      <span className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-green-100 text-green-700">✓ Applied</span>
-                    ) : (
-                      <a
-                        href="https://ads.pinterest.com/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => setAppliedRecs(prev => { const n = new Set(prev); n.add(rec.id); return n; })}
-                        className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-[#e60023] text-white hover:bg-[#c8001e] transition-colors"
-                      >
-                        Apply in Pinterest ↗
-                      </a>
-                    )}
+                    <button onClick={() => setAppliedRecs(prev => { const n = new Set(prev); applied ? n.delete(rec.id) : n.add(rec.id); return n; })}
+                      className={cn("flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium transition-colors",
+                        applied ? "bg-green-100 text-green-700" : "bg-[#e60023] text-white hover:bg-[#c8001e]")}>
+                      {applied ? "✓ Applied" : "Apply"}
+                    </button>
                   </div>
                 </div>
               );
