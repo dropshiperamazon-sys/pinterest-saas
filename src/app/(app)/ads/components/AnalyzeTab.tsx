@@ -31,7 +31,7 @@ interface RealCampaign {
 interface AdsApiData {
   adAccountName: string;
   period: { startDate: string; endDate: string };
-  totals: { spend: number; impressions: number; clicks: number; saves: number; engagements: number };
+  totals: { spend: number; impressions: number; clicks: number; saves: number; engagements: number; checkouts: number; addToCart: number; pageVisits: number; revenue: number; aov: number };
   campaigns: RealCampaign[];
 }
 
@@ -874,55 +874,142 @@ function AIDiagnosis({ ctx, real }: { ctx: AnalyzeContext; real: AdsApiData | nu
 // ─── Funnel Analysis ──────────────────────────────────────────────────────────
 
 function FunnelAnalysis({ real }: { real: AdsApiData | null }) {
+  const t = real?.totals;
+
+  // Build stages from real data when available
+  const stages = t ? (() => {
+    const imp = t.impressions || 1; // baseline for width %
+    const rows = [
+      { stage: "Impressions",        value: t.impressions,  color: "bg-blue-500",    icon: "👁️",  hasData: true },
+      { stage: "Clicks",             value: t.clicks,       color: "bg-purple-500",  icon: "🖱️",  hasData: true },
+      { stage: "Landing Page Views", value: t.pageVisits,   color: "bg-orange-500",  icon: "📄",  hasData: t.pageVisits > 0 },
+      { stage: "Add to Cart",        value: t.addToCart,    color: "bg-yellow-500",  icon: "🛒",  hasData: t.addToCart > 0 },
+      { stage: "Checkouts",          value: t.checkouts,    color: "bg-green-500",   icon: "✅",  hasData: t.checkouts > 0 },
+      { stage: "Revenue",            value: t.revenue,      color: "bg-emerald-600", icon: "💰",  hasData: t.revenue > 0, isCurrency: true },
+    ];
+    return rows.map(r => ({ ...r, widthPct: Math.max((r.value / imp) * 100, 0.5) }));
+  })() : FUNNEL_DATA.map(s => ({ stage: s.stage, value: s.value, color: s.color, icon: s.icon, hasData: true, isCurrency: s.stage === "Revenue", widthPct: Math.max(s.pct ?? 5, 5) }));
+
+  const isReal = !!t;
+
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-900 mb-2">Conversion Funnel</h3>
-        {!real && <p className="text-xs text-amber-600 mb-4 bg-amber-50 rounded-lg px-3 py-2">Using sample data. Connect Pinterest and set up conversion tracking for live funnel analysis.</p>}
-        <div className="space-y-3">
-          {FUNNEL_DATA.map((stage, i) => {
-            const next = FUNNEL_DATA[i + 1];
-            const dropOff = next ? (100 - next.pct).toFixed(1) : null;
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">Conversion Funnel</h3>
+          {isReal
+            ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Live data</span>
+            : <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-medium">Sample data</span>}
+        </div>
+        {!isReal && (
+          <p className="text-xs text-amber-600 mb-4 bg-amber-50 rounded-lg px-3 py-2">
+            Connect Pinterest and set up conversion tracking for live funnel analysis.
+          </p>
+        )}
+        <div className="space-y-2">
+          {stages.map((stage, i) => {
+            const next = stages[i + 1];
+            const dropPct = next && stage.value > 0
+              ? ((stage.value - next.value) / stage.value * 100).toFixed(1)
+              : null;
+            const displayVal = stage.isCurrency
+              ? `$${formatNumber(Math.round((stage.value as number) * 100) / 100)}`
+              : formatNumber(stage.value as number);
+            const convPct = i === 0 || !t
+              ? null
+              : stages[0].value > 0
+              ? ((stage.value as number) / (stages[0].value as number) * 100).toFixed(2)
+              : null;
+            const unavailable = isReal && !stage.hasData;
+
             return (
               <div key={stage.stage}>
-                <div className="flex items-center gap-4">
-                  <div className="w-32 text-right">
-                    <div className="text-sm font-semibold text-gray-800">{stage.stage}</div>
-                    <div className="text-xs text-gray-500">
-                      {stage.stage === "Revenue" ? `$${formatNumber(stage.value)}` : formatNumber(stage.value)}
+                <div className="flex items-center gap-3">
+                  {/* Label */}
+                  <div className="w-36 flex-shrink-0 text-right">
+                    <div className={cn("text-sm font-semibold", unavailable ? "text-gray-300" : "text-gray-800")}>{stage.stage}</div>
+                    <div className={cn("text-xs font-mono tabular-nums", unavailable ? "text-gray-300" : "text-gray-500")}>
+                      {unavailable ? "no data" : displayVal}
                     </div>
                   </div>
-                  <div className="flex-1">
-                    <div className={cn("h-10 rounded-xl flex items-center px-3 text-white text-xs font-semibold", stage.color)}
-                      style={{ width: `${Math.max(stage.pct ?? 5, 5)}%`, minWidth: "60px" }}>
-                      {stage.icon} {stage.pct !== null ? `${stage.pct.toFixed(1)}%` : ""}
-                    </div>
+                  {/* Bar */}
+                  <div className="flex-1 min-w-0">
+                    {unavailable ? (
+                      <div className="h-9 rounded-xl border-2 border-dashed border-gray-200 flex items-center px-3 text-xs text-gray-300">
+                        Not tracked
+                      </div>
+                    ) : (
+                      <div
+                        className={cn("h-9 rounded-xl flex items-center px-3 text-white text-xs font-semibold gap-1.5 transition-all", stage.color)}
+                        style={{ width: `${Math.max(stage.widthPct, 3)}%`, minWidth: "56px" }}
+                      >
+                        <span>{stage.icon}</span>
+                        {convPct !== null && <span>{convPct}%</span>}
+                      </div>
+                    )}
                   </div>
-                  {dropOff && <div className="w-24 text-xs text-red-500 font-medium">−{dropOff}% drop</div>}
+                  {/* Drop */}
+                  <div className="w-28 flex-shrink-0 text-right">
+                    {dropPct && !unavailable && next && !next.hasData && isReal ? (
+                      <span className="text-xs text-gray-300">next: no data</span>
+                    ) : dropPct && !unavailable ? (
+                      <span className="text-xs text-red-500 font-semibold">−{dropPct}% drop</span>
+                    ) : null}
+                  </div>
                 </div>
-                {next && <div className="mt-1 mb-1 h-4 w-px bg-gray-200 ml-[146px]" />}
+                {next && <div className="h-3 w-px bg-gray-200 ml-[150px]" />}
               </div>
             );
           })}
         </div>
+
+        {isReal && (
+          <div className="mt-5 pt-4 border-t border-gray-100 grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-xs text-gray-400 mb-0.5">Click-Through Rate</div>
+              <div className="text-lg font-bold text-gray-900">
+                {t.impressions > 0 ? ((t.clicks / t.impressions) * 100).toFixed(2) : "0"}%
+              </div>
+            </div>
+            {t.pageVisits > 0 && (
+              <div>
+                <div className="text-xs text-gray-400 mb-0.5">Click → Page Visit</div>
+                <div className="text-lg font-bold text-gray-900">
+                  {t.clicks > 0 ? ((t.pageVisits / t.clicks) * 100).toFixed(1) : "0"}%
+                </div>
+              </div>
+            )}
+            {t.checkouts > 0 && t.pageVisits > 0 && (
+              <div>
+                <div className="text-xs text-gray-400 mb-0.5">Visit → Checkout</div>
+                <div className="text-lg font-bold text-gray-900">
+                  {((t.checkouts / t.pageVisits) * 100).toFixed(2)}%
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Missing stages placeholder */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-        <h3 className="font-semibold text-gray-900 mb-3">Extended Funnel Stages</h3>
-        <div className="space-y-2">
-          {[
-            { stage: "Landing Page Visits", status: "unavailable", note: "Connect Pinterest Tag to your website" },
-            { stage: "Add to Cart",         status: "unavailable", note: "Requires conversion event tracking" },
-            { stage: "Purchase",            status: "unavailable", note: "Requires conversion event tracking" },
-          ].map(({ stage, note }) => (
-            <div key={stage} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-dashed border-gray-200">
-              <div className="text-sm font-medium text-gray-400">{stage}</div>
-              <div className="ml-auto text-xs text-gray-400">Data unavailable · {note}</div>
-            </div>
-          ))}
+      {/* Tracking setup guide when conversion data is missing */}
+      {isReal && !t.pageVisits && (
+        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-5">
+          <h3 className="font-semibold text-blue-900 mb-2">Unlock the full funnel</h3>
+          <p className="text-sm text-blue-700 mb-3">Page visits, add-to-cart and purchase data require the Pinterest Tag on your website.</p>
+          <div className="space-y-2">
+            {[
+              "Install the Pinterest Tag on your website",
+              "Set up conversion events (PageVisit, AddToCart, Checkout)",
+              "Enable conversion tracking in your ad campaigns",
+            ].map((step, i) => (
+              <div key={i} className="flex items-start gap-2 text-sm text-blue-800">
+                <span className="font-bold flex-shrink-0">{i + 1}.</span>
+                {step}
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
