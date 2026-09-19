@@ -159,6 +159,7 @@ function useOptimizeQueue(): [QueuedSuggestion[], (id: string) => void] {
 export default function OptimizeTab() {
   const { data, loading, error } = useAdsData();
   const [activeSection, setActiveSection] = useState("Opportunity Score");
+  const [openedRecs, setOpenedRecs] = useState<Set<string>>(new Set());
   const [appliedRecs, setAppliedRecs] = useState<Set<string>>(new Set());
   const [queue, dismissFromQueue] = useOptimizeQueue();
   const [ruleStatuses, setRuleStatuses] = useState<Record<string, string>>(
@@ -372,9 +373,7 @@ export default function OptimizeTab() {
                       <p className="text-xs text-gray-500 mt-1">{rec.details}</p>
                       <p className="text-xs text-green-700 font-medium mt-2">Est. impact: {rec.impact}</p>
                     </div>
-                    {applied ? (
-                      <span className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-green-100 text-green-700">✓ Applied</span>
-                    ) : (
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       <a
                         href={
                           data?.adAccountId && rec.campaignId
@@ -383,12 +382,24 @@ export default function OptimizeTab() {
                         }
                         target="_blank"
                         rel="noopener noreferrer"
-                        onClick={() => setAppliedRecs(prev => { const n = new Set(prev); n.add(rec.id); return n; })}
-                        className="flex-shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-[#e60023] text-white hover:bg-[#c8001e] transition-colors"
+                        onClick={() => setOpenedRecs(prev => { const n = new Set(prev); n.add(rec.id); return n; })}
+                        className="px-4 py-2 rounded-lg text-sm font-medium bg-[#e60023] text-white hover:bg-[#c8001e] transition-colors"
                       >
                         Apply ↗
                       </a>
-                    )}
+                      {openedRecs.has(rec.id) && (
+                        applied ? (
+                          <span className="px-3 py-2 rounded-lg text-sm font-medium bg-green-100 text-green-700">✓ Done</span>
+                        ) : (
+                          <button
+                            onClick={() => setAppliedRecs(prev => { const n = new Set(prev); n.add(rec.id); return n; })}
+                            className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
+                          >
+                            Mark Done
+                          </button>
+                        )
+                      )}
+                    </div>
                   </div>
                 </div>
               );
