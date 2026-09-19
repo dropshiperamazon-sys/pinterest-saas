@@ -67,8 +67,8 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-2">7. Contact</h2>
           <p>
             For privacy questions or data deletion requests, contact us at:{" "}
-            <a href="mailto:saiful.khank16@gmail.com" className="text-[#e60023] hover:underline">
-              saiful.khank16@gmail.com
+            <a href="mailto:app.support@rambforce.com" className="text-[#e60023] hover:underline">
+              app.support@rambforce.com
             </a>
           </p>
         </section>
