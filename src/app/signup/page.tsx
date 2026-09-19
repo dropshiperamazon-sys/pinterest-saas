@@ -101,7 +101,7 @@ export default function SignupPage() {
         {/* Logo */}
         <div className="text-center mb-6">
           <Link href="/" className="inline-flex items-center mb-4">
-            <img src="/rambforce-logo.png" alt="Rambforce" className="h-9 w-auto object-contain" />
+            <img src="/rambforce-logo.png" alt="Rambforce" className="h-14 w-auto object-contain" />
           </Link>
         </div>
 
