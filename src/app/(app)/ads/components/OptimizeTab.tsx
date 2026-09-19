@@ -2,7 +2,90 @@
 import { useState, useEffect } from "react";
 import { AUTOMATED_RULES, MOCK_AUDIENCES, KEYWORD_PLAN } from "@/lib/ads-data";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
-import { AlertCircle, TrendingUp } from "lucide-react";
+import { AlertCircle, TrendingUp, X, Plus } from "lucide-react";
+
+// ─── Automated Rules types ────────────────────────────────────────────────────
+
+type RuleMetric = "ctr" | "cpc" | "spend" | "impressions";
+type RuleOp = "lt" | "gt";
+type RuleScope = "all" | "specific" | "manual";
+
+interface AutoRule {
+  id: string; name: string;
+  metric: RuleMetric; op: RuleOp; value: number;
+  actionLabel: string; frequency: string;
+  scope: RuleScope; campaignIds: string[];
+  enabled: boolean;
+}
+
+const METRIC_LABEL: Record<RuleMetric, string> = { ctr: "CTR (%)", cpc: "CPC ($)", spend: "Spend ($)", impressions: "Impressions" };
+const OP_LABEL: Record<RuleOp, string> = { lt: "falls below", gt: "rises above" };
+
+function getCampaignMetric(c: { ctr: number; cpc: number; spend: number; impressions: number }, m: RuleMetric): number {
+  return m === "ctr" ? c.ctr : m === "cpc" ? c.cpc : m === "spend" ? c.spend : c.impressions;
+}
+
+function ruleMatches(rule: AutoRule, c: { ctr: number; cpc: number; spend: number; impressions: number }): boolean {
+  const val = getCampaignMetric(c, rule.metric);
+  return rule.op === "lt" ? val < rule.value : val > rule.value;
+}
+
+function useAutoRules(campaigns: { id: string; name: string; ctr: number; cpc: number; spend: number; impressions: number; status: string }[]) {
+  const [rules, setRules] = useState<AutoRule[]>([]);
+  const [doneTriggers, setDoneTriggers] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    try {
+      const r = localStorage.getItem("mpp_auto_rules");
+      if (r) setRules(JSON.parse(r));
+      else setRules(AUTOMATED_RULES.map(r => ({
+        id: r.id, name: r.name, metric: "ctr" as RuleMetric, op: "lt" as RuleOp, value: 0.5,
+        actionLabel: r.action, frequency: r.frequency, scope: "all" as RuleScope,
+        campaignIds: [], enabled: r.status === "active",
+      })));
+    } catch { setRules([]); }
+    try {
+      const d = localStorage.getItem("mpp_done_triggers");
+      if (d) setDoneTriggers(new Set(JSON.parse(d)));
+    } catch {}
+  }, []);
+
+  const saveRules = (next: AutoRule[]) => {
+    setRules(next);
+    try { localStorage.setItem("mpp_auto_rules", JSON.stringify(next)); } catch {}
+  };
+
+  const addRule = (rule: AutoRule) => saveRules([...rules, rule]);
+  const toggleRule = (id: string) => saveRules(rules.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r));
+  const deleteRule = (id: string) => saveRules(rules.filter(r => r.id !== id));
+
+  const markDone = (key: string) => {
+    const next = new Set(doneTriggers); next.add(key);
+    setDoneTriggers(next);
+    try { localStorage.setItem("mpp_done_triggers", JSON.stringify([...next])); } catch {}
+  };
+  const unmarkDone = (key: string) => {
+    const next = new Set(doneTriggers); next.delete(key);
+    setDoneTriggers(next);
+    try { localStorage.setItem("mpp_done_triggers", JSON.stringify([...next])); } catch {}
+  };
+
+  // Evaluate triggers: active rules × matching campaigns
+  const triggers: { key: string; rule: AutoRule; campaign: typeof campaigns[0] }[] = [];
+  for (const rule of rules) {
+    if (!rule.enabled) continue;
+    const targets = rule.scope === "all"
+      ? campaigns.filter(c => c.status !== "completed")
+      : rule.scope === "manual"
+      ? campaigns.filter(c => rule.campaignIds.includes(c.id))
+      : campaigns.filter(c => rule.campaignIds.includes(c.id));
+    for (const c of targets) {
+      if (ruleMatches(rule, c)) triggers.push({ key: `${rule.id}__${c.id}`, rule, campaign: c });
+    }
+  }
+
+  return { rules, triggers, doneTriggers, addRule, toggleRule, deleteRule, markDone, unmarkDone };
+}
 
 interface RealCampaign {
   id: string; name: string; status: string; objective: string;
@@ -168,9 +251,17 @@ export default function OptimizeTab() {
     } catch {}
   }, []);
   const [queue, dismissFromQueue] = useOptimizeQueue();
-  const [ruleStatuses, setRuleStatuses] = useState<Record<string, string>>(
-    Object.fromEntries(AUTOMATED_RULES.map((r) => [r.id, r.status]))
-  );
+
+  // New Rule modal state
+  const [showNewRule, setShowNewRule] = useState(false);
+  const [newRuleName, setNewRuleName] = useState("");
+  const [newRuleMetric, setNewRuleMetric] = useState<RuleMetric>("ctr");
+  const [newRuleOp, setNewRuleOp] = useState<RuleOp>("lt");
+  const [newRuleValue, setNewRuleValue] = useState("0.5");
+  const [newRuleAction, setNewRuleAction] = useState("");
+  const [newRuleFreq, setNewRuleFreq] = useState("Daily");
+  const [newRuleScope, setNewRuleScope] = useState<RuleScope>("all");
+  const [newRuleCampaignIds, setNewRuleCampaignIds] = useState<string[]>([]);
   const [copilotInput, setCopilotInput] = useState("");
   const [copilotMessages, setCopilotMessages] = useState<{ role: "user" | "ai"; text: string }[]>([
     { role: "ai", text: "Hi! I'm your AI Growth Copilot. Ask me anything about your campaigns — budget, CTR, audiences, or scaling strategy." },
@@ -178,6 +269,7 @@ export default function OptimizeTab() {
 
   const campaigns: RealCampaign[] = data?.campaigns ?? [];
   const isReal = !!(data && campaigns.length > 0);
+  const { rules, triggers, doneTriggers, addRule, toggleRule, deleteRule, markDone, unmarkDone } = useAutoRules(campaigns);
   const opportunity = isReal
     ? computeOpportunityScore(campaigns)
     : { overall: 72, breakdown: [
@@ -660,61 +752,206 @@ export default function OptimizeTab() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-gray-900">Automated Rules</h2>
-                <p className="text-sm text-gray-500 mt-0.5">Set-and-forget rules that run on your schedule</p>
+                <p className="text-sm text-gray-500 mt-0.5">Rules are checked against your live campaigns — matched ones appear as alerts for you to act on manually</p>
               </div>
-              <button
-                title={!isReal ? "Create a campaign first to activate rules" : undefined}
-                className={cn("px-4 py-2 text-sm font-medium rounded-lg",
-                  isReal ? "bg-[#e60023] text-white hover:bg-[#c8001e]" : "bg-gray-100 text-gray-400 cursor-not-allowed")}>
-                + New Rule
+              <button onClick={() => setShowNewRule(true)}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-[#e60023] text-white hover:bg-[#c8001e] flex items-center gap-1.5">
+                <Plus className="w-4 h-4" /> New Rule
               </button>
             </div>
+
+            {/* Triggered alerts */}
+            {isReal && triggers.length > 0 && (
+              <div className="bg-white rounded-2xl border border-orange-200 p-5 space-y-3">
+                <h3 className="text-sm font-semibold text-orange-700 uppercase tracking-wide">⚡ Triggered Alerts</h3>
+                {triggers.map(({ key, rule, campaign }) => {
+                  const done = doneTriggers.has(key);
+                  return (
+                    <div key={key} className={cn("border rounded-xl p-4 flex items-start justify-between gap-4", done ? "border-green-100 bg-green-50/50 opacity-60" : "border-orange-100 bg-orange-50/40")}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{rule.name}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Campaign: <span className="font-medium text-gray-700">{campaign.name}</span>
+                          {" · "}{METRIC_LABEL[rule.metric]} {OP_LABEL[rule.op]} {rule.value}
+                          {" · "}{rule.actionLabel}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {!done ? (
+                          <>
+                            <a
+                              href={data?.adAccountId ? `https://ads.pinterest.com/advertiser/${data.adAccountId}/` : "https://ads.pinterest.com/"}
+                              target="_blank" rel="noopener noreferrer"
+                              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e60023] text-white hover:bg-[#c8001e] transition-colors"
+                            >
+                              Open in Pinterest ↗
+                            </a>
+                            <button onClick={() => markDone(key)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors">
+                              Mark Done
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => unmarkDone(key)} className="text-xs text-gray-400 hover:text-gray-600">✓ Done · Undo</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {isReal && triggers.length === 0 && rules.filter(r => r.enabled).length > 0 && (
+              <div className="bg-green-50 border border-green-100 rounded-xl px-4 py-3 text-sm text-green-700 flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-green-500" /> All active rules are within thresholds — no action needed right now.
+              </div>
+            )}
+
             {!isReal && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-sm text-amber-800">
                 <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-semibold">No active campaigns</p>
-                  <p className="mt-0.5 text-amber-700">These are example rules. Create a campaign in Pinterest Ads Manager, then come back to activate automated rules for it.</p>
+                  <p className="mt-0.5 text-amber-700">Connect your Pinterest account — rules will be evaluated against your live campaign metrics.</p>
                 </div>
               </div>
             )}
-            <div className={cn("bg-white rounded-xl border border-gray-200 overflow-hidden", !isReal && "opacity-60")}>
+
+            {/* Rules table */}
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr className="text-left text-xs text-gray-500">
-                    {["Rule Name","Condition","Action","Frequency","Status",""].map(h => <th key={h} className="px-4 py-3">{h}</th>)}
+                    {["Rule Name","Condition","Action","Scope","Frequency","On/Off",""].map(h => <th key={h} className="px-4 py-3">{h}</th>)}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {AUTOMATED_RULES.map(rule => (
+                  {rules.map(rule => (
                     <tr key={rule.id}>
                       <td className="px-4 py-3 font-medium text-gray-800">{rule.name}</td>
-                      <td className="px-4 py-3 text-gray-600">{rule.condition}</td>
-                      <td className="px-4 py-3 text-gray-600">{rule.action}</td>
-                      <td className="px-4 py-3 text-gray-500">{rule.frequency}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{METRIC_LABEL[rule.metric]} {OP_LABEL[rule.op]} {rule.value}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{rule.actionLabel}</td>
+                      <td className="px-4 py-3 text-xs text-gray-500 capitalize">
+                        {rule.scope === "all" ? "All campaigns" : rule.scope === "manual" ? `${rule.campaignIds.length} selected` : "Specific"}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">{rule.frequency}</td>
                       <td className="px-4 py-3">
-                        <button
-                          disabled={!isReal}
-                          onClick={() => isReal && setRuleStatuses(prev => ({ ...prev, [rule.id]: prev[rule.id] === "active" ? "paused" : "active" }))}
+                        <button onClick={() => toggleRule(rule.id)}
                           className={cn("relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                            !isReal ? "bg-gray-200 cursor-not-allowed" : ruleStatuses[rule.id] === "active" ? "bg-green-500" : "bg-gray-200")}>
+                            rule.enabled ? "bg-green-500" : "bg-gray-200")}>
                           <span className={cn("inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform",
-                            isReal && ruleStatuses[rule.id] === "active" ? "translate-x-4" : "translate-x-1")} />
+                            rule.enabled ? "translate-x-4" : "translate-x-1")} />
                         </button>
                       </td>
                       <td className="px-4 py-3">
-                        <button disabled={!isReal} className={cn("text-xs", isReal ? "text-gray-400 hover:text-[#e60023]" : "text-gray-300 cursor-not-allowed")}>Edit</button>
+                        <button onClick={() => deleteRule(rule.id)} className="text-gray-300 hover:text-red-500 transition-colors"><X className="w-3.5 h-3.5" /></button>
                       </td>
                     </tr>
                   ))}
+                  {rules.length === 0 && (
+                    <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">No rules yet — click "+ New Rule" to create one</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
-            {isReal && (
-              <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-4 text-sm text-yellow-800">
-                <strong>Tip:</strong> The &quot;No conversion pause&quot; rule is paused. Enable it to automatically pause ads with 0 conversions after 1,000 impressions.
+          </div>
+        )}
+
+        {/* ── New Rule Modal ── */}
+        {showNewRule && (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-gray-900">New Rule</h3>
+                <button onClick={() => setShowNewRule(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
               </div>
-            )}
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Rule Name</label>
+                  <input value={newRuleName} onChange={e => setNewRuleName(e.target.value)}
+                    placeholder="e.g. Pause low CTR ads"
+                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/30" />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Condition</label>
+                  <div className="mt-1 flex gap-2">
+                    <select value={newRuleMetric} onChange={e => setNewRuleMetric(e.target.value as RuleMetric)}
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+                      {(Object.keys(METRIC_LABEL) as RuleMetric[]).map(m => <option key={m} value={m}>{METRIC_LABEL[m]}</option>)}
+                    </select>
+                    <select value={newRuleOp} onChange={e => setNewRuleOp(e.target.value as RuleOp)}
+                      className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+                      <option value="lt">falls below</option>
+                      <option value="gt">rises above</option>
+                    </select>
+                    <input value={newRuleValue} onChange={e => setNewRuleValue(e.target.value)} type="number" step="0.01"
+                      className="w-20 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Action (reminder label)</label>
+                  <input value={newRuleAction} onChange={e => setNewRuleAction(e.target.value)}
+                    placeholder="e.g. Pause ad, Increase budget"
+                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#e60023]/30" />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Apply to</label>
+                  <select value={newRuleScope} onChange={e => { setNewRuleScope(e.target.value as RuleScope); setNewRuleCampaignIds([]); }}
+                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+                    <option value="all">All campaigns</option>
+                    <option value="manual">Manually select campaigns</option>
+                  </select>
+                </div>
+
+                {newRuleScope === "manual" && campaigns.length > 0 && (
+                  <div className="border border-gray-100 rounded-xl p-3 max-h-36 overflow-y-auto space-y-1.5">
+                    {campaigns.filter(c => c.status !== "completed").map(c => (
+                      <label key={c.id} className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={newRuleCampaignIds.includes(c.id)}
+                          onChange={e => setNewRuleCampaignIds(prev => e.target.checked ? [...prev, c.id] : prev.filter(id => id !== c.id))}
+                          className="accent-[#e60023]" />
+                        <span className="text-sm text-gray-700 truncate">{c.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Check frequency</label>
+                  <select value={newRuleFreq} onChange={e => setNewRuleFreq(e.target.value)}
+                    className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none">
+                    {["Hourly","Daily","Weekly"].map(f => <option key={f}>{f}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setShowNewRule(false)}
+                  className="flex-1 border border-gray-200 rounded-lg py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+                  Cancel
+                </button>
+                <button
+                  disabled={!newRuleName.trim() || !newRuleAction.trim()}
+                  onClick={() => {
+                    addRule({
+                      id: `r_${Date.now()}`, name: newRuleName.trim(),
+                      metric: newRuleMetric, op: newRuleOp, value: parseFloat(newRuleValue) || 0,
+                      actionLabel: newRuleAction.trim(), frequency: newRuleFreq,
+                      scope: newRuleScope, campaignIds: newRuleCampaignIds, enabled: true,
+                    });
+                    setShowNewRule(false);
+                    setNewRuleName(""); setNewRuleAction(""); setNewRuleValue("0.5");
+                    setNewRuleMetric("ctr"); setNewRuleOp("lt"); setNewRuleScope("all"); setNewRuleCampaignIds([]);
+                  }}
+                  className="flex-1 bg-[#e60023] text-white rounded-lg py-2 text-sm font-medium hover:bg-[#c8001e] disabled:opacity-40 disabled:cursor-not-allowed">
+                  Save Rule
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
