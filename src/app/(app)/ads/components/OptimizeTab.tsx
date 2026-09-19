@@ -377,9 +377,7 @@ export default function OptimizeTab() {
                     ) : (
                       <a
                         href={
-                          data?.adAccountId && rec.campaignId
-                            ? `https://ads.pinterest.com/advertiser/${data.adAccountId}/campaigns/${rec.campaignId}/`
-                            : data?.adAccountId
+                          data?.adAccountId
                             ? `https://ads.pinterest.com/advertiser/${data.adAccountId}/campaigns/`
                             : "https://ads.pinterest.com/"
                         }
