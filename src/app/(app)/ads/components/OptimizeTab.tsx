@@ -36,13 +36,18 @@ function useAutoRules(campaigns: { id: string; name: string; ctr: number; cpc: n
 
   useEffect(() => {
     try {
-      const r = localStorage.getItem("mpp_auto_rules");
+      const r = localStorage.getItem("mpp_auto_rules_v2");
       if (r) setRules(JSON.parse(r));
-      else setRules(AUTOMATED_RULES.map(r => ({
-        id: r.id, name: r.name, metric: "ctr" as RuleMetric, op: "lt" as RuleOp, value: 0.5,
-        actionLabel: r.action, frequency: r.frequency, scope: "all" as RuleScope,
-        campaignIds: [], enabled: r.status === "active",
-      })));
+      else {
+        const defaults: AutoRule[] = [
+          { id: "r1", name: "Pause low CTR ads",   metric: "ctr",         op: "lt", value: 0.5,  actionLabel: "Pause Ad",              frequency: "Daily",  scope: "all", campaignIds: [], enabled: true  },
+          { id: "r2", name: "Scale top performer",  metric: "ctr",         op: "gt", value: 1.0,  actionLabel: "Increase budget by 20%", frequency: "Daily",  scope: "all", campaignIds: [], enabled: true  },
+          { id: "r3", name: "CPC spike alert",      metric: "cpc",         op: "gt", value: 2.5,  actionLabel: "Review bid",             frequency: "Hourly", scope: "all", campaignIds: [], enabled: false },
+          { id: "r4", name: "No spend alert",       metric: "spend",       op: "lt", value: 1,    actionLabel: "Check budget & bid",     frequency: "Daily",  scope: "all", campaignIds: [], enabled: false },
+        ];
+        setRules(defaults);
+        localStorage.setItem("mpp_auto_rules_v2", JSON.stringify(defaults));
+      }
     } catch { setRules([]); }
     try {
       const d = localStorage.getItem("mpp_done_triggers");
@@ -52,7 +57,7 @@ function useAutoRules(campaigns: { id: string; name: string; ctr: number; cpc: n
 
   const saveRules = (next: AutoRule[]) => {
     setRules(next);
-    try { localStorage.setItem("mpp_auto_rules", JSON.stringify(next)); } catch {}
+    try { localStorage.setItem("mpp_auto_rules_v2", JSON.stringify(next)); } catch {}
   };
 
   const addRule = (rule: AutoRule) => saveRules([...rules, rule]);
