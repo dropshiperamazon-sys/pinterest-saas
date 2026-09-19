@@ -382,8 +382,8 @@ export default function OptimizeTab() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <a
                         href={
-                          data?.adAccountId && rec.campaignId
-                            ? `https://ads.pinterest.com/advertiser/${data.adAccountId}/campaigns/${rec.campaignId}`
+                          data?.adAccountId
+                            ? `https://ads.pinterest.com/advertiser/${data.adAccountId}/`
                             : "https://ads.pinterest.com/"
                         }
                         target="_blank"
