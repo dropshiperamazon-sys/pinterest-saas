@@ -168,7 +168,12 @@ function generateSuggestions(campaigns: RealCampaign[]): Suggestion[] {
   return suggestions.sort((a, b) => order[a.severity] - order[b.severity]);
 }
 
-function campaignHealthScore(c: RealCampaign): number {
+// Returns null when the campaign has no data in the selected period (can't score it)
+function campaignHealthScore(c: RealCampaign): number | null {
+  const inactive = c.status === "completed" || c.status === "archived" || c.status === "ended";
+  // No activity in this date range — can't score
+  if (inactive && c.spend === 0 && c.impressions === 0) return null;
+
   let score = 100;
   if (c.status === "active" && c.spend === 0) return 20;
   if (c.ctr < 0.1) score -= 35;
@@ -177,7 +182,7 @@ function campaignHealthScore(c: RealCampaign): number {
   else if (c.ctr > 1.0) score += 10;
   if (c.cpc > 3) score -= 15; else if (c.cpc > 2) score -= 8;
   if (c.saveRate < 1 && c.clicks > 30) score -= 20;
-  else if (c.saveRate < 3) score -= 8;
+  else if (c.saveRate < 3 && c.clicks > 0) score -= 8;
   else if (c.saveRate > 10) score += 10;
   if (c.status === "paused") score -= 15;
   return Math.max(10, Math.min(100, score));
@@ -776,7 +781,11 @@ function AIDiagnosis({ ctx, real }: { ctx: AnalyzeContext; real: AdsApiData | nu
                   </div>
                   <span className="text-xs text-gray-400">${c.spend?.toFixed(0) ?? 0} spend · {c.ctr ?? 0}% CTR</span>
                 </div>
-                <HealthBar score={score} />
+                {score === null ? (
+                  <div className="text-xs text-gray-400 italic py-1">No activity in this date range — health score not applicable</div>
+                ) : (
+                  <HealthBar score={score} />
+                )}
                 {(working > 0 || problems > 0) && (
                   <div className="mt-3 grid grid-cols-2 gap-2">
                     {working > 0 && (
