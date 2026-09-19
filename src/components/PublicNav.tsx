@@ -19,7 +19,7 @@ export default function PublicNav() {
     <nav className="border-b border-gray-100 bg-white sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
         <Link href="/" className="flex items-center">
-          <img src="/rambforce-logo.png" alt="Rambforce" className="h-8 w-auto object-contain" />
+          <img src="/rambforce-logo.png" alt="Rambforce" className="h-12 w-auto object-contain" />
         </Link>
 
         {/* Desktop nav */}
