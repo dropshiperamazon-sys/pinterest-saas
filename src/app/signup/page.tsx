@@ -50,13 +50,10 @@ export default function SignupPage() {
         setLoading(false);
         return false;
       }
-      const result = await signIn("credentials", { email, password, redirect: false });
-      if (result?.error) {
-        setError("Account created. Please sign in.");
-        router.push("/login");
-        return false;
-      }
-      return true;
+      // Account created — user must verify email before logging in
+      setError("__verify__");
+      setLoading(false);
+      return false;
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
@@ -174,7 +171,13 @@ export default function SignupPage() {
                   </div>
                 </div>
 
-                {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>}
+                {error === "__verify__" ? (
+                  <div className="bg-green-50 border border-green-200 text-green-800 text-sm rounded-xl px-4 py-3">
+                    ✅ Account created! Check your email and click the verification link to activate your account.
+                  </div>
+                ) : error ? (
+                  <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
+                ) : null}
 
                 <button type="submit"
                   className="w-full bg-[#e60023] text-white py-2.5 rounded-xl font-semibold text-sm hover:bg-[#ad081b] transition-colors">
