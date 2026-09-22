@@ -2,11 +2,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, X, LayoutDashboard } from "lucide-react";
+import { useSession } from "next-auth/react";
 
 export default function PublicNav() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { data: session } = useSession();
 
   const links = [
     { href: "/", label: "Home" },
@@ -39,24 +41,44 @@ export default function PublicNav() {
 
         {/* Desktop CTA */}
         <div className="hidden md:flex items-center gap-3">
-          <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900 font-medium">Login</Link>
-          <Link
-            href="/signup"
-            className="bg-[#e60023] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#ad081b] transition-colors"
-          >
-            Get Started Free
-          </Link>
+          {session ? (
+            <Link
+              href="/dashboard"
+              className="flex items-center gap-2 bg-[#e60023] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#ad081b] transition-colors"
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link href="/login" className="text-sm text-gray-600 hover:text-gray-900 font-medium">Login</Link>
+              <Link
+                href="/signup"
+                className="bg-[#e60023] text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-[#ad081b] transition-colors"
+              >
+                Get Started Free
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile: login + hamburger */}
         <div className="flex md:hidden items-center gap-2">
-          <Link href="/login" className="text-sm text-gray-600 font-medium px-3 py-2">Login</Link>
-          <Link
-            href="/signup"
-            className="bg-[#e60023] text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-[#ad081b] transition-colors"
-          >
-            Get Started
-          </Link>
+          {session ? (
+            <Link href="/dashboard" className="flex items-center gap-2 bg-[#e60023] text-white px-3 py-2 rounded-lg text-sm font-semibold">
+              <LayoutDashboard className="w-4 h-4" /> Dashboard
+            </Link>
+          ) : (
+            <>
+              <Link href="/login" className="text-sm text-gray-600 font-medium px-3 py-2">Login</Link>
+              <Link
+                href="/signup"
+                className="bg-[#e60023] text-white px-3 py-2 rounded-lg text-sm font-semibold hover:bg-[#ad081b] transition-colors"
+              >
+                Get Started
+              </Link>
+            </>
+          )}
           <button
             onClick={() => setOpen(p => !p)}
             className="ml-1 p-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
