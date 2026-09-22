@@ -35,7 +35,7 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center mb-6">
-            <img src="/rambforce-logo.png" alt="Rambforce" className="h-10 w-auto object-contain" />
+            <img src="/rambforce-logo.png" alt="Rambforce" className="h-16 w-auto object-contain" />
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">Welcome back</h1>
           <p className="text-gray-500 mt-1">Sign in to your account</p>
