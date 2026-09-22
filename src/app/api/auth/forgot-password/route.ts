@@ -14,7 +14,9 @@ export async function POST(req: NextRequest) {
     const { email } = await req.json();
     if (!email) return NextResponse.json({ error: "Email required" }, { status: 400 });
 
+    console.log(`[forgot-password] Received request for email: ${email}`);
     const user = await redis.get(`user:${email}`);
+    console.log(`[forgot-password] User found in Redis: ${!!user}`);
     // Always return success to prevent email enumeration
     if (!user) return NextResponse.json({ success: true });
 
