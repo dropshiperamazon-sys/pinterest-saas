@@ -30,11 +30,11 @@ export async function POST(req: NextRequest) {
     await resend.emails.send({
       from: process.env.EMAIL_FROM ?? "noreply@rambforce.com",
       to: email,
-      subject: "Reset your Rambforce password",
+      subject: "Reset your Rambforce App password",
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
-          <img src="${baseUrl}/rambforce-logo.png" alt="Rambforce" style="height:40px;margin-bottom:24px;" />
-          <h2 style="font-size:20px;font-weight:700;color:#111;margin-bottom:8px;">Reset your password</h2>
+          <img src="${baseUrl}/rambforce-logo.png" alt="Rambforce" style="height:80px;width:auto;margin-bottom:24px;display:block;" />
+          <h2 style="font-size:20px;font-weight:700;color:#111;margin-bottom:8px;">Reset your Rambforce App password</h2>
           <p style="color:#555;font-size:14px;margin-bottom:24px;">Click the button below to set a new password. This link expires in 1 hour.</p>
           <a href="${resetUrl}" style="display:inline-block;background:#e60023;color:#fff;padding:12px 24px;border-radius:10px;font-weight:600;font-size:14px;text-decoration:none;">Reset password</a>
           <p style="color:#aaa;font-size:12px;margin-top:24px;">If you didn't request this, you can safely ignore this email.</p>
