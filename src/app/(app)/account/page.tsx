@@ -3,21 +3,36 @@ import { useSession, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
-import { User, CreditCard, Bell, Shield, LogOut, Crown, CheckCircle } from "lucide-react";
-import Link from "next/link";
+import { User, CreditCard, Bell, Shield, LogOut, Crown, CheckCircle, ExternalLink, Loader2 } from "lucide-react";
 
-const PLAN_FEATURES = {
+const PLAN_LABELS: Record<string, string> = {
+  free: "Free Plan",
+  pro: "Pro Plan",
+  enterprise: "Enterprise Plan",
+};
+
+const PLAN_DESCRIPTIONS: Record<string, string> = {
+  free: "Limited features",
+  pro: "Full access to Pro features",
+  enterprise: "Full access + Ads, Catalog & priority support",
+};
+
+const PLAN_FEATURES: Record<string, string[]> = {
   free: ["5 scheduled pins/month", "Basic keyword research", "30-day analytics", "1 Pinterest account"],
-  pro: ["Unlimited scheduled pins", "Advanced keyword research", "Full analytics history", "Pinterest Ads manager", "AI content generation", "Priority support"],
+  pro: ["Unlimited scheduled pins", "Advanced keyword research", "Full analytics history", "Pinterest Ads manager", "AI content generation", "Up to 3 Pinterest accounts", "Priority support"],
+  enterprise: ["Everything in Pro", "Pinterest Ads & Catalog", "Unlimited Pinterest accounts", "Dedicated account manager", "White-glove onboarding"],
 };
 
 export default function AccountPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const [pinterest, setPinterest] = useState<{ connected: boolean; pinterestName?: string; pinterestUsername?: string } | null>(null);
+  const [plan, setPlan] = useState<string | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
 
   useEffect(() => {
     fetch("/api/pinterest-connection").then(r => r.json()).then(setPinterest).catch(() => {});
+    fetch("/api/plan").then(r => r.json()).then(d => setPlan(d.plan ?? "free")).catch(() => setPlan("free"));
   }, []);
 
   async function handleDisconnect() {
@@ -25,6 +40,17 @@ export default function AccountPage() {
     setPinterest({ connected: false });
     router.refresh();
   }
+
+  async function openBillingPortal() {
+    setPortalLoading(true);
+    const res = await fetch("/api/stripe/portal", { method: "POST" });
+    const data = await res.json();
+    setPortalLoading(false);
+    if (data.url) window.location.href = data.url;
+  }
+
+  const isPaid = plan === "pro" || plan === "enterprise";
+  const features = PLAN_FEATURES[plan ?? "free"] ?? PLAN_FEATURES.free;
 
   return (
     <div>
@@ -74,43 +100,83 @@ export default function AccountPage() {
             <Crown className="w-5 h-5 text-yellow-500" />
             <h2 className="font-semibold text-gray-900">Membership</h2>
           </div>
-          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl mb-4">
-            <div>
-              <div className="font-semibold text-gray-900">Free Plan</div>
-              <div className="text-sm text-gray-500">Limited features</div>
+
+          {plan === null ? (
+            <div className="flex items-center gap-2 text-gray-400 text-sm py-4">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading plan…
             </div>
-            <span className="text-xs bg-gray-200 text-gray-600 px-3 py-1 rounded-full font-medium">Current Plan</span>
-          </div>
-          <ul className="space-y-2 mb-5">
-            {PLAN_FEATURES.free.map((f) => (
-              <li key={f} className="text-sm text-gray-600 flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-                {f}
-              </li>
-            ))}
-          </ul>
-          <div className="bg-gradient-to-r from-[#e60023] to-[#c0001e] rounded-xl p-5 text-white">
-            <div className="flex items-center gap-2 mb-1">
-              <Crown className="w-4 h-4" />
-              <span className="font-semibold">Upgrade to Pro — $19/month</span>
-            </div>
-            <p className="text-sm text-white/80 mb-4">Unlock unlimited pins, AI generation, ads manager and more.</p>
-            <button className="bg-white text-[#e60023] px-5 py-2 rounded-lg text-sm font-semibold hover:bg-gray-100 transition-colors">
-              Upgrade Now
-            </button>
-          </div>
+          ) : (
+            <>
+              {/* Current plan card */}
+              <div className={`flex items-center justify-between p-4 rounded-xl mb-4 ${
+                isPaid ? "bg-gradient-to-r from-[#e60023]/5 to-[#e60023]/10 border border-[#e60023]/20" : "bg-gray-50 border border-gray-200"
+              }`}>
+                <div>
+                  <div className="font-semibold text-gray-900 flex items-center gap-2">
+                    {isPaid && <Crown className="w-4 h-4 text-yellow-500" />}
+                    {PLAN_LABELS[plan] ?? plan}
+                  </div>
+                  <div className="text-sm text-gray-500">{PLAN_DESCRIPTIONS[plan] ?? ""}</div>
+                </div>
+                <span className={`text-xs px-3 py-1 rounded-full font-medium ${
+                  isPaid ? "bg-[#e60023] text-white" : "bg-gray-200 text-gray-600"
+                }`}>Current Plan</span>
+              </div>
+
+              {/* Features */}
+              <ul className="space-y-2 mb-5">
+                {features.map((f) => (
+                  <li key={f} className="text-sm text-gray-600 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+
+              {/* Upgrade CTA for free users */}
+              {!isPaid && (
+                <div className="bg-gradient-to-r from-[#e60023] to-[#c0001e] rounded-xl p-5 text-white">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Crown className="w-4 h-4" />
+                    <span className="font-semibold">Upgrade to Pro — $29.99/month</span>
+                  </div>
+                  <p className="text-sm text-white/80 mb-4">Unlock unlimited pins, keyword research, analytics and more.</p>
+                  <a href="/pricing" className="inline-block bg-white text-[#e60023] px-5 py-2 rounded-lg text-sm font-semibold hover:bg-gray-100 transition-colors">
+                    View Plans
+                  </a>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
-        {/* Billing */}
+        {/* Billing & Payment */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6">
           <div className="flex items-center gap-3 mb-5">
             <CreditCard className="w-5 h-5 text-gray-500" />
             <h2 className="font-semibold text-gray-900">Billing & Payment</h2>
           </div>
-          <div className="text-sm text-gray-500 py-6 text-center">
-            <CreditCard className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-            No payment methods on file.<br />Upgrade to Pro to add a payment method.
-          </div>
+
+          {isPaid ? (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">
+                Manage your payment methods, view invoices, or cancel your subscription through the Stripe billing portal.
+              </p>
+              <button
+                onClick={openBillingPortal}
+                disabled={portalLoading}
+                className="flex items-center gap-2 bg-gray-900 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-700 transition-colors disabled:opacity-60"
+              >
+                {portalLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                {portalLoading ? "Opening portal…" : "Manage Billing & Cancel Plan"}
+              </button>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500 py-6 text-center">
+              <CreditCard className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+              No payment methods on file.<br />Upgrade to Pro to add a payment method.
+            </div>
+          )}
         </div>
 
         {/* Pinterest Connection */}
