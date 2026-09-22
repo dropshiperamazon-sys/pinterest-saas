@@ -24,6 +24,7 @@ export async function POST(req: NextRequest) {
     const baseUrl = process.env.NEXTAUTH_URL ?? "https://pinterest-saas-production.up.railway.app";
     const resetUrl = `${baseUrl}/reset-password?token=${token}`;
 
+    console.log(`[forgot-password] Sending reset email to ${email}, resetUrl: ${resetUrl}`);
     await resend.emails.send({
       from: process.env.EMAIL_FROM ?? "noreply@rambforce.com",
       to: email,
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
       `,
     });
 
+    console.log(`[forgot-password] Email sent successfully to ${email}`);
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error("Forgot password error:", err);
