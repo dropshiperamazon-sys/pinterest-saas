@@ -7,22 +7,26 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
-// Temporary admin password reset — protected by CRON_SECRET
 export async function POST(req: NextRequest) {
-  const { email, newPassword, secret } = await req.json();
+  try {
+    const { token, newPassword } = await req.json();
+    if (!token || !newPassword) return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+    if (newPassword.length < 8) return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
 
-  if (secret !== process.env.CRON_SECRET) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const email = await redis.get<string>(`reset:${token}`);
+    if (!email) return NextResponse.json({ error: "Invalid or expired reset link" }, { status: 400 });
+
+    const raw = await redis.get<string>(`user:${email}`);
+    if (!raw) return NextResponse.json({ error: "User not found" }, { status: 404 });
+
+    const user = typeof raw === "string" ? JSON.parse(raw) : raw;
+    user.passwordHash = await hashPassword(newPassword);
+    await redis.set(`user:${email}`, JSON.stringify(user));
+    await redis.del(`reset:${token}`);
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("Reset password error:", err);
+    return NextResponse.json({ error: "Failed to reset password" }, { status: 500 });
   }
-
-  const raw = await redis.get<string>(`user:${email}`);
-  if (!raw) {
-    return NextResponse.json({ error: "User not found" }, { status: 404 });
-  }
-
-  const user = typeof raw === "string" ? JSON.parse(raw) : raw;
-  user.passwordHash = await hashPassword(newPassword);
-  await redis.set(`user:${email}`, JSON.stringify(user));
-
-  return NextResponse.json({ success: true });
 }
