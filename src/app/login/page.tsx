@@ -24,7 +24,7 @@ export default function LoginPage() {
     });
     setLoading(false);
     if (result?.error) {
-      setError("Invalid email or password.");
+      setError("Invalid email or password. If you just signed up, please verify your email first.");
     } else {
       router.push("/dashboard");
     }

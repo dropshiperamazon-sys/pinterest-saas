@@ -55,12 +55,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           url: process.env.UPSTASH_REDIS_REST_URL!,
           token: process.env.UPSTASH_REDIS_REST_TOKEN!,
         });
-        const user = await redis.get<{ id: string; name: string; email: string; passwordHash: string; plan: string }>(
+        const user = await redis.get<{ id: string; name: string; email: string; passwordHash: string; plan: string; emailVerified?: boolean }>(
           `user:${credentials.email}`
         );
         if (!user) return null;
         const valid = await verifyPassword(credentials.password as string, user.passwordHash);
         if (!valid) return null;
+        if (user.emailVerified === false) return null;
         return { id: user.id, name: user.name, email: user.email };
       },
     }),
