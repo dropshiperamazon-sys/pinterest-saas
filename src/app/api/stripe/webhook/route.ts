@@ -1,12 +1,65 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Redis } from "@upstash/redis";
+import { Resend } from "resend";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
+const resend = new Resend(process.env.RESEND_API_KEY!);
+
+const PLAN_NAMES: Record<string, string> = {
+  pro: "Rambforce Pro",
+  enterprise: "Rambforce Enterprise",
+};
+
+async function sendSubscriptionConfirmation(
+  email: string,
+  userName: string,
+  plan: string,
+  nextPaymentDate: Date
+) {
+  const baseUrl = process.env.NEXTAUTH_URL ?? "https://app.rambforce.com";
+  const planName = PLAN_NAMES[plan] ?? plan;
+  const nextDate = nextPaymentDate.toLocaleDateString("en-US", {
+    year: "numeric", month: "long", day: "numeric",
+  });
+
+  await resend.emails.send({
+    from: process.env.EMAIL_FROM ?? "noreply@rambforce.com",
+    to: email,
+    subject: `You're subscribed to ${planName}!`,
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;">
+        <img src="${baseUrl}/rambforce-logo.png" alt="Rambforce" style="height:80px;width:auto;margin-bottom:24px;display:block;" />
+        <h2 style="font-size:20px;font-weight:700;color:#111;margin-bottom:8px;">Subscription confirmed! 🎉</h2>
+        <p style="color:#555;font-size:14px;margin-bottom:24px;">Hi ${userName || "there"}, thank you for subscribing. Your <strong>${planName}</strong> plan is now active.</p>
+
+        <div style="background:#f9f9f9;border:1px solid #eee;border-radius:10px;padding:20px;margin-bottom:24px;">
+          <table style="width:100%;font-size:14px;color:#333;">
+            <tr>
+              <td style="padding:6px 0;color:#888;">Plan</td>
+              <td style="padding:6px 0;font-weight:600;text-align:right;">${planName}</td>
+            </tr>
+            <tr>
+              <td style="padding:6px 0;color:#888;">Next payment date</td>
+              <td style="padding:6px 0;font-weight:600;text-align:right;">${nextDate}</td>
+            </tr>
+          </table>
+        </div>
+
+        <a href="${baseUrl}/dashboard" style="display:inline-block;background:#e60023;color:#fff;padding:12px 24px;border-radius:10px;font-weight:600;font-size:14px;text-decoration:none;">Go to Dashboard</a>
+
+        <p style="color:#aaa;font-size:12px;margin-top:24px;">
+          You can manage or cancel your subscription anytime from your account settings.<br/>
+          If you have any questions, reply to this email.
+        </p>
+      </div>
+    `,
+  });
+}
 
 const PRO_PRICES = new Set([
   process.env.STRIPE_PRO_MONTHLY_PRICE_ID,
@@ -51,6 +104,17 @@ export async function POST(req: NextRequest) {
       stripeSubscriptionId: sub.id,
       stripeStatus: sub.status,
     });
+
+    if (plan !== "free" && sub.current_period_end) {
+      const raw = await redis.get<string>(`user:${email}`);
+      const user = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
+      await sendSubscriptionConfirmation(
+        email,
+        user.name ?? "",
+        plan,
+        new Date(sub.current_period_end * 1000)
+      );
+    }
   }
 
   if (event.type === "customer.subscription.updated") {
