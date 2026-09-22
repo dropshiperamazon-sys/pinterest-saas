@@ -6,6 +6,21 @@ import PublicNav from "@/components/PublicNav";
 import PublicFooter from "@/components/PublicFooter";
 import { cn } from "@/lib/utils";
 
+async function startCheckout(planKey: string, annual: boolean) {
+  const plan = `${planKey}-${annual ? "annual" : "monthly"}`;
+  const res = await fetch("/api/stripe/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ plan }),
+  });
+  if (res.status === 401) {
+    window.location.href = `/login?callbackUrl=/pricing`;
+    return;
+  }
+  const data = await res.json();
+  if (data.url) window.location.href = data.url;
+}
+
 const FEATURES = [
   {
     category: "Keyword Research",
@@ -297,18 +312,28 @@ export default function PricingPage() {
                   </div>
 
                   {/* CTA */}
-                  <Link
-                    href={plan.ctaHref}
-                    className={cn(
-                      "flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-semibold transition-colors",
-                      isPro
-                        ? "bg-[#e60023] text-white hover:bg-[#c0001e]"
-                        : "bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-white"
-                    )}
-                  >
-                    {plan.cta}
-                    <ArrowRight className="w-4 h-4" />
-                  </Link>
+                  {plan.key === "free" ? (
+                    <Link
+                      href="/signup"
+                      className="flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-semibold transition-colors bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-white"
+                    >
+                      {plan.cta}
+                      <ArrowRight className="w-4 h-4" />
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={() => startCheckout(plan.key, annual)}
+                      className={cn(
+                        "w-full flex items-center justify-center gap-2 py-3 px-5 rounded-xl text-sm font-semibold transition-colors",
+                        isPro
+                          ? "bg-[#e60023] text-white hover:bg-[#c0001e]"
+                          : "bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-white"
+                      )}
+                    >
+                      {plan.cta}
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  )}
 
                   {/* Limits */}
                   <div>
