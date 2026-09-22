@@ -138,7 +138,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="p-6 border-b border-gray-100">
         <Link href="/" className="flex items-center gap-2">
-          <img src="/rambforce-logo.png" alt="Rambforce" className="h-10 w-auto object-contain" />
+          <img src="/rambforce-logo.png" alt="Rambforce" className="h-16 w-auto object-contain" />
         </Link>
       </div>
 
