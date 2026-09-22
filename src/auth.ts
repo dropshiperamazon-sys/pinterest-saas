@@ -15,6 +15,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 export { hashPassword };
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  trustHost: true,
   providers: [
     {
       id: "pinterest",
