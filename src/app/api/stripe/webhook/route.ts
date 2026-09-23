@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
       const raw = await redis.get<string>(`user:${email}`);
       const user = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
       // current_period_end moved in newer Stripe API versions — fall back to billing_cycle_anchor or +30 days
-      const subAny = sub as Record<string, unknown>;
+      const subAny = sub as unknown as Record<string, unknown>;
       const periodEnd = typeof subAny.current_period_end === "number"
         ? new Date(subAny.current_period_end * 1000)
         : typeof sub.billing_cycle_anchor === "number"
