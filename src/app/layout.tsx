@@ -5,6 +5,11 @@ import SessionProvider from "@/components/SessionProvider";
 export const metadata: Metadata = {
   title: "Rambforce - Pinterest Marketing Suite",
   description: "Keyword research, pin scheduler, and ads manager for Pinterest marketers",
+  icons: {
+    icon: "/icon.png",
+    shortcut: "/icon.png",
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
