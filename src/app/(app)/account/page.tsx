@@ -134,7 +134,7 @@ export default function AccountPage() {
               </ul>
 
               {/* Upgrade CTA for free users */}
-              {!isPaid && (
+              {plan === "free" && (
                 <div className="bg-gradient-to-r from-[#e60023] to-[#c0001e] rounded-xl p-5 text-white">
                   <div className="flex items-center gap-2 mb-1">
                     <Crown className="w-4 h-4" />

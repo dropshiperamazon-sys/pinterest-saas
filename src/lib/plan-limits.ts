@@ -104,20 +104,28 @@ export async function getUserPlan(email: string): Promise<Plan> {
     }
   }
 
-  // Active subscription
-  if (
-    user.subscriptionStatus === "active" &&
-    user.plan &&
-    user.plan !== "free"
-  ) {
-    // Check end date if present
+  // Active subscription via Stripe
+  if (user.subscriptionStatus === "active" && user.plan && user.plan !== "free") {
     if (user.subscriptionEndDate && new Date(user.subscriptionEndDate) < new Date()) {
       return "free";
     }
     return user.plan as Plan;
   }
 
-  return (user.plan as Plan) ?? "free";
+  // Revoked / paused subscription — fall back to free
+  if (user.subscriptionStatus === "revoked" || user.subscriptionStatus === "paused") {
+    return "free";
+  }
+
+  // Admin-granted plan (no subscriptionStatus set) or direct plan field
+  if (user.plan && user.plan !== "free") {
+    if (user.subscriptionEndDate && new Date(user.subscriptionEndDate) < new Date()) {
+      return "free";
+    }
+    return user.plan as Plan;
+  }
+
+  return "free";
 }
 
 export async function getUserLimits(email: string): Promise<PlanLimits> {
