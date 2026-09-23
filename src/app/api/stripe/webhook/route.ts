@@ -105,15 +105,17 @@ export async function POST(req: NextRequest) {
       stripeStatus: sub.status,
     });
 
-    if (plan !== "free" && sub.current_period_end) {
+    if (plan !== "free") {
       const raw = await redis.get<string>(`user:${email}`);
       const user = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
-      await sendSubscriptionConfirmation(
-        email,
-        user.name ?? "",
-        plan,
-        new Date(sub.current_period_end * 1000)
-      );
+      // current_period_end moved in newer Stripe API versions — fall back to billing_cycle_anchor or +30 days
+      const subAny = sub as Record<string, unknown>;
+      const periodEnd = typeof subAny.current_period_end === "number"
+        ? new Date(subAny.current_period_end * 1000)
+        : typeof sub.billing_cycle_anchor === "number"
+          ? new Date((sub.billing_cycle_anchor + 30 * 24 * 3600) * 1000)
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      await sendSubscriptionConfirmation(email, user.name ?? "", plan, periodEnd);
     }
   }
 
