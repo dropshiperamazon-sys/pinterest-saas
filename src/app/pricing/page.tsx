@@ -423,26 +423,6 @@ export default function PricingPage() {
           </div>
         </section>
 
-        {/* Free trial notice */}
-        <section className="px-4 sm:px-6 pb-20 max-w-5xl mx-auto">
-          <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800/60 p-8 flex flex-col sm:flex-row items-start sm:items-center gap-6">
-            <div className="flex-1">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-                Free 3-Day Trial on Paid Plans
-              </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                Try any paid plan free for 3 days — no credit card required. Free accounts support up to 3 active sessions per device. Keyword results are limited to 15 on the free plan; upgrade to unlock all results.
-              </p>
-            </div>
-            <Link
-              href="/signup"
-              className="shrink-0 flex items-center gap-2 bg-[#e60023] text-white px-6 py-3 rounded-xl text-sm font-semibold hover:bg-[#c0001e] transition-colors"
-            >
-              Start Free Trial
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
-        </section>
       </main>
 
       <PublicFooter />
